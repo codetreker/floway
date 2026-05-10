@@ -65,6 +65,20 @@ Deno.test("aggregatePerformanceForDisplay groups hours using caller timezone off
   assertEquals(rows[0].bucket, "2026-05-01T00");
 });
 
+Deno.test("aggregatePerformanceForDisplay aligns 4h buckets to {00,04,08,12,16,20}", () => {
+  const rows = aggregatePerformanceForDisplay([
+    record({ hour: "2026-04-30T09" }),
+    record({ hour: "2026-04-30T11" }),
+    record({ hour: "2026-04-30T15" }),
+  ], { bucket: "4h", groupBy: "none", timezoneOffsetMinutes: 0 });
+
+  assertEquals(rows.length, 2);
+  assertEquals(rows[0].bucket, "2026-04-30T08");
+  assertEquals(rows[0].requests, 2);
+  assertEquals(rows[1].bucket, "2026-04-30T12");
+  assertEquals(rows[1].requests, 1);
+});
+
 Deno.test("aggregatePerformanceForDisplay aligns 8h buckets to {00,08,16}", () => {
   const rows = aggregatePerformanceForDisplay([
     record({ hour: "2026-04-30T09" }),

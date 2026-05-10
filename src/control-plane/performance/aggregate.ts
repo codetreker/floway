@@ -5,7 +5,7 @@ import {
 import { displayModelName } from "../../lib/model-name.ts";
 import type { PerformanceTelemetryRecord } from "../../repo/types.ts";
 
-export type PerformanceBucketGranularity = "hour" | "8h" | "day" | "all";
+export type PerformanceBucketGranularity = "hour" | "4h" | "8h" | "day" | "all";
 export type PerformanceGroupBy =
   | "none"
   | "keyId"
@@ -95,9 +95,9 @@ function displayBucket(
   const localIso = new Date(localMs).toISOString();
   if (options.bucket === "hour") return localIso.slice(0, 13);
   if (options.bucket === "day") return localIso.slice(0, 10);
-  // 8h: align local hour to {00, 08, 16}.
   const hourOfDay = Number(localIso.slice(11, 13));
-  const aligned = hourOfDay - (hourOfDay % 8);
+  const divisor = options.bucket === "4h" ? 4 : 8;
+  const aligned = hourOfDay - (hourOfDay % divisor);
   return `${localIso.slice(0, 11)}${String(aligned).padStart(2, "0")}`;
 }
 

@@ -15,6 +15,7 @@ import {
 
 const BUCKETS = new Set<PerformanceBucketGranularity>([
   "hour",
+  "4h",
   "8h",
   "day",
   "all",

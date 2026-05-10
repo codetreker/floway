@@ -54,25 +54,30 @@ function expectedTodayChartLabels() {
   return labels;
 }
 
-function expected8hChartLabels(count: number) {
+function expected4hChartLabels(count: number) {
   const start = new Date();
   start.setMinutes(0, 0, 0);
-  start.setHours(start.getHours() - (start.getHours() % 8));
+  start.setHours(start.getHours() - (start.getHours() % 4));
   const labels = [];
   let prevDateKey: string | null = null;
   const pad = (n: number) => String(n).padStart(2, "0");
   for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(start.getTime() - i * 8 * 3600000);
-    const dateKey = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" +
-      pad(d.getDate());
-    const startH = d.getHours();
-    const endH = (startH + 8) % 24;
-    const time = pad(startH) + ":00 – " + pad(endH) + ":00";
-    const datePrefix = dateKey !== prevDateKey
-      ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " "
-      : "";
-    labels.push(datePrefix + time);
-    prevDateKey = dateKey;
+    const d = new Date(start.getTime() - i * 4 * 3600000);
+    const h = d.getHours();
+    if (h % 8 === 0) {
+      const dateKey = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" +
+        pad(d.getDate());
+      const endH = (h + 8) % 24;
+      const time = pad(h) + ":00 – " + pad(endH) + ":00";
+      const datePrefix = dateKey !== prevDateKey
+        ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+          " "
+        : "";
+      labels.push(datePrefix + time);
+      prevDateKey = dateKey;
+    } else {
+      labels.push("");
+    }
   }
   return labels;
 }
@@ -251,23 +256,23 @@ Deno.test("dashboardApp renders performance chart over the full hourly range", (
   assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
 });
 
-Deno.test("dashboardApp renders performance chart with 8h buckets for 7d range", () => {
+Deno.test("dashboardApp renders performance chart with 4h buckets for 7d range", () => {
   const { app, charts } = createDashboardHarness();
   const start = new Date();
   start.setMinutes(0, 0, 0);
-  start.setHours(start.getHours() - (start.getHours() % 8));
+  start.setHours(start.getHours() - (start.getHours() % 4));
 
   app.tab = "performance";
   app.performanceRange = "7d";
   app.performancePercentile = "p95Ms";
   app.performanceSeries = [
-    { bucket: app.local8hBucketKey(start), group: "claude-opus-4-7", p95Ms: 600 },
+    { bucket: app.local4hBucketKey(start), group: "claude-opus-4-7", p95Ms: 600 },
   ];
 
   app.renderPerformanceChart();
 
-  assertEquals(charts[0].data.labels, expected8hChartLabels(21));
-  assertEquals(charts[0].data.datasets[0].data.length, 21);
+  assertEquals(charts[0].data.labels, expected4hChartLabels(42));
+  assertEquals(charts[0].data.datasets[0].data.length, 42);
   assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
 });
 

@@ -1070,6 +1070,17 @@ export function dashboardAssets() {
                           return this.localHourKey(this.local8hBucketStart(d));
                         },
 
+                        local4hBucketStart(d) {
+                          const aligned = new Date(d);
+                          aligned.setMinutes(0, 0, 0);
+                          aligned.setHours(aligned.getHours() - (aligned.getHours() % 4));
+                          return aligned;
+                        },
+
+                        local4hBucketKey(d) {
+                          return this.localHourKey(this.local4hBucketStart(d));
+                        },
+
                         build8hBucketMap(count) {
                           const map = new Map();
                           const start = this.local8hBucketStart(new Date());
@@ -1090,6 +1101,30 @@ export function dashboardAssets() {
                           return map;
                         },
 
+                        build4hBucketMap(count) {
+                          const map = new Map();
+                          const start = this.local4hBucketStart(new Date());
+                          let prevDateKey = null;
+                          for (let i = count - 1; i >= 0; i--) {
+                            const d = new Date(start.getTime() - i * 4 * 3600000);
+                            const key = this.localHourKey(d);
+                            const h = d.getHours();
+                            if (h % 8 === 0) {
+                              const dateKey = this.localDateKey(d);
+                              const endH = (h + 8) % 24;
+                              const time = pad2(h) + ':00 \\u2013 ' + pad2(endH) + ':00';
+                              const datePrefix = dateKey !== prevDateKey
+                                ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' '
+                                : '';
+                              map.set(key, datePrefix + time);
+                              prevDateKey = dateKey;
+                            } else {
+                              map.set(key, '');
+                            }
+                          }
+                          return map;
+                        },
+
                         usageRangeParams() {
                           const now = new Date();
                           const rangeStart = new Date(now);
@@ -1097,7 +1132,7 @@ export function dashboardAssets() {
                             rangeStart.setTime(now.getTime() - 23 * 3600000);
                             rangeStart.setMinutes(0, 0, 0);
                           } else if (this.tokenRange === '7d') {
-                            rangeStart.setTime(this.local8hBucketStart(now).getTime() - 20 * 8 * 3600000);
+                            rangeStart.setTime(this.local4hBucketStart(now).getTime() - 41 * 4 * 3600000);
                           } else {
                             rangeStart.setDate(rangeStart.getDate() - 29);
                             rangeStart.setHours(0, 0, 0, 0);
@@ -1160,6 +1195,7 @@ export function dashboardAssets() {
                         },
 
                         async loadUsageTabData(modelsReady = this.ensureModelsLoaded()) {
+                          const expectedRange = this.tokenRange;
                           this.tokenLoading = true;
                           this.searchUsageLoading = true;
                           try {
@@ -1167,7 +1203,7 @@ export function dashboardAssets() {
                               modelsReady,
                               this.fetchUsageTabData(),
                             ]);
-                            if (this.tab !== 'usage') return;
+                            if (this.tab !== 'usage' || this.tokenRange !== expectedRange) return;
                             await this.$nextTick();
                             this.renderTokenCharts();
                           } finally {
@@ -1183,7 +1219,7 @@ export function dashboardAssets() {
                             rangeStart.setTime(now.getTime() - 23 * 3600000);
                             rangeStart.setMinutes(0, 0, 0);
                           } else if (this.performanceRange === '7d') {
-                            rangeStart.setTime(this.local8hBucketStart(now).getTime() - 20 * 8 * 3600000);
+                            rangeStart.setTime(this.local4hBucketStart(now).getTime() - 41 * 4 * 3600000);
                           } else {
                             rangeStart.setDate(rangeStart.getDate() - 29);
                             rangeStart.setHours(0, 0, 0, 0);
@@ -1196,7 +1232,7 @@ export function dashboardAssets() {
 
                         performanceBucketGranularity() {
                           if (this.performanceRange === 'today') return 'hour';
-                          if (this.performanceRange === '7d') return '8h';
+                          if (this.performanceRange === '7d') return '4h';
                           return 'day';
                         },
 
@@ -1212,7 +1248,7 @@ export function dashboardAssets() {
                               bucketMap.set(this.localHourKey(d), pad2(h) + ':00 \\u2013 ' + pad2((h + 1) % 24) + ':00');
                             }
                           } else if (this.performanceRange === '7d') {
-                            return this.build8hBucketMap(21);
+                            return this.build4hBucketMap(42);
                           } else {
                             const days = 30;
                             for (let i = days - 1; i >= 0; i--) {
@@ -1245,9 +1281,12 @@ export function dashboardAssets() {
                         },
 
                         async loadPerformanceTabData() {
+                          const expectedRange = this.performanceRange;
+                          const expectedScope = this.performanceMetricScope;
                           this.performanceLoading = true;
                           try {
                             const overview = await this.fetchPerformanceOverview();
+                            if (this.tab !== 'performance' || this.performanceRange !== expectedRange || this.performanceMetricScope !== expectedScope) return;
                             this.performanceSeries = Array.isArray(overview?.series) ? overview.series : [];
                             this.performanceSummaryRows = Array.isArray(overview?.summaryRows) ? overview.summaryRows : [];
                             this.performanceModelRows = Array.isArray(overview?.modelRows) ? overview.modelRows : [];
@@ -1255,7 +1294,6 @@ export function dashboardAssets() {
                             this.performanceRuntimeRows = runtimeRows.filter((row) => row.group !== 'unknown' || runtimeRows.length > 1);
                             this.ensurePerformanceModelSelected();
                             this.updatePerformanceSummary();
-                            if (this.tab !== 'performance') return;
                             await this.$nextTick();
                             this.renderPerformanceChart();
                           } catch (e) {
@@ -1383,7 +1421,7 @@ export function dashboardAssets() {
                                   bucketMap.set(this.localHourKey(d), pad2(h) + ':00 \\u2013 ' + pad2((h + 1) % 24) + ':00');
                                 }
                               } else if (this.tokenRange === '7d') {
-                                return this.build8hBucketMap(21);
+                                return this.build4hBucketMap(42);
                               } else {
                                 const days = 30;
                                 for (let i = days - 1; i >= 0; i--) {
@@ -1398,7 +1436,7 @@ export function dashboardAssets() {
 
                             tokenBucketKeyFor(d) {
                               if (this.tokenRange === 'today') return this.localHourKey(d);
-                              if (this.tokenRange === '7d') return this.local8hBucketKey(d);
+                              if (this.tokenRange === '7d') return this.local4hBucketKey(d);
                               return this.localDateKey(d);
                             },
 
