@@ -17,7 +17,16 @@ const PROXY_SUFFIXES = [
 ];
 
 function isProxyPath(path: string): boolean {
-  return PROXY_SUFFIXES.some((s) => path === s || path === `/v1${s}`);
+  if (PROXY_SUFFIXES.some((s) => path === s || path === `/v1${s}`)) {
+    return true;
+  }
+  // Gemini generation routes are /v1beta/models/<model>:generateContent or
+  // :streamGenerateContent. The :countTokens variant is not billable usage.
+  if (path.startsWith("/v1beta/models/")) {
+    return path.endsWith(":generateContent") ||
+      path.endsWith(":streamGenerateContent");
+  }
+  return false;
 }
 
 export const usageMiddleware = async (c: Context, next: Next) => {
@@ -253,6 +262,10 @@ function consumeUsageLine(
 
 // deno-lint-ignore no-explicit-any
 function extractUsageFromJson(json: any): UsageInfo | null {
+  if (json?.usageMetadata?.promptTokenCount != null) {
+    return geminiUsageFromMetadata(json.usageMetadata);
+  }
+
   if (json?.usage?.input_tokens != null) {
     // Responses non-stream replies share usage.input_tokens with Messages but
     // use OpenAI semantics: input_tokens already includes cached_tokens, and
@@ -377,5 +390,35 @@ function extractUsageFromStreamEvent(
     };
   }
 
+  const geminiUsage = asObject(payload.usageMetadata);
+  if (geminiUsage && readNumber(geminiUsage.promptTokenCount) != null) {
+    const info = geminiUsageFromMetadata(geminiUsage);
+    return {
+      kind: "final",
+      input: info.input,
+      output: info.output,
+      cacheRead: info.cacheRead,
+      cacheCreation: info.cacheCreation,
+      fromStart: false,
+    };
+  }
+
   return null;
+}
+
+// Gemini usageMetadata.promptTokenCount already includes cachedContentTokenCount,
+// matching OpenAI semantics. thoughtsTokenCount is reasoning output that is NOT
+// counted inside candidatesTokenCount, so include it in our output total to keep
+// per-key billing consistent with Anthropic/OpenAI which fold reasoning tokens
+// into output_tokens / completion_tokens.
+function geminiUsageFromMetadata(metadata: JsonObject): UsageInfo {
+  const promptTokenCount = readNumber(metadata.promptTokenCount) ?? 0;
+  const candidatesTokenCount = readNumber(metadata.candidatesTokenCount) ?? 0;
+  const thoughtsTokenCount = readNumber(metadata.thoughtsTokenCount) ?? 0;
+  return {
+    input: promptTokenCount,
+    output: candidatesTokenCount + thoughtsTokenCount,
+    cacheRead: readNumber(metadata.cachedContentTokenCount) ?? 0,
+    cacheCreation: 0,
+  };
 }

@@ -11,6 +11,7 @@ import {
   withMockedFetch,
 } from "../test-helpers.ts";
 import { usageMiddleware } from "./usage.ts";
+import { withUsageResponseMetadata } from "./usage-response-metadata.ts";
 
 const requestUsageMiddlewareOnly = async (
   keyId: string,
@@ -25,6 +26,28 @@ const requestUsageMiddlewareOnly = async (
   app.post("/v1/messages", () => response);
 
   return await app.request("/v1/messages", { method: "POST" });
+};
+
+const requestUsageMiddlewareGemini = async (
+  keyId: string,
+  usageModel: string,
+  response: Response,
+): Promise<Response> => {
+  const app = new Hono<{ Variables: { apiKeyId: string } }>();
+  app.use("*", async (c, next) => {
+    c.set("apiKeyId", keyId);
+    await next();
+  });
+  app.use("*", usageMiddleware);
+  app.post(
+    "/v1beta/models/:modelAction",
+    (c) => withUsageResponseMetadata(c, response, { usageModel }),
+  );
+
+  return await app.request(
+    `/v1beta/models/${usageModel}:generateContent`,
+    { method: "POST" },
+  );
 };
 
 Deno.test("usage middleware records non-streaming Responses cache_read from input_tokens_details", async () => {
@@ -1444,4 +1467,237 @@ Deno.test("usage middleware records Responses via Messages usage once", async ()
   assertEquals(usage.length, 1);
   assertEquals(usage[0].inputTokens, 7);
   assertEquals(usage[0].outputTokens, 9);
+});
+
+Deno.test("usage middleware records non-streaming Gemini generateContent with cached prompt", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "gpt-gemini-chat",
+          supported_endpoints: ["/chat/completions"],
+        },
+      ]));
+    }
+    if (url.pathname === "/chat/completions") {
+      return jsonResponse({
+        id: "chatcmpl_gemini_usage",
+        object: "chat.completion",
+        created: 1,
+        model: "gpt-gemini-chat",
+        choices: [{
+          index: 0,
+          message: { role: "assistant", content: "ok" },
+          finish_reason: "stop",
+        }],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 8,
+          total_tokens: 108,
+          prompt_tokens_details: { cached_tokens: 30 },
+        },
+      });
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp(
+      "/v1beta/models/gpt-gemini-chat:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey.key,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "hi" }] }],
+        }),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    await response.json();
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].keyId, apiKey.id);
+  assertEquals(usage[0].model, "gpt-gemini-chat");
+  assertEquals(usage[0].inputTokens, 100);
+  assertEquals(usage[0].outputTokens, 8);
+  assertEquals(usage[0].cacheReadTokens, 30);
+  assertEquals(usage[0].cacheCreationTokens, 0);
+});
+
+Deno.test("usage middleware records streaming Gemini streamGenerateContent with cache and reasoning", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  await withMockedFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "update.code.visualstudio.com") {
+      return jsonResponse(["1.110.1"]);
+    }
+    if (url.pathname === "/copilot_internal/v2/token") {
+      return jsonResponse({
+        token: "copilot-access-token",
+        expires_at: 4102444800,
+        refresh_in: 3600,
+      });
+    }
+    if (url.pathname === "/models") {
+      return jsonResponse(copilotModels([
+        {
+          id: "claude-gemini-stream",
+          supported_endpoints: ["/v1/messages"],
+        },
+      ]));
+    }
+    if (url.pathname === "/v1/messages") {
+      return sseResponse([
+        {
+          event: "message_start",
+          data: {
+            type: "message_start",
+            message: {
+              id: "msg_gem_stream",
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: "claude-gemini-stream",
+              stop_reason: null,
+              stop_sequence: null,
+              usage: {
+                input_tokens: 50,
+                output_tokens: 0,
+                cache_read_input_tokens: 30,
+                cache_creation_input_tokens: 5,
+              },
+            },
+          },
+        },
+        {
+          event: "message_delta",
+          data: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: 7 },
+          },
+        },
+        { event: "message_stop", data: { type: "message_stop" } },
+      ]);
+    }
+
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => {
+    const response = await requestApp(
+      "/v1beta/models/claude-gemini-stream:streamGenerateContent",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey.key,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "hi" }] }],
+        }),
+      },
+    );
+
+    assertEquals(response.status, 200);
+    await response.text();
+  });
+
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].keyId, apiKey.id);
+  assertEquals(usage[0].model, "claude-gemini-stream");
+  // Anthropic input_tokens(50) + cache_read(30) + cache_creation(5) = 85,
+  // surfaced as Gemini promptTokenCount and recorded as inputTokens.
+  assertEquals(usage[0].inputTokens, 85);
+  assertEquals(usage[0].outputTokens, 7);
+  assertEquals(usage[0].cacheReadTokens, 30);
+  assertEquals(usage[0].cacheCreationTokens, 0);
+});
+
+Deno.test("usage middleware folds Gemini thoughtsTokenCount into recorded output", async () => {
+  const { repo, apiKey } = await setupAppTest();
+
+  const response = await requestUsageMiddlewareGemini(
+    apiKey.id,
+    "gemini-thinking",
+    Response.json({
+      usageMetadata: {
+        promptTokenCount: 12,
+        candidatesTokenCount: 4,
+        thoughtsTokenCount: 6,
+        totalTokenCount: 22,
+        cachedContentTokenCount: 3,
+      },
+    }),
+  );
+
+  assertEquals(response.status, 200);
+  await response.json();
+  await flushAsyncWork();
+
+  const usage = await repo.usage.listAll();
+  assertEquals(usage.length, 1);
+  assertEquals(usage[0].model, "gemini-thinking");
+  assertEquals(usage[0].inputTokens, 12);
+  // candidatesTokenCount(4) + thoughtsTokenCount(6) = 10. Gemini reports
+  // reasoning separately from candidates; we fold them so that recorded
+  // output matches the Anthropic/OpenAI convention of "all generation tokens".
+  assertEquals(usage[0].outputTokens, 10);
+  assertEquals(usage[0].cacheReadTokens, 3);
+  assertEquals(usage[0].cacheCreationTokens, 0);
+});
+
+Deno.test("usage middleware skips Gemini countTokens path", async () => {
+  const { repo, apiKey } = await setupAppTest();
+  // Bypass the real countTokens handler; just confirm the middleware does not
+  // intercept countTokens responses even when they look like Gemini usage.
+  const app = new Hono<{ Variables: { apiKeyId: string } }>();
+  app.use("*", async (c, next) => {
+    c.set("apiKeyId", apiKey.id);
+    await next();
+  });
+  app.use("*", usageMiddleware);
+  app.post("/v1beta/models/:modelAction", () =>
+    Response.json({
+      usageMetadata: {
+        promptTokenCount: 9,
+        candidatesTokenCount: 0,
+        totalTokenCount: 9,
+      },
+    }));
+
+  const response = await app.request(
+    "/v1beta/models/gpt-x:countTokens",
+    { method: "POST" },
+  );
+
+  assertEquals(response.status, 200);
+  await response.json();
+  await flushAsyncWork();
+
+  assertEquals(await repo.usage.listAll(), []);
 });
