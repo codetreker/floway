@@ -7,8 +7,11 @@ import type { ResponsesSourceContext } from "./types.ts";
 export type { ResponsesSourceContext };
 
 export const responsesSourceInterceptors = [
-  stripUnsupportedTools,
+  // fix-apply-patch-tools must run before strip-unsupported-tools so the
+  // `apply_patch` Freeform tool is rewritten into a function tool before the
+  // strip pass removes every remaining `custom` entry.
   fixApplyPatchTools,
+  stripUnsupportedTools,
 ] satisfies readonly SourceInterceptor<
   ResponsesSourceContext,
   SourceResponseStreamEvent

@@ -18,6 +18,7 @@ import type {
   ResponseInputText,
   ResponseOutputContentBlock,
   ResponseOutputItem,
+  ResponseFunctionTool,
   ResponsesPayload,
   ResponsesResult,
   ResponseTool,
@@ -291,7 +292,21 @@ const translateTools = (
 ): MessagesTool[] | undefined => {
   if (!tools || tools.length === 0) return undefined;
 
-  return tools.map((tool) => ({
+  // Hosted Responses tool entries (web_search, image_generation, …) and
+  // Freeform `custom` tools do not carry the `name`/`parameters` pair Anthropic
+  // Messages requires, and Anthropic upstream rejects them with
+  // `tools.N.custom.name: Field required`. The source-level
+  // strip-unsupported-tools interceptor drops every hosted entry, and
+  // fix-apply-patch-tools rewrites Codex's `apply_patch` Freeform tool into a
+  // function tool. Other Freeform tools currently have no shim, so they would
+  // also reach this point as non-function entries — drop them defensively
+  // rather than forwarding a malformed tool upstream.
+  const functionTools = tools.filter(
+    (tool): tool is ResponseFunctionTool => tool.type === "function",
+  );
+  if (functionTools.length === 0) return undefined;
+
+  return functionTools.map((tool) => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.parameters,

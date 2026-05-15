@@ -10,6 +10,7 @@ import type {
   ToolCall,
 } from "../chat-completions-types.ts";
 import type {
+  ResponseFunctionTool,
   ResponseInputContent,
   ResponseInputItem,
   ResponseOutputItem,
@@ -166,27 +167,42 @@ const appendAssistantToolCall = (
 
 const translateResponseTools = (
   tools?: ResponseTool[] | null,
-): Tool[] | undefined =>
-  tools?.length
-    ? tools.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        parameters: tool.parameters,
-        strict: tool.strict,
-        ...(tool.description ? { description: tool.description } : {}),
-      },
-    }))
-    : undefined;
+): Tool[] | undefined => {
+  if (!tools?.length) return undefined;
+
+  // Same defense-in-depth as the responses-to-messages translator: the
+  // source-level strip-unsupported-tools interceptor drops hosted server tools
+  // and fix-apply-patch-tools rewrites Codex's `apply_patch` Freeform tool.
+  // Other Freeform tools have no shim today, so anything left without
+  // `name`/`parameters` is dropped here rather than forwarded as a malformed
+  // function tool.
+  const functionTools = tools.filter(
+    (tool): tool is ResponseFunctionTool => tool.type === "function",
+  );
+  if (functionTools.length === 0) return undefined;
+
+  return functionTools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      parameters: tool.parameters,
+      strict: tool.strict,
+      ...(tool.description ? { description: tool.description } : {}),
+    },
+  }));
+};
 
 const translateResponseToolChoice = (
   choice?: ResponseToolChoice,
-): ChatCompletionsPayload["tool_choice"] =>
-  choice == null
-    ? undefined
-    : typeof choice === "string"
-    ? choice
-    : { type: "function", function: { name: choice.name } };
+): ChatCompletionsPayload["tool_choice"] => {
+  if (choice == null) return undefined;
+  if (typeof choice === "string") return choice;
+  // Source interceptors strip hosted server tools and rewrite the only known
+  // Freeform tool (`apply_patch`) into a function tool. Any remaining
+  // non-function forced choice would point at a tool that no longer exists.
+  if (choice.type !== "function") return undefined;
+  return { type: "function", function: { name: choice.name } };
+};
 
 const buildChatResponseFormat = (
   text: ResponsesPayload["text"],

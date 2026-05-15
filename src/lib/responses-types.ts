@@ -83,7 +83,7 @@ export interface ResponseItemReference {
   id: string;
 }
 
-export interface ResponseTool {
+export interface ResponseFunctionTool {
   type: "function";
   name: string;
   parameters: Record<string, unknown>;
@@ -91,11 +91,37 @@ export interface ResponseTool {
   description?: string;
 }
 
+// Codex and other Responses clients ship hosted server tools (web_search,
+// image_generation, tool_search, namespace) and Freeform `custom` tools
+// alongside ordinary function tools. The gateway does not host any of those,
+// so source-level interceptors normalize them into function tools or strip
+// them before planning. The wire-level tools array is still a heterogeneous
+// union and translators must narrow on `type === "function"` before reading
+// `name` / `parameters`.
+export interface ResponseHostedTool {
+  type: "web_search" | "image_generation" | "tool_search" | "namespace";
+  [key: string]: unknown;
+}
+
+export interface ResponseCustomTool {
+  type: "custom";
+  name: string;
+  description?: string;
+  format?: Record<string, unknown>;
+}
+
+export type ResponseTool =
+  | ResponseFunctionTool
+  | ResponseHostedTool
+  | ResponseCustomTool;
+
 export type ResponseToolChoice =
   | "auto"
   | "none"
   | "required"
-  | { type: "function"; name: string };
+  | { type: "function"; name: string }
+  | { type: "custom"; name: string }
+  | { type: "web_search" | "image_generation" | "tool_search" | "namespace" };
 
 // ── Response types ──
 
