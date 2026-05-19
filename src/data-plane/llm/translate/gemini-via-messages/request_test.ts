@@ -9,6 +9,7 @@ const noCapabilities: ModelCapabilities = {
   supportsResponses: false,
   supportsChatCompletions: false,
   supportsAdaptiveThinking: false,
+  hasExplicitCapabilities: true,
 };
 
 const withMaxOutputTokens = (maxOutputTokens: number): ModelCapabilities => ({

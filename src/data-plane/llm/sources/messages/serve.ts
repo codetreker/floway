@@ -22,6 +22,7 @@ import { respondMessages } from "./respond.ts";
 import {
   internalErrorResult,
   type StreamExecuteResult,
+  type UpstreamErrorResult,
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import { thrownUpstreamErrorResult } from "../../shared/errors/upstream-error.ts";
@@ -52,6 +53,22 @@ const withResultMetadata = <T>(
   result.type === "events"
     ? { ...result, usageModel, performance }
     : { ...result, performance };
+
+const unsupportedMessagesModelResult = (
+  model: string,
+  performance: PerformanceTelemetryContext,
+): UpstreamErrorResult => ({
+  type: "upstream-error",
+  status: 400,
+  headers: new Headers({ "content-type": "application/json" }),
+  body: new TextEncoder().encode(JSON.stringify({
+    error: {
+      type: "invalid_request_error",
+      message: `Model ${model} does not support the /messages endpoint.`,
+    },
+  })),
+  performance,
+});
 
 export const serveMessages = async (
   c: Context,
@@ -105,6 +122,16 @@ export const serveMessages = async (
               capabilities,
               rawBeta,
             );
+            if (!plan) {
+              const performance = performanceFor(
+                attemptPayload.model,
+                "messages",
+              );
+              return unsupportedMessagesModelResult(
+                attemptPayload.model,
+                performance,
+              );
+            }
 
             if (plan.target === "messages") {
               const performance = performanceFor(

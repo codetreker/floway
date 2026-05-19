@@ -24,6 +24,7 @@ Deno.test("modelCapabilitiesFromModel honors explicit supported_endpoints", () =
   assertEquals(caps.supportsMessages, true);
   assertEquals(caps.supportsChatCompletions, true);
   assertEquals(caps.supportsResponses, false);
+  assertEquals(caps.hasExplicitCapabilities, true);
 });
 
 Deno.test("modelCapabilitiesFromModel detects /responses support", () => {
@@ -47,6 +48,7 @@ Deno.test(
     assertEquals(caps.supportsChatCompletions, true);
     assertEquals(caps.supportsResponses, false);
     assertEquals(caps.supportsMessages, false);
+    assertEquals(caps.hasExplicitCapabilities, false);
   },
 );
 
@@ -64,6 +66,7 @@ Deno.test(
     }));
 
     assertEquals(caps.supportsChatCompletions, false);
+    assertEquals(caps.hasExplicitCapabilities, false);
   },
 );
 
@@ -80,5 +83,6 @@ Deno.test(
     assertEquals(caps.supportsChatCompletions, false);
     assertEquals(caps.supportsResponses, false);
     assertEquals(caps.supportsMessages, false);
+    assertEquals(caps.hasExplicitCapabilities, true);
   },
 );

@@ -10,6 +10,10 @@ export interface ModelCapabilities {
   supportsResponses: boolean;
   supportsChatCompletions: boolean;
   supportsAdaptiveThinking: boolean;
+  // True when the upstream model metadata explicitly declared its endpoint
+  // surface. Legacy fallback routing is only valid when Copilot omitted this
+  // field entirely for older chat SKUs.
+  hasExplicitCapabilities: boolean;
 }
 
 // Copilot's /models response only annotates supported_endpoints on newer
@@ -42,6 +46,7 @@ export const modelCapabilitiesFromModel = (
       inferredChatCompletionsSupport(model),
     supportsAdaptiveThinking:
       model?.capabilities?.supports?.adaptive_thinking === true,
+    hasExplicitCapabilities: model?.supported_endpoints !== undefined,
   };
 };
 

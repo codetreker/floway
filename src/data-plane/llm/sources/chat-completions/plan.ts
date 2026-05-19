@@ -16,7 +16,7 @@ const hasVision = (payload: ChatCompletionsPayload): boolean =>
 export const planChatRequest = (
   payload: ChatCompletionsPayload,
   capabilities: ModelCapabilities,
-): ChatPlan => {
+): ChatPlan | null => {
   const fetchOptions = { vision: hasVision(payload) };
 
   // Chat-origin routing intentionally prefers Messages when the model supports
@@ -41,6 +41,8 @@ export const planChatRequest = (
       fetchOptions,
     };
   }
+
+  if (capabilities.hasExplicitCapabilities) return null;
 
   // Capability misses keep the legacy model-name heuristic so old callers still
   // get the same Claude -> Messages and non-Claude -> Chat routing behavior.

@@ -31,7 +31,7 @@ export const planMessagesRequest = (
   payload: MessagesPayload,
   capabilities: ModelCapabilities,
   rawBeta: string | undefined,
-): MessagesPlan => {
+): MessagesPlan | null => {
   const fetchOptions = {
     vision: hasVision(payload),
     initiator: getInitiator(payload),
@@ -53,6 +53,15 @@ export const planMessagesRequest = (
       fetchOptions,
     };
   }
+
+  if (capabilities.supportsChatCompletions) {
+    return {
+      target: "chat-completions",
+      fetchOptions,
+    };
+  }
+
+  if (capabilities.hasExplicitCapabilities) return null;
 
   return {
     target: "chat-completions",

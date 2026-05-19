@@ -29,6 +29,7 @@ import { translateToSourceEvents as translateChatCompletionsToSourceEvents } fro
 import {
   internalErrorResult,
   type StreamExecuteResult,
+  type UpstreamErrorResult,
 } from "../../shared/errors/result.ts";
 import { toInternalDebugError } from "../../shared/errors/internal-debug-error.ts";
 import { thrownUpstreamErrorResult } from "../../shared/errors/upstream-error.ts";
@@ -53,6 +54,24 @@ const withResultMetadata = <T>(
   result.type === "events"
     ? { ...result, usageModel, performance }
     : { ...result, performance };
+
+const unsupportedGeminiModelResult = (
+  model: string,
+  performance: PerformanceTelemetryContext,
+): UpstreamErrorResult => ({
+  type: "upstream-error",
+  status: 400,
+  headers: new Headers({ "content-type": "application/json" }),
+  body: new TextEncoder().encode(JSON.stringify({
+    error: {
+      code: 400,
+      message:
+        `Model ${model} does not support the Gemini generateContent endpoint.`,
+      status: "INVALID_ARGUMENT",
+    },
+  })),
+  performance,
+});
 
 export const serveGemini = async (
   c: Context,
@@ -105,6 +124,10 @@ export const serveGemini = async (
             modelId,
             capabilities,
           );
+          if (!plan) {
+            const performance = performanceFor(modelId, "gemini");
+            return unsupportedGeminiModelResult(modelId, performance);
+          }
 
           if (plan.target === "messages") {
             const targetPayload = buildMessagesTargetRequest(

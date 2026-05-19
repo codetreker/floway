@@ -56,7 +56,7 @@ export const planGeminiRequest = (
   payload: GeminiGenerateContentRequest,
   model: string,
   capabilities: ModelCapabilities,
-): GeminiPlan => {
+): GeminiPlan | null => {
   const fetchOptions = { vision: hasVision(payload) };
 
   if (capabilities.supportsMessages) {
@@ -70,6 +70,8 @@ export const planGeminiRequest = (
   if (capabilities.supportsResponses) {
     return { target: "responses", fetchOptions };
   }
+
+  if (capabilities.hasExplicitCapabilities) return null;
 
   return model.startsWith("claude")
     ? { target: "messages", fetchOptions }
