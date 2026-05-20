@@ -49,13 +49,19 @@ const isClaudeVariantForBase = (
 };
 
 const supportsOneMillionContext = (model: CopilotRawModel): boolean => {
+  // Trust id-level intent first: Copilot has been observed to report
+  // claude-opus-4.7-1m-internal with max_context_window_tokens=200000 even
+  // though the variant exists specifically for the 1M-context surface. The
+  // explicit-number check used to short-circuit and hide that signal.
+  if (/-1m(?:-|$)/.test(model.id)) return true;
+
   const limits = model.capabilities?.limits;
   const explicit = limits?.max_context_window_tokens;
   if (typeof explicit === "number") return explicit >= 1_000_000;
 
   const prompt = limits?.max_prompt_tokens ?? 0;
   const output = limits?.max_output_tokens ?? 0;
-  return prompt + output >= 1_000_000 || /-1m(?:-|$)/.test(model.id);
+  return prompt + output >= 1_000_000;
 };
 
 const supportsReasoningEffort = (
