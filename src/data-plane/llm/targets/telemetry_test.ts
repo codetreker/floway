@@ -5,6 +5,7 @@ import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
 import { assertEquals } from '../../../test-assert.ts';
 import { stubProvider, stubUpstreamModel } from '../../../test-helpers.ts';
+import type { Invocation, RequestContext } from '../interceptors.ts';
 
 interface TelemetryHarness {
   repo: InMemoryRepo;
@@ -23,36 +24,42 @@ const testTelemetryModelIdentity = {
   modelKey: 'claude-test-raw',
 };
 
-const baseInput = (
-  harness: TelemetryHarness,
+const baseInvocation = (
   overrides: {
     sourceApi?: 'messages' | 'responses' | 'chat-completions';
     targetApi?: 'messages' | 'responses' | 'chat-completions';
     model?: string;
     stream?: boolean;
-    downstreamAbortSignal?: AbortSignal;
   } = {},
-) =>
-  ({
-    sourceApi: overrides.sourceApi ?? 'messages',
-    targetApi: overrides.targetApi ?? overrides.sourceApi ?? 'messages',
+): Invocation<{ model: string; stream?: boolean }> => ({
+  sourceApi: overrides.sourceApi ?? 'messages',
+  targetApi: overrides.targetApi ?? overrides.sourceApi ?? 'messages',
+  model: overrides.model ?? 'claude-test',
+  upstream: 'copilot:1',
+  payload: {
     model: overrides.model ?? 'claude-test',
-    upstream: 'copilot:1',
-    payload: {
-      model: overrides.model ?? 'claude-test',
-      stream: overrides.stream ?? true,
-    },
-    provider: stubProvider(),
-    upstreamModel: stubUpstreamModel(),
-    enabledFixes: new Set<string>(),
-    apiKeyId: 'key_a',
-    clientStream: overrides.stream ?? true,
-    runtimeLocation: 'SJC',
-    downstreamAbortSignal: overrides.downstreamAbortSignal,
-    scheduleBackground: (promise: Promise<unknown>) => {
-      harness.background.push(promise);
-    },
-  } as const);
+    stream: overrides.stream ?? true,
+  },
+  provider: stubProvider(),
+  upstreamModel: stubUpstreamModel(),
+  enabledFixes: new Set<string>(),
+});
+
+const baseRequest = (
+  harness: TelemetryHarness,
+  overrides: { downstreamAbortSignal?: AbortSignal; stream?: boolean; apiKeyId?: string | undefined } = {},
+): RequestContext => ({
+  requestStartedAt: 0,
+  apiKeyId: 'apiKeyId' in overrides ? overrides.apiKeyId : 'key_a',
+  clientStream: overrides.stream ?? true,
+  runtimeLocation: 'SJC',
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+  scheduleBackground: (promise: Promise<unknown>) => {
+    harness.background.push(promise);
+  },
+  ...(overrides.downstreamAbortSignal !== undefined ? { downstreamAbortSignal: overrides.downstreamAbortSignal } : {}),
+});
 
 test('withUpstreamTelemetry records EOF-without-terminal as upstream failure', async () => {
   const harness = setup();
@@ -61,7 +68,8 @@ test('withUpstreamTelemetry records EOF-without-terminal as upstream failure', a
     (async function* () {
       yield { type: 'sse' as const, data: '{"type":"message_start"}' };
     })(),
-    baseInput(harness),
+    baseInvocation(),
+    baseRequest(harness),
     'messages',
     performance.now(),
     testTelemetryModelIdentity,
@@ -87,7 +95,8 @@ test('withUpstreamTelemetry records upstream-thrown stream errors as upstream fa
       yield { type: 'sse' as const, data: '{"type":"message_start"}' };
       throw new Error('stream failed');
     })(),
-    baseInput(harness),
+    baseInvocation(),
+    baseRequest(harness),
     'messages',
     performance.now(),
     testTelemetryModelIdentity,
@@ -118,7 +127,8 @@ test('withUpstreamTelemetry does not record consumer-cancelled streams', async (
       yield { type: 'sse' as const, data: '{"type":"message_start"}' };
       yield { type: 'sse' as const, data: '{"type":"content_block_delta"}' };
     })(),
-    baseInput(harness),
+    baseInvocation(),
+    baseRequest(harness),
     'messages',
     performance.now(),
     testTelemetryModelIdentity,
@@ -140,9 +150,8 @@ test('withUpstreamTelemetry does not record downstream-signal-aborted streams', 
       downstreamAbortController.abort();
       yield* [];
     })(),
-    baseInput(harness, {
-      downstreamAbortSignal: downstreamAbortController.signal,
-    }),
+    baseInvocation(),
+    baseRequest(harness, { downstreamAbortSignal: downstreamAbortController.signal }),
     'messages',
     performance.now(),
     testTelemetryModelIdentity,
@@ -168,7 +177,8 @@ test('withUpstreamTelemetry records Messages SSE error event as upstream failure
         data: '{"type":"error","error":{"type":"overloaded_error","message":"slow down"}}',
       };
     })(),
-    baseInput(harness),
+    baseInvocation(),
+    baseRequest(harness),
     'messages',
     performance.now(),
     testTelemetryModelIdentity,
@@ -196,7 +206,8 @@ test('withUpstreamTelemetry records Responses SSE failure event as upstream fail
         data: '{"type":"response.failed","response":{"status":"failed"}}',
       };
     })(),
-    baseInput(harness, { sourceApi: 'responses', model: 'gpt-failed-stream' }),
+    baseInvocation({ sourceApi: 'responses', model: 'gpt-failed-stream' }),
+    baseRequest(harness),
     'responses',
     performance.now(),
     testTelemetryModelIdentity,
@@ -221,10 +232,11 @@ test('withUpstreamTelemetry treats DONE as terminal only for chat-completions', 
       (async function* () {
         yield { type: 'sse' as const, data: '[DONE]' };
       })(),
-      baseInput(harness, {
+      baseInvocation({
         sourceApi: targetApi,
         model: `gpt-${targetApi}-done`,
       }),
+      baseRequest(harness),
       targetApi,
       performance.now(),
       testTelemetryModelIdentity,
@@ -252,7 +264,8 @@ test('withUpstreamTelemetry snapshots duration when the success frame arrives', 
     (async function* () {
       yield { type: 'sse' as const, data: '{"type":"message_stop"}' };
     })(),
-    baseInput(harness, { model: 'claude-timing' }),
+    baseInvocation({ model: 'claude-timing' }),
+    baseRequest(harness),
     'messages',
     startedAt,
     testTelemetryModelIdentity,
@@ -273,7 +286,7 @@ test('withUpstreamTelemetry snapshots duration when the success frame arrives', 
 
 test('recordUpstreamHttpFailure records a single error for non-2xx responses', async () => {
   const harness = setup();
-  recordUpstreamHttpFailure(baseInput(harness, { sourceApi: 'messages' }), 'messages', testTelemetryModelIdentity);
+  recordUpstreamHttpFailure(baseInvocation({ sourceApi: 'messages' }), baseRequest(harness), 'messages', testTelemetryModelIdentity);
   await Promise.all(harness.background);
 
   const rows = await harness.repo.performance.listAll();
@@ -301,8 +314,13 @@ test('withUpstreamTelemetry skips recording when apiKeyId is absent', async () =
       provider: stubProvider(),
       upstreamModel: stubUpstreamModel(),
       enabledFixes: new Set<string>(),
+    },
+    {
+      requestStartedAt: 0,
       clientStream: true,
       runtimeLocation: 'SJC',
+      recordUsage: async () => {},
+      recordRequestPerformance: () => {},
       scheduleBackground: promise => background.push(promise),
     },
     'messages',

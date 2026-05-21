@@ -1,6 +1,7 @@
 import type { GeminiFinishReason, GeminiPart, GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
-import type { MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
 
+// Shape a single-candidate Gemini stream event. Lives in shared because both
+// gemini-via-messages and gemini-via-responses produce the same envelope.
 export const geminiResponse = (parts: GeminiPart[], finishReason?: GeminiFinishReason, usageMetadata?: GeminiUsageMetadata): GeminiStreamEvent => ({
   candidates: [
     {
@@ -11,18 +12,3 @@ export const geminiResponse = (parts: GeminiPart[], finishReason?: GeminiFinishR
   ],
   ...(usageMetadata !== undefined ? { usageMetadata } : {}),
 });
-
-export const messagesStopReasonToGemini = (stopReason: Extract<MessagesStreamEventData, { type: 'message_delta' }>['delta']['stop_reason']): GeminiFinishReason => {
-  switch (stopReason) {
-  case 'end_turn':
-  case 'tool_use':
-  case 'stop_sequence':
-    return 'STOP';
-  case 'max_tokens':
-    return 'MAX_TOKENS';
-  case 'refusal':
-    return 'SAFETY';
-  default:
-    return 'OTHER';
-  }
-};

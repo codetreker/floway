@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { fixApplyPatchTools } from './fix-apply-patch-tools.ts';
 import { assertEquals, assertFalse } from '../../../../../test-assert.ts';
 import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
-import type { ResponsesExchangeContext } from '../../../interceptors.ts';
+import type { RequestContext, ResponsesInvocation } from '../../../interceptors.ts';
 import { eventResult } from '../../../shared/errors/result.ts';
 
 const testTelemetryModelIdentity = {
@@ -12,7 +12,7 @@ const testTelemetryModelIdentity = {
   modelKey: 'test-model-key',
 };
 
-const exchangeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
+const invocation = (payload: ResponsesPayload): ResponsesInvocation => ({
   sourceApi: 'responses',
   targetApi: 'responses',
   model: payload.model,
@@ -23,8 +23,16 @@ const exchangeContext = (payload: ResponsesPayload): ResponsesExchangeContext =>
   payload,
 });
 
+const stubRequest: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};
+
 const run = async (payload: ResponsesPayload): Promise<ResponsesPayload> => {
-  await fixApplyPatchTools(exchangeContext(payload), () => Promise.resolve(eventResult((async function* () {})(), testTelemetryModelIdentity)));
+  await fixApplyPatchTools(invocation(payload), stubRequest, () => Promise.resolve(eventResult((async function* () {})(), testTelemetryModelIdentity)));
   return payload;
 };
 

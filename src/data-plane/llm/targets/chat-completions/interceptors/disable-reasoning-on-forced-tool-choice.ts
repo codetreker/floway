@@ -29,7 +29,7 @@ const disableChatCompletionsReasoning = (payload: ChatCompletionsPayload, enable
   return out;
 };
 
-export const withReasoningDisabledOnForcedToolChoice: ChatCompletionsInterceptor = async (ctx, run) => {
+export const withReasoningDisabledOnForcedToolChoice: ChatCompletionsInterceptor = async (ctx, _request, run) => {
   if (!hasForcedToolChoice(ctx.payload)) return await run();
   ctx.payload = disableChatCompletionsReasoning(ctx.payload, ctx.enabledFixes);
   return await run();

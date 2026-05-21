@@ -5,8 +5,8 @@ import type { TelemetryModelIdentity } from '../../../../../repo/types.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import type { ModelProvider, UpstreamModel } from '../../../../providers/types.ts';
 import type { MessagesPayload, MessagesStreamEventData } from '../../../../shared/protocol/messages.ts';
-import type { MessagesExchangeContext, MessagesExchangeResult } from '../../../interceptors.ts';
-import { eventResult } from '../../../shared/errors/result.ts';
+import type { MessagesInvocation, RequestContext } from '../../../interceptors.ts';
+import { eventResult, type ExecuteResult } from '../../../shared/errors/result.ts';
 import type { ProtocolFrame } from '../../../shared/stream/types.ts';
 
 const stubProvider = (): ModelProvider => ({
@@ -38,9 +38,10 @@ const testTelemetryModelIdentity: TelemetryModelIdentity = {
   modelKey: 'test-model-key',
 };
 
-const okEvents = (): Promise<MessagesExchangeResult> => Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {})(), testTelemetryModelIdentity));
+const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEventData>>> =>
+  Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {})(), testTelemetryModelIdentity));
 
-const exchangeContext = (payload: MessagesPayload): MessagesExchangeContext => ({
+const invocation = (payload: MessagesPayload): MessagesInvocation => ({
   sourceApi: 'messages',
   targetApi: 'messages',
   model: payload.model,
@@ -51,8 +52,16 @@ const exchangeContext = (payload: MessagesPayload): MessagesExchangeContext => (
   enabledFixes: new Set<string>(),
 });
 
+const stubRequest: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};
+
 test('messages forced tool_choice disables thinking and strips output_config', async () => {
-  const input = exchangeContext({
+  const input = invocation({
     model: 'm',
     messages: [],
     max_tokens: 1,
@@ -61,14 +70,14 @@ test('messages forced tool_choice disables thinking and strips output_config', a
     tool_choice: { type: 'tool', name: 'x' },
   });
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
   assertEquals(input.payload.thinking, { type: 'disabled' });
   assertEquals(input.payload.output_config, undefined);
 });
 
 test('messages any tool_choice also disables thinking', async () => {
-  const input = exchangeContext({
+  const input = invocation({
     model: 'm',
     messages: [],
     max_tokens: 1,
@@ -76,14 +85,14 @@ test('messages any tool_choice also disables thinking', async () => {
     tool_choice: { type: 'any' },
   });
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
   assertEquals(input.payload.thinking, { type: 'disabled' });
 });
 
 test('messages non-forced tool_choice leaves reasoning untouched', async () => {
   for (const type of ['auto', 'none'] as const) {
-    const input = exchangeContext({
+    const input = invocation({
       model: 'm',
       messages: [],
       max_tokens: 1,
@@ -91,7 +100,7 @@ test('messages non-forced tool_choice leaves reasoning untouched', async () => {
       tool_choice: { type },
     });
 
-    await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+    await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
     assertEquals(input.payload.thinking, {
       type: 'enabled',

@@ -4,10 +4,11 @@ import { test } from 'vitest';
 import { respondGemini } from './respond.ts';
 import { assertEquals, assertExists } from '../../../../test-assert.ts';
 import type { GeminiErrorResponse } from '../../../shared/protocol/gemini.ts';
+import type { RequestContext } from '../../interceptors.ts';
 import type { InternalDebugError } from '../../shared/errors/internal-debug-error.ts';
-import type { StreamExecuteResult } from '../../shared/errors/result.ts';
+import type { ExecuteResult } from '../../shared/errors/result.ts';
+import type { ProtocolFrame } from '../../shared/stream/types.ts';
 import { eventFrame } from '../../shared/stream/types.ts';
-import type { SourceExecutionContext } from '../execute.ts';
 
 const encoder = new TextEncoder();
 
@@ -18,18 +19,17 @@ const testTelemetryModelIdentity = {
 };
 const recordUsage = () => Promise.resolve();
 const recordRequestPerformance = () => {};
-const source = (): SourceExecutionContext => ({
+const request = (): RequestContext => ({
   requestStartedAt: performance.now(),
   runtimeLocation: 'test',
+  clientStream: false,
   recordUsage,
   recordRequestPerformance,
-  beginDownstream: () => undefined,
-  rememberPerformance: result => result,
 });
 
-const requestGeminiResponse = async (result: StreamExecuteResult<GeminiErrorResponse>): Promise<Response> => {
+const requestGeminiResponse = async (result: ExecuteResult<ProtocolFrame<GeminiErrorResponse>>): Promise<Response> => {
   const app = new Hono();
-  app.get('/', c => respondGemini(c, result, false, source()));
+  app.get('/', c => respondGemini(c, result, false, request(), undefined, undefined));
   return await app.request('/');
 };
 

@@ -2,7 +2,6 @@ import { type Context, Hono } from 'hono';
 import { test } from 'vitest';
 
 import { respondChatCompletions } from './chat-completions/respond.ts';
-import type { SourceExecutionContext } from './execute.ts';
 import { respondGemini } from './gemini/respond.ts';
 import { respondMessages } from './messages/respond.ts';
 import { respondResponses } from './responses/respond.ts';
@@ -11,6 +10,7 @@ import { FakeTime } from '../../../test-time.ts';
 import type { ChatCompletionChunk } from '../../shared/protocol/chat-completions.ts';
 import type { GeminiStreamEvent } from '../../shared/protocol/gemini.ts';
 import type { MessagesStreamEventData } from '../../shared/protocol/messages.ts';
+import type { RequestContext } from '../interceptors.ts';
 import { eventResult } from '../shared/errors/result.ts';
 import type { ResponsesStreamEvent } from '../shared/protocol/responses.ts';
 import { DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS } from '../shared/stream/proxy-sse.ts';
@@ -121,27 +121,26 @@ const testTelemetryModelIdentity = {
 const recordUsage = () => Promise.resolve();
 const recordRequestPerformance = () => {};
 const requestStartedAt = performance.now();
-const source = (): SourceExecutionContext => ({
+const request = (): RequestContext => ({
   requestStartedAt,
   runtimeLocation: 'test',
+  clientStream: true,
   recordUsage,
   recordRequestPerformance,
-  beginDownstream: () => undefined,
-  rememberPerformance: result => result,
 });
 
 test('Messages streaming keepalive uses Anthropic ping events', async () => {
-  await assertSourceKeepAlive<MessagesStreamEventData>((c, events) => respondMessages(c, eventResult(events, testTelemetryModelIdentity), true, source()), 'event: ping\ndata: {"type":"ping"}\n\n');
+  await assertSourceKeepAlive<MessagesStreamEventData>((c, events) => respondMessages(c, eventResult(events, testTelemetryModelIdentity), true, request(), undefined, undefined), 'event: ping\ndata: {"type":"ping"}\n\n');
 });
 
 test('Responses streaming keepalive uses SSE comments', async () => {
-  await assertSourceKeepAlive<ResponsesStreamEvent>((c, events) => respondResponses(c, eventResult(events, testTelemetryModelIdentity), true, source()), ': keepalive\n\n');
+  await assertSourceKeepAlive<ResponsesStreamEvent>((c, events) => respondResponses(c, eventResult(events, testTelemetryModelIdentity), true, request(), undefined, undefined), ': keepalive\n\n');
 });
 
 test('Chat Completions streaming keepalive uses SSE comments', async () => {
-  await assertSourceKeepAlive<ChatCompletionChunk>((c, events) => respondChatCompletions(c, eventResult(events, testTelemetryModelIdentity), true, true, source()), ': keepalive\n\n');
+  await assertSourceKeepAlive<ChatCompletionChunk>((c, events) => respondChatCompletions(c, eventResult(events, testTelemetryModelIdentity), true, true, request(), undefined, undefined), ': keepalive\n\n');
 });
 
 test('Gemini streaming keepalive uses SSE comments', async () => {
-  await assertSourceKeepAlive<GeminiStreamEvent>((c, events) => respondGemini(c, eventResult(events, testTelemetryModelIdentity), true, source()), ': keepalive\n\n');
+  await assertSourceKeepAlive<GeminiStreamEvent>((c, events) => respondGemini(c, eventResult(events, testTelemetryModelIdentity), true, request(), undefined, undefined), ': keepalive\n\n');
 });

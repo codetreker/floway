@@ -1,14 +1,15 @@
-import type { EmitInput } from './emit-types.ts';
 import type { PerformanceApiName, TelemetryModelIdentity } from '../../../repo/types.ts';
 import { chatCompletionsErrorPayloadMessage } from '../../shared/protocol/chat-completions-errors.ts';
 import { type PerformanceTelemetryContext, recordPerformanceError, recordPerformanceLatency } from '../../shared/telemetry/performance.ts';
+import type { Invocation, RequestContext } from '../interceptors.ts';
 import type { SseFrame } from '../shared/stream/types.ts';
 
 type TerminalKind = 'success' | 'failure';
 
 export function withUpstreamTelemetry<T>(
   events: AsyncIterable<T>,
-  input: EmitInput<{ model: string; stream?: boolean | null }>,
+  invocation: Invocation<unknown>,
+  request: RequestContext,
   targetApi: PerformanceApiName,
   startedAt: number,
   modelIdentity: TelemetryModelIdentity,
@@ -16,11 +17,11 @@ export function withUpstreamTelemetry<T>(
   return (async function* () {
     let recorded = false;
     const recordOnce = (kind: TerminalKind, durationMs: number) => {
-      if (recorded || !input.apiKeyId) return;
+      if (recorded || !request.apiKeyId) return;
       recorded = true;
-      const context = upstreamContext(input, targetApi, modelIdentity);
+      const context = upstreamContext(invocation, request, targetApi, modelIdentity);
       const promise = kind === 'success' ? recordPerformanceLatency(context, 'upstream_success', durationMs) : recordPerformanceError(context, 'upstream_success');
-      input.scheduleBackground ? input.scheduleBackground(promise) : void promise;
+      request.scheduleBackground ? request.scheduleBackground(promise) : void promise;
     };
 
     // Track whether the upstream iterator itself reached an end state (EOF or
@@ -54,25 +55,26 @@ export function withUpstreamTelemetry<T>(
       // means upstream failed to produce a complete response. Client-initiated
       // cancel may now also reach the upstream reader via AbortSignal; that can
       // make the wrapped iterator end as EOF, so keep it out of upstream health.
-      if (!recorded && upstreamEnded && input.downstreamAbortSignal?.aborted !== true) {
+      if (!recorded && upstreamEnded && request.downstreamAbortSignal?.aborted !== true) {
         recordOnce('failure', performance.now() - startedAt);
       }
     }
   })();
 }
 
-export function recordUpstreamHttpFailure(input: EmitInput<{ model: string; stream?: boolean | null }>, targetApi: PerformanceApiName, modelIdentity: TelemetryModelIdentity): void {
-  if (!input.apiKeyId) return;
-  const promise = recordPerformanceError(upstreamContext(input, targetApi, modelIdentity), 'upstream_success');
-  input.scheduleBackground ? input.scheduleBackground(promise) : void promise;
+export function recordUpstreamHttpFailure(invocation: Invocation<unknown>, request: RequestContext, targetApi: PerformanceApiName, modelIdentity: TelemetryModelIdentity): void {
+  if (!request.apiKeyId) return;
+  const promise = recordPerformanceError(upstreamContext(invocation, request, targetApi, modelIdentity), 'upstream_success');
+  request.scheduleBackground ? request.scheduleBackground(promise) : void promise;
 }
 
 export function targetPerformanceContext(
-  input: EmitInput<{ model: string; stream?: boolean | null }>,
+  invocation: Invocation<unknown>,
+  request: RequestContext,
   targetApi: PerformanceApiName,
   modelIdentity: TelemetryModelIdentity,
 ): PerformanceTelemetryContext {
-  return upstreamContext(input, targetApi, modelIdentity);
+  return upstreamContext(invocation, request, targetApi, modelIdentity);
 }
 
 function classifyTerminalFrame(value: unknown, targetApi: PerformanceApiName): TerminalKind | null {
@@ -117,15 +119,15 @@ function classifySseTerminal(frame: SseFrame, targetApi: PerformanceApiName): Te
   return null;
 }
 
-function upstreamContext(input: EmitInput<{ model: string; stream?: boolean | null }>, targetApi: PerformanceApiName, modelIdentity: TelemetryModelIdentity): PerformanceTelemetryContext {
+function upstreamContext(invocation: Invocation<unknown>, request: RequestContext, targetApi: PerformanceApiName, modelIdentity: TelemetryModelIdentity): PerformanceTelemetryContext {
   return {
-    keyId: input.apiKeyId ?? 'unknown',
+    keyId: request.apiKeyId ?? 'unknown',
     model: modelIdentity.model,
     upstream: modelIdentity.upstream,
     modelKey: modelIdentity.modelKey,
-    sourceApi: input.sourceApi,
+    sourceApi: invocation.sourceApi,
     targetApi,
-    stream: input.clientStream ?? input.payload.stream === true,
-    runtimeLocation: input.runtimeLocation ?? 'unknown',
+    stream: request.clientStream,
+    runtimeLocation: request.runtimeLocation,
   };
 }

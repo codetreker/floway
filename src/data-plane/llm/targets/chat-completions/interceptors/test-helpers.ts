@@ -1,7 +1,7 @@
 import type { TelemetryModelIdentity } from '../../../../../repo/types.ts';
 import type { ModelProvider, UpstreamModel } from '../../../../providers/types.ts';
 import type { ChatCompletionsPayload } from '../../../../shared/protocol/chat-completions.ts';
-import type { ChatCompletionsExchangeContext } from '../../../interceptors.ts';
+import type { ChatCompletionsInvocation, RequestContext } from '../../../interceptors.ts';
 
 export const stubUpstreamModel = (overrides: Partial<UpstreamModel> = {}): UpstreamModel => ({
   id: 'test-model',
@@ -34,7 +34,7 @@ export const testTelemetryModelIdentity: TelemetryModelIdentity = {
   modelKey: 'test-model-key',
 };
 
-export const chatCompletionsExchangeContext = (payload: ChatCompletionsPayload, enabledFixes: ReadonlySet<string> = new Set()): ChatCompletionsExchangeContext => ({
+export const chatCompletionsInvocation = (payload: ChatCompletionsPayload, enabledFixes: ReadonlySet<string> = new Set()): ChatCompletionsInvocation => ({
   sourceApi: 'chat-completions',
   targetApi: 'chat-completions',
   model: payload.model,
@@ -44,3 +44,11 @@ export const chatCompletionsExchangeContext = (payload: ChatCompletionsPayload, 
   enabledFixes,
   payload,
 });
+
+export const stubRequestContext: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};

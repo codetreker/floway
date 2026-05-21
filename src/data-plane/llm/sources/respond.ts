@@ -1,8 +1,9 @@
-import type { SourceExecutionContext } from './execute.ts';
 import type { TelemetryModelIdentity, TokenUsage } from '../../../repo/types.ts';
 import { hasTokenUsage, type RecordUsage } from '../../shared/telemetry/usage.ts';
-import type { EventResultMetadata, StreamExecuteResult } from '../shared/errors/result.ts';
+import type { RequestContext } from '../interceptors.ts';
+import type { EventResultMetadata, ExecuteResult } from '../shared/errors/result.ts';
 import type { StreamCompletion } from '../shared/stream/proxy-sse.ts';
+import type { ProtocolFrame } from '../shared/stream/types.ts';
 
 export interface SourceStreamState {
   failed: boolean;
@@ -24,15 +25,15 @@ export const recordSourceUsage = async (modelIdentity: TelemetryModelIdentity, u
   if (usage && hasTokenUsage(usage)) await recordUsage(modelIdentity, usage);
 };
 
-export const eventResultMetadata = async <TEvent>(result: Extract<StreamExecuteResult<TEvent>, { type: 'events' }>): Promise<EventResultMetadata> =>
+export const eventResultMetadata = async <TEvent>(result: Extract<ExecuteResult<ProtocolFrame<TEvent>>, { type: 'events' }>): Promise<EventResultMetadata> =>
   await (result.finalMetadata ??
     Promise.resolve({
       modelIdentity: result.modelIdentity,
       ...(result.performance ? { performance: result.performance } : {}),
     }));
 
-export const recordSourcePerformance = (source: SourceExecutionContext, context: EventResultMetadata['performance'], failed: boolean): void => {
-  source.recordRequestPerformance(context, failed, performance.now() - source.requestStartedAt);
+export const recordSourcePerformance = (request: RequestContext, context: EventResultMetadata['performance'], failed: boolean): void => {
+  request.recordRequestPerformance(context, failed, performance.now() - request.requestStartedAt);
 };
 
 export const sourceStreamFailed = (completion: StreamCompletion, state: SourceStreamState): boolean => completion === 'error' || state.failed || (completion === 'cancel' && !state.completed);

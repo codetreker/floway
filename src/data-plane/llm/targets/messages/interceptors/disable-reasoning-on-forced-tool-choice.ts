@@ -13,7 +13,7 @@ const disableMessagesReasoning = (payload: MessagesPayload): MessagesPayload => 
   return { ...rest, thinking: { type: 'disabled' as const } };
 };
 
-export const withReasoningDisabledOnForcedToolChoice: MessagesInterceptor = async (ctx, run) => {
+export const withReasoningDisabledOnForcedToolChoice: MessagesInterceptor = async (ctx, _request, run) => {
   if (!hasForcedToolChoice(ctx.payload)) return await run();
   ctx.payload = disableMessagesReasoning(ctx.payload);
   return await run();

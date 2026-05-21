@@ -47,7 +47,7 @@ const fixPayload = (payload: ResponsesPayload): void => {
   }
 };
 
-export const fixApplyPatchTools: ResponsesInterceptor = (ctx, run) => {
+export const fixApplyPatchTools: ResponsesInterceptor = (ctx, _request, run) => {
   fixPayload(ctx.payload);
   return run();
 };

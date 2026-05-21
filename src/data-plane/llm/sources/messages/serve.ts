@@ -6,17 +6,20 @@ import { respondMessages } from './respond.ts';
 import { getModelCapabilities } from '../../../providers/capabilities.ts';
 import { resolveModelForRequest } from '../../../providers/registry.ts';
 import type { ProviderModelRecord } from '../../../providers/types.ts';
+import type { ChatCompletionsPayload } from '../../../shared/protocol/chat-completions.ts';
 import type { MessagesPayload, MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
-import { type MessagesInterceptor, runInterceptors } from '../../interceptors.ts';
-import type { StreamExecuteResult } from '../../shared/errors/result.ts';
+import type { ResponsesPayload } from '../../../shared/protocol/responses.ts';
+import { type PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
+import { type LlmTargetApi, type MessagesInterceptor, type MessagesInvocation, runInterceptors } from '../../interceptors.ts';
+import type { ExecuteResult } from '../../shared/errors/result.ts';
+import type { ProtocolFrame } from '../../shared/stream/types.ts';
 import { emitToChatCompletions } from '../../targets/chat-completions/emit.ts';
 import { emitToMessages } from '../../targets/messages/emit.ts';
 import { emitToResponses } from '../../targets/responses/emit.ts';
-import { translateToSourceEvents as translateChatToSourceEvents } from '../../translate/messages-via-chat-completions/events.ts';
-import { buildTargetRequest as buildChatTargetRequest } from '../../translate/messages-via-chat-completions/request.ts';
-import { translateToSourceEvents as translateResponsesToSourceEvents } from '../../translate/messages-via-responses/events.ts';
-import { buildTargetRequest as buildResponsesTargetRequest } from '../../translate/messages-via-responses/request.ts';
-import { createSourceExecutionContext, openAiMissingModelResult, openAiUnsupportedEndpointResult, sourceErrorResult, sourceExchangeMeta, sourceTargetInput } from '../execute.ts';
+import { messagesViaChatCompletionsTranslation } from '../../translate/messages-via-chat-completions/index.ts';
+import { messagesViaResponsesTranslation } from '../../translate/messages-via-responses/index.ts';
+import { type SourceEmit, viaTranslation } from '../../translate/types.ts';
+import { createRequestContext, openAiMissingModelResult, openAiUnsupportedEndpointResult, sourceErrorResult } from '../execute.ts';
 
 export const parseAnthropicBeta = (raw: string | undefined): string[] | undefined => {
   if (!raw) return undefined;
@@ -48,19 +51,47 @@ export const bodyAnthropicBetaResponse = (param: string): Response =>
 
 const messagesSourceInterceptorsForProvider = (binding: ProviderModelRecord): readonly MessagesInterceptor[] => [...messagesSourceInterceptors, ...(binding.sourceInterceptors?.messages ?? [])];
 
+const messagesInvocation = <TPayload extends { model: string }>(
+  binding: ProviderModelRecord,
+  targetApi: LlmTargetApi,
+  model: string,
+  payload: TPayload,
+  anthropicBeta?: readonly string[],
+) => ({
+  sourceApi: 'messages' as const,
+  targetApi,
+  model,
+  upstream: binding.upstream,
+  upstreamModel: binding.upstreamModel,
+  provider: binding.provider,
+  enabledFixes: binding.enabledFixes,
+  ...(binding.targetInterceptors !== undefined ? { targetInterceptors: binding.targetInterceptors } : {}),
+  payload,
+  ...(anthropicBeta !== undefined ? { anthropicBeta } : {}),
+});
+
 export const serveMessages = async (c: Context): Promise<Response> => {
-  const source = createSourceExecutionContext(c);
+  let lastPerformance: PerformanceTelemetryContext | undefined;
+  const rememberPerformance = <T extends { performance?: PerformanceTelemetryContext }>(result: T): T => {
+    if (result.performance) lastPerformance = result.performance;
+    return result;
+  };
+
+  let request = createRequestContext(c, undefined, false);
+  let downstreamAbortController: AbortController | undefined;
+
   try {
     const payload = await c.req.json<MessagesPayload>();
     const rejectedBetaParam = bodyBetaParam(payload);
     if (rejectedBetaParam) return bodyAnthropicBetaResponse(rejectedBetaParam);
 
     const wantsStream = payload.stream === true;
-    source.beginDownstream(wantsStream);
+    downstreamAbortController = wantsStream ? new AbortController() : undefined;
+    request = createRequestContext(c, downstreamAbortController?.signal, wantsStream);
     const anthropicBeta = parseAnthropicBeta(c.req.header('anthropic-beta'));
 
     const { id: model, model: resolved } = await resolveModelForRequest(payload.model);
-    let result: StreamExecuteResult<MessagesStreamEventData> | undefined;
+    let result: ExecuteResult<ProtocolFrame<MessagesStreamEventData>> | undefined;
 
     if (!resolved) {
       result = openAiMissingModelResult(model);
@@ -72,56 +103,37 @@ export const serveMessages = async (c: Context): Promise<Response> => {
         const plan = planMessagesRequest(capabilities);
         if (!plan) continue;
 
-        const sourceCtx = {
-          ...sourceExchangeMeta(source, binding, 'messages', plan.target, model),
-          payload: attemptPayload,
-          anthropicBeta,
+        const invocation: MessagesInvocation = messagesInvocation(binding, plan.target, model, attemptPayload, anthropicBeta);
+
+        const emits: Record<LlmTargetApi, SourceEmit<MessagesPayload, MessagesStreamEventData>> = {
+          messages: async srcPayload => rememberPerformance(await emitToMessages({ ...invocation, payload: srcPayload }, request)),
+          responses: viaTranslation(messagesViaResponsesTranslation, async (tgtPayload: ResponsesPayload) =>
+            rememberPerformance(await emitToResponses(messagesInvocation(binding, 'responses', model, tgtPayload), request))),
+          'chat-completions': viaTranslation(messagesViaChatCompletionsTranslation, async (tgtPayload: ChatCompletionsPayload) =>
+            rememberPerformance(await emitToChatCompletions(messagesInvocation(binding, 'chat-completions', model, tgtPayload), request))),
         };
 
-        result = await runInterceptors(sourceCtx, messagesSourceInterceptorsForProvider(binding), async () => {
-          const payload = sourceCtx.payload;
-
-          if (plan.target === 'messages') {
-            return source.rememberPerformance(await emitToMessages(sourceTargetInput(source, binding, 'messages', 'messages', model, payload, wantsStream, { anthropicBeta })));
-          }
-
-          if (plan.target === 'responses') {
-            const targetPayload = buildResponsesTargetRequest(payload);
-            const targetResult = source.rememberPerformance(await emitToResponses(sourceTargetInput(source, binding, 'messages', 'responses', model, targetPayload, wantsStream)));
-            return targetResult.type === 'events'
-              ? {
-                  ...targetResult,
-                  events: translateResponsesToSourceEvents(targetResult.events),
-                }
-              : targetResult;
-          }
-
-          const targetPayload = buildChatTargetRequest(payload);
-          const targetResult = source.rememberPerformance(await emitToChatCompletions(sourceTargetInput(source, binding, 'messages', 'chat-completions', model, targetPayload, wantsStream)));
-          return targetResult.type === 'events'
-            ? {
-                ...targetResult,
-                events: translateChatToSourceEvents(targetResult.events),
-              }
-            : targetResult;
-        });
+        result = await runInterceptors(invocation, request, messagesSourceInterceptorsForProvider(binding), () =>
+          emits[plan.target](invocation.payload, { model, wantsStream, capabilities }));
         break;
       }
 
       result ??= openAiUnsupportedEndpointResult(model, '/messages');
     }
 
-    return await respondMessages(c, result, wantsStream, source);
+    return await respondMessages(c, result, wantsStream, request, lastPerformance, downstreamAbortController);
   } catch (error) {
     return await respondMessages(
       c,
       sourceErrorResult(error, {
         sourceApi: 'messages',
         internalStatus: 502,
-        lastPerformance: source.lastPerformance,
+        lastPerformance,
       }),
       false,
-      source,
+      request,
+      lastPerformance,
+      downstreamAbortController,
     );
   }
 };

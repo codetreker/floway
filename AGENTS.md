@@ -135,17 +135,25 @@ execution after `emit` is event-first and should flow through protocol events
 whenever practical.
 
 Interceptors are protocol-exchange scoped, not source/target-contract scoped.
-`MessagesInterceptor`, `ResponsesInterceptor`, and `ChatCompletionsInterceptor`
-have one concrete context/result contract per protocol whether that protocol
-appears on the client/source side or the upstream/target side. Provider source
-and target registrations are separate execution slots, but they use the same
-protocol aliases for the same protocol. The shared post-plan `LlmExchangeMeta`
-contains `sourceApi`, `targetApi`, model/provider metadata, `enabledFixes`,
-`apiKeyId`, and the downstream abort signal. Do not put responder or telemetry
-details such as `clientStream`, `runtimeLocation`, or `scheduleBackground` in
-interceptor context. Raw upstream frames stay inside target emitters and
-raw-to-protocol converters; protocol interceptors see protocol request payloads
-and protocol result/events.
+`MessagesInterceptor`, `ResponsesInterceptor`, `ChatCompletionsInterceptor`,
+and `GeminiInterceptor` each have one concrete `(invocation, request, run)`
+shape, whether they appear on the client/source side or the upstream/target
+side. Provider source and target registrations are separate execution slots,
+but they share the same protocol type for the same protocol.
+
+Per-HTTP-request invariants live on `RequestContext`: `apiKeyId`,
+`runtimeLocation`, `scheduleBackground`, `recordUsage`,
+`recordRequestPerformance`, `downstreamAbortSignal`, `clientStream`,
+`requestStartedAt`. Per-provider-binding-attempt request-side state lives on
+`Invocation<TPayload>`: `sourceApi`, `targetApi`, the resolved model id,
+provider/upstream/upstreamModel/enabledFixes, `targetInterceptors`, and the
+mutable source-shape `payload`. `MessagesInvocation` additionally carries
+`anthropicBeta`. Mutable per-request state (last performance row, downstream
+abort controller) is intentionally not on either context; it lives as
+serve-local `let` variables and is passed explicitly to the source
+responder. Raw upstream frames stay inside target emitters and
+raw-to-protocol converters; protocol interceptors see protocol request
+payloads and `ExecuteResult<ProtocolFrame<Event>>` envelopes only.
 
 Source response flow is source-owned. Each concrete source responder owns its
 own upstream/internal error shaping, non-stream collection, stream terminal
@@ -168,8 +176,17 @@ accounting, upstream response, telemetry, and internal-error helpers; they must
 not accept target-specific callback tables or call back into target behavior.
 
 Request translation is direct and pairwise. Do not introduce a canonical
-internal request IR. Pair translators belong under
-`src/data-plane/llm/translate/<source>-via-<target>/`.
+internal request IR. Each cross-protocol pair lives under
+`src/data-plane/llm/translate/<source>-via-<target>/` and contains exactly
+three files: `request.ts` builds the target-shape payload from the source
+payload, `events.ts` translates target protocol events back into source
+protocol events (including any terminal projection of usage/stop_reason
+from terminal target frames), and `index.ts` exports a `Translation<>`
+value tying both together with its `targetApi`. Source serves hold a
+`Record<LlmTargetApi, SourceEmit<...>>` dispatch map and combine each
+non-native target with `viaTranslation(translation, targetEmit)`; there
+are no per-pair `result.ts` files. Cross-pair helpers (envelope shapers
+shared between Gemini pairs, etc.) live in `translate/shared/`.
 
 Workarounds belong at the owning boundary:
 

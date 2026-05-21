@@ -1,8 +1,40 @@
-import { mapChatCompletionsFinishReasonToMessagesStopReason, mapChatCompletionsUsageToMessagesUsage, toMessagesId } from './result.ts';
 import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
-import type { MessagesContentBlockDeltaEvent, MessagesContentBlockStartEvent, MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
+import type { MessagesContentBlockDeltaEvent, MessagesContentBlockStartEvent, MessagesResponse, MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
 import { checkWhitespaceOverflow } from '../shared/tool-arguments.ts';
+
+const toMessagesId = (id: string): string => (id.startsWith('msg_') ? id : `msg_${id.replace(/^chatcmpl-/, '')}`);
+
+const mapChatCompletionsFinishReasonToMessagesStopReason = (finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null): MessagesResponse['stop_reason'] => {
+  if (finishReason === null) return null;
+
+  switch (finishReason) {
+  case 'stop':
+    return 'end_turn';
+  case 'length':
+    return 'max_tokens';
+  case 'tool_calls':
+    return 'tool_use';
+  case 'content_filter':
+    return 'refusal';
+  }
+};
+
+interface ChatCompletionsUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+}
+
+export const mapChatCompletionsUsageToMessagesUsage = (usage?: ChatCompletionsUsage): MessagesResponse['usage'] => {
+  const cachedTokens = usage?.prompt_tokens_details?.cached_tokens;
+
+  return {
+    input_tokens: (usage?.prompt_tokens ?? 0) - (cachedTokens ?? 0),
+    output_tokens: usage?.completion_tokens ?? 0,
+    ...(cachedTokens !== undefined ? { cache_read_input_tokens: cachedTokens } : {}),
+  };
+};
 
 const UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE = 'Upstream Chat Completions stream ended without a DONE sentinel.';
 

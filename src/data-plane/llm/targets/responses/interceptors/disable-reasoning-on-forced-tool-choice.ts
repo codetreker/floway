@@ -28,7 +28,7 @@ const disableResponsesReasoning = (payload: ResponsesPayload, enabledFixes: Read
   return out;
 };
 
-export const withReasoningDisabledOnForcedToolChoice: ResponsesInterceptor = async (ctx, run) => {
+export const withReasoningDisabledOnForcedToolChoice: ResponsesInterceptor = async (ctx, _request, run) => {
   if (!hasForcedToolChoice(ctx.payload)) return await run();
   ctx.payload = disableResponsesReasoning(ctx.payload, ctx.enabledFixes);
   return await run();

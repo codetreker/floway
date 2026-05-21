@@ -3,8 +3,8 @@ import { test } from 'vitest';
 import { resolveMessagesDownstreamThinkingDisplay, withThinkingDisplayPromoted } from './promote-thinking-display.ts';
 import type { TelemetryModelIdentity } from '../../../../../repo/types.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
-import type { MessagesExchangeContext, MessagesExchangeResult } from '../../../../llm/interceptors.ts';
-import { eventResult } from '../../../../llm/shared/errors/result.ts';
+import type { MessagesInvocation, RequestContext } from '../../../../llm/interceptors.ts';
+import { eventResult, type ExecuteResult } from '../../../../llm/shared/errors/result.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '../../../../llm/shared/stream/types.ts';
 import type { MessagesStreamEventData } from '../../../../shared/protocol/messages.ts';
 import type { ModelProvider, UpstreamModel } from '../../../types.ts';
@@ -45,12 +45,12 @@ const testTelemetryModelIdentity: TelemetryModelIdentity = {
 };
 
 const makeCtx = (
-  thinking: MessagesExchangeContext['payload']['thinking'],
+  thinking: MessagesInvocation['payload']['thinking'],
   overrides: {
     model?: string;
-    sourceApi?: MessagesExchangeContext['sourceApi'];
+    sourceApi?: MessagesInvocation['sourceApi'];
   } = {},
-): MessagesExchangeContext => ({
+): MessagesInvocation => ({
   sourceApi: overrides.sourceApi ?? 'messages',
   targetApi: 'messages',
   model: overrides.model ?? 'claude-opus-4.7-1m-internal',
@@ -66,7 +66,15 @@ const makeCtx = (
   enabledFixes: new Set<string>(),
 });
 
-const okEvents = (): Promise<MessagesExchangeResult> => Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {})(), testTelemetryModelIdentity));
+const stubRequest: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};
+
+const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEventData>>> => Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {})(), testTelemetryModelIdentity));
 
 test('resolveMessagesDownstreamThinkingDisplay exposes 4.7+ omitted by default and older Claude as summarized', () => {
   assertEquals(resolveMessagesDownstreamThinkingDisplay(makeCtx({ type: 'adaptive' })), 'omitted');
@@ -118,7 +126,7 @@ test('resolveMessagesDownstreamThinkingDisplay ignores unknown explicit display 
 test('withThinkingDisplayPromoted sends summarized upstream when thinking display is omitted', async () => {
   const ctx = makeCtx({ type: 'adaptive' });
 
-  await withThinkingDisplayPromoted(ctx, () =>
+  await withThinkingDisplayPromoted(ctx, stubRequest, () =>
     Promise.resolve({
       type: 'internal-error',
       status: 418,
@@ -139,8 +147,8 @@ test('withThinkingDisplayPromoted overrides omitted but preserves full', async (
   const omittedCtx = makeCtx({ type: 'adaptive', display: 'omitted' });
   const fullCtx = makeCtx({ type: 'adaptive', display: 'full' });
 
-  await withThinkingDisplayPromoted(omittedCtx, okEvents);
-  await withThinkingDisplayPromoted(fullCtx, okEvents);
+  await withThinkingDisplayPromoted(omittedCtx, stubRequest, okEvents);
+  await withThinkingDisplayPromoted(fullCtx, stubRequest, okEvents);
 
   assertEquals(omittedCtx.payload.thinking?.display, 'summarized');
   assertEquals(fullCtx.payload.thinking?.display, 'full');
@@ -150,8 +158,8 @@ test('withThinkingDisplayPromoted leaves disabled or absent thinking untouched',
   const disabledCtx = makeCtx({ type: 'disabled' });
   const absentCtx = makeCtx(undefined);
 
-  await withThinkingDisplayPromoted(disabledCtx, okEvents);
-  await withThinkingDisplayPromoted(absentCtx, okEvents);
+  await withThinkingDisplayPromoted(disabledCtx, stubRequest, okEvents);
+  await withThinkingDisplayPromoted(absentCtx, stubRequest, okEvents);
 
   assertEquals(disabledCtx.payload.thinking, { type: 'disabled' });
   assertEquals(absentCtx.payload.thinking, undefined);
@@ -161,7 +169,7 @@ test('withThinkingDisplayPromoted leaves unknown display values for upstream val
   const ctx = makeCtx({ type: 'adaptive' });
   (ctx.payload.thinking as { display?: unknown }).display = 'omit';
 
-  await withThinkingDisplayPromoted(ctx, okEvents);
+  await withThinkingDisplayPromoted(ctx, stubRequest, okEvents);
 
   assertEquals((ctx.payload.thinking as { display?: unknown }).display, 'omit');
 });
@@ -169,7 +177,7 @@ test('withThinkingDisplayPromoted leaves unknown display values for upstream val
 test('withThinkingDisplayPromoted simulates omitted display on protocol events', async () => {
   const ctx = makeCtx({ type: 'adaptive' }, { sourceApi: 'responses' });
 
-  const result = await withThinkingDisplayPromoted(ctx, () =>
+  const result = await withThinkingDisplayPromoted(ctx, stubRequest, () =>
     Promise.resolve(
       eventResult(
         (async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {

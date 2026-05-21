@@ -1,9 +1,56 @@
-import { mapFinishReason, mapUsage } from './result.ts';
 import { chatCompletionsErrorPayloadMessage } from '../../../shared/protocol/chat-completions-errors.ts';
 import type { ChatCompletionChunk, Delta } from '../../../shared/protocol/chat-completions.ts';
-import type { GeminiCandidate, GeminiGenerateContentResponse, GeminiPart, GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
+import type { GeminiCandidate, GeminiFinishReason, GeminiGenerateContentResponse, GeminiPart, GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
 import { appendGeminiThoughtSignature, flushGeminiThoughtSignature, type GeminiThoughtSignatureState, parseStrictJsonObject, signGeminiPart } from '../shared/gemini.ts';
+
+type ChatStreamChoice = ChatCompletionChunk['choices'][0];
+
+const mapFinishReason = (finishReason: ChatStreamChoice['finish_reason']): GeminiFinishReason | undefined => {
+  switch (finishReason) {
+  case 'stop':
+  case 'tool_calls':
+    return 'STOP';
+  case 'length':
+    return 'MAX_TOKENS';
+  case 'content_filter':
+    return 'SAFETY';
+  default:
+    return undefined;
+  }
+};
+
+const reasoningTokensFromUsage = (usage: NonNullable<ChatCompletionChunk['usage']>): number | undefined => {
+  const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens;
+
+  return typeof reasoningTokens === 'number' ? reasoningTokens : undefined;
+};
+
+// OpenAI prompt_tokens already includes prompt_tokens_details.cached_tokens,
+// matching Gemini's inclusive promptTokenCount semantics. Pass both through
+// directly — no folding. Contrast with gemini-via-messages, where Anthropic's
+// input_tokens excludes cache buckets and must be summed.
+const mapUsage = (usage?: ChatCompletionChunk['usage']): GeminiUsageMetadata | undefined => {
+  if (!usage) return undefined;
+
+  const metadata: GeminiUsageMetadata = {
+    promptTokenCount: usage.prompt_tokens,
+    candidatesTokenCount: usage.completion_tokens,
+    totalTokenCount: usage.total_tokens,
+  };
+
+  const thoughtsTokenCount = reasoningTokensFromUsage(usage);
+  if (thoughtsTokenCount !== undefined) {
+    metadata.thoughtsTokenCount = thoughtsTokenCount;
+  }
+
+  const cachedTokens = usage.prompt_tokens_details?.cached_tokens;
+  if (cachedTokens !== undefined) {
+    metadata.cachedContentTokenCount = cachedTokens;
+  }
+
+  return metadata;
+};
 
 const UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE = 'Upstream Chat Completions stream ended without a DONE sentinel.';
 
@@ -16,7 +63,6 @@ const upstreamChatCompletionEventsUntilDone = async function* (frames: AsyncIter
   throw new Error(UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE);
 };
 
-type ChatStreamChoice = ChatCompletionChunk['choices'][0];
 type ChatToolCallDelta = NonNullable<Delta['tool_calls']>[0];
 
 interface ChatToolCallDraft {

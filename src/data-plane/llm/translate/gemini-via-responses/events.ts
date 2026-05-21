@@ -1,8 +1,51 @@
-import { geminiResponse, mapTerminalFinishReason, mapUsage } from './result.ts';
-import type { GeminiPart, GeminiStreamEvent } from '../../../shared/protocol/gemini.ts';
-import type { ResponseOutputFunctionCall, ResponseOutputReasoning, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
+import type { GeminiFinishReason, GeminiPart, GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
+import type { ResponseOutputFunctionCall, ResponseOutputReasoning, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
+import { geminiResponse } from '../shared/gemini-response.ts';
 import { appendGeminiThoughtSignature, flushGeminiThoughtSignature, type GeminiThoughtSignatureState, parseStrictJsonObject, signGeminiPart } from '../shared/gemini.ts';
+
+type ResponseTerminalEvent = Extract<ResponseStreamEvent, { type: 'response.completed' } | { type: 'response.incomplete' } | { type: 'response.failed' }>;
+
+// Responses input_tokens already includes input_tokens_details.cached_tokens,
+// matching Gemini's inclusive promptTokenCount semantics. Pass both through
+// directly — no folding. Contrast with gemini-via-messages, where Anthropic's
+// input_tokens excludes cache buckets and must be summed.
+const mapUsage = (usage: ResponsesResult['usage']): GeminiUsageMetadata | undefined => {
+  if (!usage) return undefined;
+
+  return {
+    promptTokenCount: usage.input_tokens,
+    candidatesTokenCount: usage.output_tokens,
+    totalTokenCount: usage.total_tokens,
+    ...(usage.output_tokens_details?.reasoning_tokens !== undefined
+      ? {
+          thoughtsTokenCount: usage.output_tokens_details.reasoning_tokens,
+        }
+      : {}),
+    ...(usage.input_tokens_details?.cached_tokens !== undefined
+      ? {
+          cachedContentTokenCount: usage.input_tokens_details.cached_tokens,
+        }
+      : {}),
+  };
+};
+
+const isSafetyFailure = (response: ResponsesResult): boolean => {
+  const error = response.error;
+  if (!error) return false;
+
+  const text = `${error.type} ${error.code} ${error.message}`.toLowerCase();
+  return text.includes('safety') || text.includes('content_filter') || text.includes('policy');
+};
+
+const mapTerminalFinishReason = (event: ResponseTerminalEvent): GeminiFinishReason => {
+  if (event.type === 'response.completed') return 'STOP';
+  if (event.type === 'response.failed') {
+    return isSafetyFailure(event.response) ? 'SAFETY' : 'OTHER';
+  }
+
+  return event.response.incomplete_details?.reason === 'max_output_tokens' ? 'MAX_TOKENS' : 'OTHER';
+};
 
 const UPSTREAM_RESPONSES_MISSING_TERMINAL_MESSAGE = 'Upstream Responses stream ended without a terminal event.';
 
@@ -18,8 +61,6 @@ const upstreamResponsesEventsUntilTerminal = async function* (frames: AsyncItera
 
   throw new Error(UPSTREAM_RESPONSES_MISSING_TERMINAL_MESSAGE);
 };
-
-type ResponseTerminalEvent = Extract<ResponseStreamEvent, { type: 'response.completed' } | { type: 'response.incomplete' } | { type: 'response.failed' }>;
 
 type ResponseEvent<T extends string> = Extract<ResponseStreamEvent, { type: T }>;
 

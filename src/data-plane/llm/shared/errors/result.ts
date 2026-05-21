@@ -1,7 +1,6 @@
 import type { InternalDebugError } from './internal-debug-error.ts';
 import type { TelemetryModelIdentity } from '../../../../repo/types.ts';
 import type { PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
-import type { ProtocolFrame } from '../stream/types.ts';
 
 export interface EventResult<T> {
   type: 'events';
@@ -32,8 +31,6 @@ export interface InternalErrorResult {
 }
 
 export type ExecuteResult<T> = EventResult<T> | UpstreamErrorResult | InternalErrorResult;
-
-export type StreamExecuteResult<TEvent> = ExecuteResult<ProtocolFrame<TEvent>>;
 
 export const eventResult = <T>(
   events: AsyncIterable<T>,

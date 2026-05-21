@@ -5,12 +5,12 @@ import { initRepo } from '../../../../../repo/index.ts';
 import { InMemoryRepo } from '../../../../../repo/memory.ts';
 import { assertEquals, assertStringIncludes } from '../../../../../test-assert.ts';
 import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
-import type { ResponsesExchangeContext } from '../../../../llm/interceptors.ts';
+import type { RequestContext, ResponsesInvocation } from '../../../../llm/interceptors.ts';
 import { eventResult } from '../../../../llm/shared/errors/result.ts';
 import { eventFrame } from '../../../../llm/shared/stream/types.ts';
 import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
 
-const exchangeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
+const invocation = (payload: ResponsesPayload): ResponsesInvocation => ({
   sourceApi: 'responses',
   targetApi: 'responses',
   model: payload.model,
@@ -20,6 +20,14 @@ const exchangeContext = (payload: ResponsesPayload): ResponsesExchangeContext =>
   upstreamModel: stubUpstreamModel(),
   enabledFixes: new Set<string>(),
 });
+
+const stubRequest: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};
 
 test('withConnectionMismatchRetried does not retry unrelated upstream errors', async () => {
   initRepo(new InMemoryRepo());
@@ -49,7 +57,7 @@ test('withConnectionMismatchRetried does not retry unrelated upstream errors', a
 
   let attempts = 0;
 
-  const result = await withConnectionMismatchRetried(exchangeContext(payload), () => {
+  const result = await withConnectionMismatchRetried(invocation(payload), stubRequest, () => {
     attempts += 1;
     return Promise.resolve({
       type: 'upstream-error' as const,
@@ -96,7 +104,7 @@ test('withConnectionMismatchRetried rewrites already-spotted ids before the firs
   let attempts = 0;
   let seenId = '';
 
-  const result = await withConnectionMismatchRetried(exchangeContext(payload), () => {
+  const result = await withConnectionMismatchRetried(invocation(payload), stubRequest, () => {
     attempts += 1;
     seenId = (payload.input as unknown as Array<Record<string, unknown>>)[0].id as string;
 

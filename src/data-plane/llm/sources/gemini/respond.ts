@@ -5,12 +5,13 @@ import { GEMINI_MISSING_TERMINAL_MESSAGE, isGeminiErrorEvent, isGeminiTerminalEv
 import { collectGeminiProtocolEventsToResponse } from './events/to-response.ts';
 import { geminiProtocolFrameToSSEFrame } from './events/to-sse.ts';
 import type { GeminiErrorResponse, GeminiStreamEvent } from '../../../shared/protocol/gemini.ts';
+import type { PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
+import type { RequestContext } from '../../interceptors.ts';
 import { type InternalDebugError, toInternalDebugError } from '../../shared/errors/internal-debug-error.ts';
-import type { StreamExecuteResult, UpstreamErrorResult } from '../../shared/errors/result.ts';
+import type { ExecuteResult, UpstreamErrorResult } from '../../shared/errors/result.ts';
 import { decodeUpstreamErrorBody } from '../../shared/errors/upstream-error.ts';
 import { type StreamCompletion, writeSSEFrames } from '../../shared/stream/proxy-sse.ts';
 import { type ProtocolFrame, sseCommentFrame, sseFrame } from '../../shared/stream/types.ts';
-import type { SourceExecutionContext } from '../execute.ts';
 import { createSourceStreamState, eventResultMetadata, recordSourcePerformance, recordSourceUsage, rememberSourceFrameUsage, sourceStreamFailed } from '../respond.ts';
 import { tokenUsageFromGeminiFrame, tokenUsageFromGeminiResponse } from '../usage.ts';
 
@@ -174,14 +175,21 @@ const geminiSseFrames = async function* (frames: AsyncIterable<ProtocolFrame<Gem
   }
 };
 
-export const respondGemini = async (c: Context, result: StreamExecuteResult<GeminiStreamEvent>, wantsStream: boolean, source: SourceExecutionContext): Promise<Response> => {
+export const respondGemini = async (
+  c: Context,
+  result: ExecuteResult<ProtocolFrame<GeminiStreamEvent>>,
+  wantsStream: boolean,
+  request: RequestContext,
+  lastPerformance: PerformanceTelemetryContext | undefined,
+  downstreamAbortController: AbortController | undefined,
+): Promise<Response> => {
   if (result.type === 'upstream-error') {
-    recordSourcePerformance(source, result.performance, true);
+    recordSourcePerformance(request, result.performance ?? lastPerformance, true);
     return geminiUpstreamErrorResponse(result);
   }
 
   if (result.type === 'internal-error') {
-    recordSourcePerformance(source, result.performance, true);
+    recordSourcePerformance(request, result.performance ?? lastPerformance, true);
     return internalGeminiErrorResponse(result.status, result.error);
   }
 
@@ -192,11 +200,11 @@ export const respondGemini = async (c: Context, result: StreamExecuteResult<Gemi
     try {
       const response = await collectGeminiProtocolEventsToResponse(frames);
       const metadata = await eventResultMetadata(result);
-      await recordSourceUsage(metadata.modelIdentity, tokenUsageFromGeminiResponse(response), source.recordUsage);
-      recordSourcePerformance(source, metadata.performance, state.failed);
+      await recordSourceUsage(metadata.modelIdentity, tokenUsageFromGeminiResponse(response), request.recordUsage);
+      recordSourcePerformance(request, metadata.performance, state.failed);
       return Response.json(response);
     } catch (error) {
-      recordSourcePerformance(source, result.performance, true);
+      recordSourcePerformance(request, result.performance ?? lastPerformance, true);
       return geminiCollectErrorResponse(error);
     }
   }
@@ -206,14 +214,14 @@ export const respondGemini = async (c: Context, result: StreamExecuteResult<Gemi
     try {
       completion = await writeSSEFrames(stream, geminiSseFrames(frames, state), {
         keepAlive: { frame: downstreamSSECommentKeepAliveFrame },
-        downstreamAbortController: source.downstreamAbortController,
+        downstreamAbortController,
       });
     } finally {
       const metadata = await eventResultMetadata(result);
       try {
-        await recordSourceUsage(metadata.modelIdentity, state.usage, source.recordUsage);
+        await recordSourceUsage(metadata.modelIdentity, state.usage, request.recordUsage);
       } finally {
-        recordSourcePerformance(source, metadata.performance, sourceStreamFailed(completion, state));
+        recordSourcePerformance(request, metadata.performance, sourceStreamFailed(completion, state));
       }
     }
   });

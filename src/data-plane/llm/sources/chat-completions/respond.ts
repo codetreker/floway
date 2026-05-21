@@ -1,19 +1,20 @@
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 
-import { chatCompletionsErrorPayloadMessage } from '../../../shared/protocol/chat-completions-errors.ts';
-import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
-import { type InternalDebugError, toInternalDebugError } from '../../shared/errors/internal-debug-error.ts';
-import type { StreamExecuteResult } from '../../shared/errors/result.ts';
-import { upstreamErrorToResponse } from '../../shared/errors/upstream-error.ts';
-import { type StreamCompletion, writeSSEFrames } from '../../shared/stream/proxy-sse.ts';
-import { type ProtocolFrame, sseCommentFrame, sseFrame } from '../../shared/stream/types.ts';
-import type { SourceExecutionContext } from '../execute.ts';
-import { createSourceStreamState, eventResultMetadata, recordSourcePerformance, recordSourceUsage, rememberSourceFrameUsage, sourceStreamFailed } from '../respond.ts';
-import { tokenUsageFromChatFrame, tokenUsageFromChatUsage } from '../usage.ts';
 import { CHAT_COMPLETIONS_MISSING_DONE_MESSAGE } from './events/protocol.ts';
 import { collectChatProtocolEventsToCompletion } from './events/reassemble.ts';
 import { chatProtocolFrameToSSEFrame } from './events/to-sse.ts';
+import { chatCompletionsErrorPayloadMessage } from '../../../shared/protocol/chat-completions-errors.ts';
+import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
+import type { PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
+import type { RequestContext } from '../../interceptors.ts';
+import { type InternalDebugError, toInternalDebugError } from '../../shared/errors/internal-debug-error.ts';
+import type { ExecuteResult } from '../../shared/errors/result.ts';
+import { upstreamErrorToResponse } from '../../shared/errors/upstream-error.ts';
+import { type StreamCompletion, writeSSEFrames } from '../../shared/stream/proxy-sse.ts';
+import { type ProtocolFrame, sseCommentFrame, sseFrame } from '../../shared/stream/types.ts';
+import { createSourceStreamState, eventResultMetadata, recordSourcePerformance, recordSourceUsage, rememberSourceFrameUsage, sourceStreamFailed } from '../respond.ts';
+import { tokenUsageFromChatFrame, tokenUsageFromChatUsage } from '../usage.ts';
 
 const internalChatErrorPayload = (error: InternalDebugError) => ({
   error: {
@@ -63,18 +64,20 @@ const chatSseFrames = async function* (frames: AsyncIterable<ProtocolFrame<ChatC
 
 export const respondChatCompletions = async (
   c: Context,
-  result: StreamExecuteResult<ChatCompletionChunk>,
+  result: ExecuteResult<ProtocolFrame<ChatCompletionChunk>>,
   wantsStream: boolean,
   includeUsageChunk: boolean,
-  source: SourceExecutionContext,
+  request: RequestContext,
+  lastPerformance: PerformanceTelemetryContext | undefined,
+  downstreamAbortController: AbortController | undefined,
 ): Promise<Response> => {
   if (result.type === 'upstream-error') {
-    recordSourcePerformance(source, result.performance, true);
+    recordSourcePerformance(request, result.performance ?? lastPerformance, true);
     return upstreamErrorToResponse(result);
   }
 
   if (result.type === 'internal-error') {
-    recordSourcePerformance(source, result.performance, true);
+    recordSourcePerformance(request, result.performance ?? lastPerformance, true);
     return internalChatErrorResponse(result.status, result.error);
   }
 
@@ -86,11 +89,11 @@ export const respondChatCompletions = async (
       const response = await collectChatProtocolEventsToCompletion(frames);
       const metadata = await eventResultMetadata(result);
       const usage = response.usage ? tokenUsageFromChatUsage(response.usage) : null;
-      await recordSourceUsage(metadata.modelIdentity, usage, source.recordUsage);
-      recordSourcePerformance(source, metadata.performance, state.failed);
+      await recordSourceUsage(metadata.modelIdentity, usage, request.recordUsage);
+      recordSourcePerformance(request, metadata.performance, state.failed);
       return Response.json(response);
     } catch (error) {
-      recordSourcePerformance(source, result.performance, true);
+      recordSourcePerformance(request, result.performance ?? lastPerformance, true);
       return internalChatErrorResponse(502, toInternalDebugError(error, 'chat-completions'));
     }
   }
@@ -100,14 +103,14 @@ export const respondChatCompletions = async (
     try {
       completion = await writeSSEFrames(stream, chatSseFrames(frames, includeUsageChunk, state), {
         keepAlive: { frame: sseCommentFrame('keepalive') },
-        downstreamAbortController: source.downstreamAbortController,
+        downstreamAbortController,
       });
     } finally {
       const metadata = await eventResultMetadata(result);
       try {
-        await recordSourceUsage(metadata.modelIdentity, state.usage, source.recordUsage);
+        await recordSourceUsage(metadata.modelIdentity, state.usage, request.recordUsage);
       } finally {
-        recordSourcePerformance(source, metadata.performance, sourceStreamFailed(completion, state));
+        recordSourcePerformance(request, metadata.performance, sourceStreamFailed(completion, state));
       }
     }
   });

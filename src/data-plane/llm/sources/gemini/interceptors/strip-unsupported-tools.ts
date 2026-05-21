@@ -35,7 +35,7 @@ export const stripUnsupportedToolsFromPayload = (payload: GeminiGenerateContentR
   }
 };
 
-export const stripUnsupportedTools: GeminiInterceptor = (ctx, run) => {
+export const stripUnsupportedTools: GeminiInterceptor = (ctx, _request, run) => {
   stripUnsupportedToolsFromPayload(ctx.payload);
   return run();
 };

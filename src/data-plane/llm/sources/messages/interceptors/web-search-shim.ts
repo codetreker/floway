@@ -979,7 +979,7 @@ const resolveActiveMessagesWebSearchProvider = async (apiKeyId: string | undefin
  * targets. Providers may also register it for native Messages targets when the
  * upstream should not receive Anthropic native web-search tools directly.
  */
-export const withMessagesWebSearchShim: MessagesInterceptor = async (ctx, run) => {
+export const withMessagesWebSearchShim: MessagesInterceptor = async (ctx, request, run) => {
   const prepared = prepareMessagesWebSearchShimRequest(ctx.payload);
 
   if (prepared.type === 'invalid-request') {
@@ -990,7 +990,7 @@ export const withMessagesWebSearchShim: MessagesInterceptor = async (ctx, run) =
     return await run();
   }
 
-  const provider = prepared.state.mode === 'active' ? await resolveActiveMessagesWebSearchProvider(ctx.apiKeyId) : { type: 'ok' as const, provider: undefined };
+  const provider = prepared.state.mode === 'active' ? await resolveActiveMessagesWebSearchProvider(request.apiKeyId) : { type: 'ok' as const, provider: undefined };
   if (provider.type !== 'ok') return provider;
 
   ctx.payload = prepared.payload;
@@ -1004,4 +1004,4 @@ export const withMessagesWebSearchShim: MessagesInterceptor = async (ctx, run) =
   };
 };
 
-export const withMessagesWebSearchShimForTranslatedTargets: MessagesInterceptor = async (ctx, run) => (ctx.targetApi === 'messages' ? await run() : await withMessagesWebSearchShim(ctx, run));
+export const withMessagesWebSearchShimForTranslatedTargets: MessagesInterceptor = async (ctx, request, run) => (ctx.targetApi === 'messages' ? await run() : await withMessagesWebSearchShim(ctx, request, run));

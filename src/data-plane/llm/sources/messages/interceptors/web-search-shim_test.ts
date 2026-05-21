@@ -27,7 +27,7 @@ import type {
 import { type WebSearchProvider } from '../../../../tools/web-search/provider.ts';
 import { DEFAULT_SEARCH_CONFIG } from '../../../../tools/web-search/search-config.ts';
 import type { WebSearchProviderResult } from '../../../../tools/web-search/types.ts';
-import type { MessagesExchangeContext } from '../../../interceptors.ts';
+import type { MessagesInvocation, RequestContext } from '../../../interceptors.ts';
 import { type ProtocolFrame, eventFrame } from '../../../shared/stream/types.ts';
 import { messagesProtocolFrameToSSEFrame } from '../events/to-sse.ts';
 
@@ -37,7 +37,7 @@ const testTelemetryModelIdentity = {
   modelKey: 'test-model-key',
 };
 
-const exchangeContext = (payload: MessagesPayload, apiKeyId?: string): MessagesExchangeContext => ({
+const invocation = (payload: MessagesPayload): MessagesInvocation => ({
   sourceApi: 'messages',
   targetApi: 'messages',
   model: payload.model,
@@ -46,6 +46,14 @@ const exchangeContext = (payload: MessagesPayload, apiKeyId?: string): MessagesE
   provider: {} as never,
   enabledFixes: new Set(),
   payload,
+});
+
+const requestContext = (apiKeyId?: string): RequestContext => ({
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
   ...(apiKeyId !== undefined ? { apiKeyId } : {}),
 });
 
@@ -529,12 +537,12 @@ test('withMessagesWebSearchShim returns internal-error when request requires dis
   await repo.searchConfig.save(DEFAULT_SEARCH_CONFIG);
 
   const result = await withMessagesWebSearchShim(
-    exchangeContext({
+    invocation({
       model: 'claude-test',
       max_tokens: 64,
       messages: [{ role: 'user', content: 'latest React docs' }],
       tools: [{ type: 'web_search_20260209' }],
-    }),
+    }), requestContext(),
     () => Promise.reject(new Error('run should not be called')),
   );
 
@@ -548,7 +556,7 @@ test('withMessagesWebSearchShim allows replay-only history when the search provi
 
   const { tools: _tools, ...payload } = makeNativeReplayPayload();
 
-  const result = await withMessagesWebSearchShim(exchangeContext(payload), () =>
+  const result = await withMessagesWebSearchShim(invocation(payload), requestContext(), () =>
     Promise.resolve({
       type: 'events',
       events: toAsyncIterable(
@@ -597,7 +605,7 @@ test('withMessagesWebSearchShim emits native-like citation deltas for replay-onl
 
   const { tools: _tools, ...payload } = makeNativeReplayPayload();
 
-  const result = await withMessagesWebSearchShim(exchangeContext(payload), () =>
+  const result = await withMessagesWebSearchShim(invocation(payload), requestContext(), () =>
     Promise.resolve({
       type: 'events',
       events: toAsyncIterable(

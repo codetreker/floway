@@ -5,7 +5,6 @@ import { assertEquals, assertFalse, assertThrows } from '../../../../test-assert
 import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
 import type { ResponseInputReasoning, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import { createChatCompletionsToResponsesStreamState, flushChatCompletionsToResponsesEvents, translateChatCompletionsChunkToResponsesEvents } from '../responses-via-chat-completions/events.ts';
-import { translateChatCompletionToResponsesResult } from '../responses-via-chat-completions/result.ts';
 
 type ResponseOutputItemDoneEvent = Extract<ResponseStreamEvent, { type: 'response.output_item.done' }>;
 
@@ -126,107 +125,6 @@ test('translateChatCompletionsToResponses rejects tool messages without tool_cal
     Error,
     'tool_call_id',
   );
-});
-
-test('translateChatCompletionToResponsesResult maps reasoning text content tool calls and length finish reason', () => {
-  const result = translateChatCompletionToResponsesResult({
-    id: 'chatcmpl_123',
-    object: 'chat.completion',
-    created: 1,
-    model: 'gpt-test',
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: 'Hello',
-          reasoning_text: 'trace',
-          reasoning_opaque: 'enc_1',
-          tool_calls: [
-            {
-              id: 'call_1',
-              type: 'function',
-              function: { name: 'lookup', arguments: '{"q":"x"}' },
-            },
-          ],
-        },
-        finish_reason: 'length',
-      },
-    ],
-    usage: {
-      prompt_tokens: 12,
-      completion_tokens: 4,
-      total_tokens: 16,
-      prompt_tokens_details: { cached_tokens: 3 },
-    },
-  });
-
-  assertEquals(result.id, 'chatcmpl_123');
-  assertEquals(result.status, 'incomplete');
-  assertEquals(result.incomplete_details, { reason: 'max_output_tokens' });
-  assertEquals(result.output_text, 'Hello');
-  assertEquals(result.output, [
-    {
-      type: 'reasoning',
-      id: 'rs_0',
-      summary: [{ type: 'summary_text', text: 'trace' }],
-      encrypted_content: 'enc_1',
-    },
-    {
-      type: 'message',
-      role: 'assistant',
-      content: [{ type: 'output_text', text: 'Hello' }],
-    },
-    {
-      type: 'function_call',
-      call_id: 'call_1',
-      name: 'lookup',
-      arguments: '{"q":"x"}',
-      status: 'completed',
-    },
-  ]);
-  assertEquals(result.usage, {
-    input_tokens: 12,
-    output_tokens: 4,
-    total_tokens: 16,
-    input_tokens_details: { cached_tokens: 3 },
-  });
-});
-
-test('translateChatCompletionToResponsesResult prefers reasoning_items over scalar reasoning', () => {
-  const result = translateChatCompletionToResponsesResult({
-    id: 'chatcmpl_123',
-    object: 'chat.completion',
-    created: 1,
-    model: 'gpt-test',
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: 'Hello',
-          reasoning_text: 'legacy trace',
-          reasoning_opaque: 'legacy_enc',
-          reasoning_items: [
-            {
-              type: 'reasoning',
-              id: 'rs_preserved',
-              summary: [{ type: 'summary_text', text: 'preserved trace' }],
-              encrypted_content: 'enc_preserved',
-            },
-          ],
-        } as never,
-        finish_reason: 'stop',
-      },
-    ],
-  });
-
-  assertEquals(result.output[0], {
-    type: 'reasoning',
-    id: 'rs_preserved',
-    summary: [{ type: 'summary_text', text: 'preserved trace' }],
-    encrypted_content: 'enc_preserved',
-  });
 });
 
 test('translateChatCompletionsToResponses preserves translated OpenAI request fields', () => {

@@ -11,7 +11,7 @@ const isContextWindowError = (text: string): boolean => text.includes('Request b
  * References:
  * - https://docs.claude.com/en/docs/claude-code/common-workflows#prompt-too-long
  */
-export const rewriteContextWindowError: MessagesInterceptor = async (_ctx, run) => {
+export const rewriteContextWindowError: MessagesInterceptor = async (_ctx, _request, run) => {
   const result = await run();
   if (result.type !== 'upstream-error') return result;
 

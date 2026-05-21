@@ -23,7 +23,7 @@ export const stripUnsupportedPartFieldsFromPayload = (payload: GeminiGenerateCon
   }
 };
 
-export const stripUnsupportedPartFields: GeminiInterceptor = (ctx, run) => {
+export const stripUnsupportedPartFields: GeminiInterceptor = (ctx, _request, run) => {
   stripUnsupportedPartFieldsFromPayload(ctx.payload);
   return run();
 };

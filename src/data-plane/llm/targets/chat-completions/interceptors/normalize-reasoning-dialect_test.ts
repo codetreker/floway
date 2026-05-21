@@ -1,10 +1,10 @@
 import { test } from 'vitest';
 
 import { withDeepseekReasoningDialect } from './normalize-reasoning-dialect.ts';
-import { chatCompletionsExchangeContext, testTelemetryModelIdentity } from './test-helpers.ts';
+import { chatCompletionsInvocation, stubRequestContext, testTelemetryModelIdentity } from './test-helpers.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import type { ChatCompletionChunk, ChatCompletionsPayload } from '../../../../shared/protocol/chat-completions.ts';
-import type { ChatCompletionsExchangeResult } from '../../../interceptors.ts';
+import type { ExecuteResult } from '../../../shared/errors/result.ts';
 import { eventResult } from '../../../shared/errors/result.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '../../../shared/stream/types.ts';
 
@@ -39,10 +39,10 @@ const baseRequest = (): ChatCompletionsPayload => ({
   ],
 });
 
-const exchangeCtx = (payload: ChatCompletionsPayload = baseRequest()): ReturnType<typeof chatCompletionsExchangeContext> =>
-  chatCompletionsExchangeContext(payload, new Set(['deepseek-reasoning-dialect']));
+const exchangeCtx = (payload: ChatCompletionsPayload = baseRequest()): ReturnType<typeof chatCompletionsInvocation> =>
+  chatCompletionsInvocation(payload, new Set(['deepseek-reasoning-dialect']));
 
-const collectFrames = async (result: ChatCompletionsExchangeResult): Promise<ProtocolFrame<ChatCompletionChunk>[]> => {
+const collectFrames = async (result: ExecuteResult<ProtocolFrame<ChatCompletionChunk>>): Promise<ProtocolFrame<ChatCompletionChunk>[]> => {
   if (result.type !== 'events') throw new Error('expected events result');
   const out: ProtocolFrame<ChatCompletionChunk>[] = [];
   for await (const frame of result.events) out.push(frame);
@@ -53,7 +53,7 @@ test('withDeepseekReasoningDialect renames outbound reasoning_text on a deepseek
   const ctx = exchangeCtx();
 
   let observed: ChatCompletionsPayload | null = null;
-  await withDeepseekReasoningDialect(ctx, () => {
+  await withDeepseekReasoningDialect(ctx, stubRequestContext, () => {
     observed = ctx.payload;
     return Promise.resolve(
       eventResult(
@@ -106,7 +106,7 @@ test('withDeepseekReasoningDialect synthesizes reasoning_content from reasoning_
   });
 
   let observed: ChatCompletionsPayload | null = null;
-  await withDeepseekReasoningDialect(ctx, () => {
+  await withDeepseekReasoningDialect(ctx, stubRequestContext, () => {
     observed = ctx.payload;
     return Promise.resolve(
       eventResult(
@@ -145,7 +145,7 @@ test('withDeepseekReasoningDialect strips reasoning_items even when no summaries
   });
 
   let observed: ChatCompletionsPayload | null = null;
-  await withDeepseekReasoningDialect(ctx, () => {
+  await withDeepseekReasoningDialect(ctx, stubRequestContext, () => {
     observed = ctx.payload;
     return Promise.resolve(
       eventResult(
@@ -180,7 +180,7 @@ test('withDeepseekReasoningDialect renames inbound protocol reasoning_content de
     ],
   };
 
-  const result = await withDeepseekReasoningDialect(ctx, () =>
+  const result = await withDeepseekReasoningDialect(ctx, stubRequestContext, () =>
     Promise.resolve(
       eventResult(
         (async function* () {
@@ -211,7 +211,7 @@ test('withDeepseekReasoningDialect preserves reasoning_content from non-stream J
     choices: [{ index: 0, delta, finish_reason }],
   });
 
-  const result = await withDeepseekReasoningDialect(ctx, () =>
+  const result = await withDeepseekReasoningDialect(ctx, stubRequestContext, () =>
     Promise.resolve(
       eventResult(
         (async function* () {
@@ -237,7 +237,7 @@ test('withDeepseekReasoningDialect leaves protocol done frames untouched', async
   const ctx = exchangeCtx();
   const done = doneFrame();
 
-  const result = await withDeepseekReasoningDialect(ctx, () =>
+  const result = await withDeepseekReasoningDialect(ctx, stubRequestContext, () =>
     Promise.resolve(
       eventResult(
         (async function* () {

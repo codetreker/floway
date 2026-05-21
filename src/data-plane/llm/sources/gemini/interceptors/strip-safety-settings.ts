@@ -5,7 +5,7 @@ import type { GeminiInterceptor } from '../../../interceptors.ts';
  * every target path. Drop them so we don't pretend to enforce a policy we
  * cannot honor end-to-end.
  */
-export const stripSafetySettings: GeminiInterceptor = (ctx, run) => {
+export const stripSafetySettings: GeminiInterceptor = (ctx, _request, run) => {
   delete ctx.payload.safetySettings;
   return run();
 };

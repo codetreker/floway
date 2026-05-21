@@ -2,8 +2,9 @@ import { test } from 'vitest';
 
 import { type Interceptor, runInterceptors } from './interceptors.ts';
 import { assertEquals } from '../../test-assert.ts';
-import { eventResult, type StreamExecuteResult } from './shared/errors/result.ts';
+import { eventResult, type ExecuteResult } from './shared/errors/result.ts';
 import { eventFrame } from './shared/stream/types.ts';
+import type { ProtocolFrame } from './shared/stream/types.ts';
 
 const collectFrames = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   const frames: T[] = [];
@@ -17,12 +18,14 @@ const testTelemetryModelIdentity = {
   modelKey: 'test-model-key',
 };
 
-type TestResult = StreamExecuteResult<string>;
+type TestResult = ExecuteResult<ProtocolFrame<string>>;
+type TestRequest = { traceId: string };
 
 test('runInterceptors lets an interceptor patch context before run and patch result after run', async () => {
   const ctx = { payload: { value: 'original' } };
+  const request: TestRequest = { traceId: 't1' };
 
-  const interceptor: Interceptor<typeof ctx, TestResult> = async (current, run) => {
+  const interceptor: Interceptor<typeof ctx, TestRequest, TestResult> = async (current, _request, run) => {
     current.payload.value = 'patched';
     const patched = current.payload.value;
     const result = await run();
@@ -38,7 +41,7 @@ test('runInterceptors lets an interceptor patch context before run and patch res
     };
   };
 
-  const result = await runInterceptors(ctx, [interceptor], () => Promise.resolve(makeResult(ctx.payload.value)));
+  const result = await runInterceptors(ctx, request, [interceptor], () => Promise.resolve(makeResult(ctx.payload.value)));
 
   assertEquals(result.type, 'events');
   if (result.type !== 'events') throw new Error('expected events result');
@@ -49,21 +52,22 @@ test('runInterceptors lets an interceptor patch context before run and patch res
 test('runInterceptors composes interceptors in nested order', async () => {
   const calls: string[] = [];
   const ctx = { payload: { value: 'ok' } };
+  const request: TestRequest = { traceId: 't2' };
 
-  const outer: Interceptor<typeof ctx, TestResult> = async (_ctx, run) => {
+  const outer: Interceptor<typeof ctx, TestRequest, TestResult> = async (_ctx, _request, run) => {
     calls.push('outer-before');
     const result = await run();
     calls.push('outer-after');
     return result;
   };
-  const inner: Interceptor<typeof ctx, TestResult> = async (_ctx, run) => {
+  const inner: Interceptor<typeof ctx, TestRequest, TestResult> = async (_ctx, _request, run) => {
     calls.push('inner-before');
     const result = await run();
     calls.push('inner-after');
     return result;
   };
 
-  await runInterceptors(ctx, [outer, inner], () => {
+  await runInterceptors(ctx, request, [outer, inner], () => {
     calls.push('terminal');
     return Promise.resolve(makeResult(ctx.payload.value));
   });
@@ -73,9 +77,10 @@ test('runInterceptors composes interceptors in nested order', async () => {
 
 test('runInterceptors lets an interceptor inspect an upstream error and retry', async () => {
   const ctx = { payload: { value: 'broken' } };
+  const request: TestRequest = { traceId: 't3' };
   let attempts = 0;
 
-  const interceptor: Interceptor<typeof ctx, TestResult> = async (current, run) => {
+  const interceptor: Interceptor<typeof ctx, TestRequest, TestResult> = async (current, _request, run) => {
     const first = await run();
     if (first.type !== 'upstream-error') return first;
 
@@ -83,7 +88,7 @@ test('runInterceptors lets an interceptor inspect an upstream error and retry', 
     return await run();
   };
 
-  const result = await runInterceptors(ctx, [interceptor], () => {
+  const result = await runInterceptors(ctx, request, [interceptor], () => {
     attempts += 1;
     return Promise.resolve(
       attempts === 1

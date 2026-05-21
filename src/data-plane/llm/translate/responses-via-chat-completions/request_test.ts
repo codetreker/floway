@@ -4,7 +4,6 @@ import { translateResponsesToChatCompletions } from './request.ts';
 import { assertEquals } from '../../../../test-assert.ts';
 import type { ResponseTool, ResponseToolChoice } from '../../../shared/protocol/responses.ts';
 import { createResponsesToChatCompletionsStreamState, translateResponsesEventToChatCompletionsChunks } from '../chat-completions-via-responses/events.ts';
-import { translateResponsesToChatCompletion } from '../chat-completions-via-responses/result.ts';
 
 test('translateResponsesToChatCompletions merges adjacent assistant reasoning text and tool calls', () => {
   const result = translateResponsesToChatCompletions({
@@ -158,91 +157,6 @@ test('translateResponsesToChatCompletions preserves all reasoning items and proj
           encrypted_content: 'enc_2',
         },
       ],
-    },
-  ]);
-});
-
-test('translateResponsesToChatCompletion preserves all reasoning items and projects only the first scalar group', () => {
-  const result = translateResponsesToChatCompletion({
-    id: 'resp_123',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      {
-        type: 'reasoning',
-        id: 'rs_1',
-        summary: [{ type: 'summary_text', text: 'first' }],
-        encrypted_content: 'enc_1',
-      },
-      {
-        type: 'reasoning',
-        id: 'rs_2',
-        summary: [{ type: 'summary_text', text: 'second' }],
-        encrypted_content: 'enc_2',
-      },
-    ],
-    output_text: '',
-    status: 'completed',
-    usage: {
-      input_tokens: 1,
-      output_tokens: 1,
-      total_tokens: 2,
-    },
-  });
-
-  assertEquals(result.choices[0].message.reasoning_text, 'first');
-  assertEquals(result.choices[0].message.reasoning_opaque, 'enc_1');
-  assertEquals(result.choices[0].message.reasoning_items, [
-    {
-      type: 'reasoning',
-      id: 'rs_1',
-      summary: [{ type: 'summary_text', text: 'first' }],
-      encrypted_content: 'enc_1',
-    },
-    {
-      type: 'reasoning',
-      id: 'rs_2',
-      summary: [{ type: 'summary_text', text: 'second' }],
-      encrypted_content: 'enc_2',
-    },
-  ]);
-});
-
-test('translateResponsesToChatCompletion does not fill missing scalar opaque from a later item', () => {
-  const result = translateResponsesToChatCompletion({
-    id: 'resp_123',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      {
-        type: 'reasoning',
-        id: 'rs_1',
-        summary: [{ type: 'summary_text', text: 'visible first' }],
-      },
-      {
-        type: 'reasoning',
-        id: 'rs_2',
-        summary: [],
-        encrypted_content: 'enc_2',
-      },
-    ],
-    output_text: '',
-    status: 'completed',
-  });
-
-  assertEquals(result.choices[0].message.reasoning_text, 'visible first');
-  assertEquals(result.choices[0].message.reasoning_opaque, undefined);
-  assertEquals(result.choices[0].message.reasoning_items, [
-    {
-      type: 'reasoning',
-      id: 'rs_1',
-      summary: [{ type: 'summary_text', text: 'visible first' }],
-    },
-    {
-      type: 'reasoning',
-      id: 'rs_2',
-      summary: [],
-      encrypted_content: 'enc_2',
     },
   ]);
 });

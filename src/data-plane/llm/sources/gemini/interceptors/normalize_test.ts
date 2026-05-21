@@ -5,7 +5,7 @@ import { stripUnsupportedPartFieldsFromPayload } from './strip-unsupported-part-
 import { stripUnsupportedToolsFromPayload } from './strip-unsupported-tools.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import type { GeminiGenerateContentRequest } from '../../../../shared/protocol/gemini.ts';
-import type { GeminiExchangeContext } from '../../../interceptors.ts';
+import type { GeminiInvocation, RequestContext } from '../../../interceptors.ts';
 
 const testTelemetryModelIdentity = {
   model: 'test-model',
@@ -13,7 +13,7 @@ const testTelemetryModelIdentity = {
   modelKey: 'test-model-key',
 };
 
-const exchangeContext = (payload: GeminiGenerateContentRequest): GeminiExchangeContext => ({
+const invocation = (payload: GeminiGenerateContentRequest): GeminiInvocation => ({
   sourceApi: 'gemini',
   targetApi: 'chat-completions',
   model: 'gemini-test',
@@ -24,8 +24,16 @@ const exchangeContext = (payload: GeminiGenerateContentRequest): GeminiExchangeC
   payload,
 });
 
+const stubRequest: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};
+
 const runStripSafetySettings = async (payload: GeminiGenerateContentRequest): Promise<void> => {
-  await stripSafetySettings(exchangeContext(payload), () =>
+  await stripSafetySettings(invocation(payload), stubRequest, () =>
     Promise.resolve({
       type: 'events' as const,
       events: (async function* () {})(),

@@ -4,9 +4,17 @@ import { withReasoningDisabledOnForcedToolChoice } from './disable-reasoning-on-
 import { assertEquals } from '../../../../../test-assert.ts';
 import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
 import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
-import type { ResponsesExchangeContext } from '../../../interceptors.ts';
+import type { RequestContext, ResponsesInvocation } from '../../../interceptors.ts';
 import { eventResult } from '../../../shared/errors/result.ts';
 import { doneFrame } from '../../../shared/stream/types.ts';
+
+const stubRequest: RequestContext = {
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: false,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+};
 
 const okEvents = () =>
   Promise.resolve(
@@ -18,7 +26,7 @@ const okEvents = () =>
     ),
   );
 
-const exchangeContext = (payload: ResponsesPayload, enabledFixes: ReadonlySet<string> = new Set()): ResponsesExchangeContext => ({
+const invocation = (payload: ResponsesPayload, enabledFixes: ReadonlySet<string> = new Set()): ResponsesInvocation => ({
   sourceApi: 'responses',
   targetApi: 'responses',
   model: payload.model,
@@ -30,14 +38,14 @@ const exchangeContext = (payload: ResponsesPayload, enabledFixes: ReadonlySet<st
 });
 
 test('responses required tool_choice strips reasoning', async () => {
-  const input = exchangeContext({
+  const input = invocation({
     model: 'm',
     input: 'hi',
     reasoning: { effort: 'high' },
     tool_choice: 'required',
   });
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
   assertEquals(input.payload.reasoning, undefined);
   const out = input.payload as unknown as Record<string, unknown>;
@@ -46,20 +54,20 @@ test('responses required tool_choice strips reasoning', async () => {
 });
 
 test('responses object tool_choice is forced', async () => {
-  const input = exchangeContext({
+  const input = invocation({
     model: 'm',
     input: 'hi',
     reasoning: { effort: 'high' },
     tool_choice: { type: 'custom', name: 'x' },
   });
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
   assertEquals(input.payload.reasoning, undefined);
 });
 
 test('responses vendor flags add explicit disable fields', async () => {
-  const input = exchangeContext(
+  const input = invocation(
     {
       model: 'm',
       input: 'hi',
@@ -69,7 +77,7 @@ test('responses vendor flags add explicit disable fields', async () => {
     new Set(['vendor-deepseek', 'vendor-qwen']),
   );
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
   const out = input.payload as unknown as Record<string, unknown>;
   assertEquals(out.thinking, { type: 'disabled' });
@@ -78,7 +86,7 @@ test('responses vendor flags add explicit disable fields', async () => {
 
 test('responses non-forced tool_choice leaves reasoning untouched', async () => {
   for (const tool_choice of ['auto', 'none'] as const) {
-    const input = exchangeContext(
+    const input = invocation(
       {
         model: 'm',
         input: 'hi',
@@ -88,7 +96,7 @@ test('responses non-forced tool_choice leaves reasoning untouched', async () => 
       new Set(['vendor-deepseek']),
     );
 
-    await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+    await withReasoningDisabledOnForcedToolChoice(input, stubRequest, okEvents);
 
     assertEquals(input.payload.reasoning, { effort: 'high' });
     const out = input.payload as unknown as Record<string, unknown>;

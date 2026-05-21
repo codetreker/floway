@@ -1,4 +1,4 @@
-import type { MessagesExchangeContext, MessagesInterceptor } from '../../../../llm/interceptors.ts';
+import type { MessagesInterceptor, MessagesInvocation } from '../../../../llm/interceptors.ts';
 import { eventFrame, type ProtocolFrame } from '../../../../llm/shared/stream/types.ts';
 import type { MessagesStreamEventData, MessagesThinkingDisplay } from '../../../../shared/protocol/messages.ts';
 import { copilotRawModelId } from '../../model-name.ts';
@@ -20,7 +20,7 @@ const isClaudeVersionAtLeast = (model: string, major: number, minor: number): bo
   return modelMajor > major || (modelMajor === major && modelMinor >= minor);
 };
 
-export const resolveMessagesDownstreamThinkingDisplay = (ctx: Pick<MessagesExchangeContext, 'payload'>): MessagesThinkingDisplay | undefined => {
+export const resolveMessagesDownstreamThinkingDisplay = (ctx: Pick<MessagesInvocation, 'payload'>): MessagesThinkingDisplay | undefined => {
   const display = ctx.payload.thinking?.display;
   if (display !== undefined) {
     // Request JSON is not runtime-validated before target interceptors; leave
@@ -91,7 +91,7 @@ const omitThinkingTextFromProtocolFrames = async function* (frames: AsyncIterabl
  * - https://github.com/anthropics/claude-code/issues/46987
  * - https://github.com/anthropics/claude-code/issues/50477
  */
-export const withThinkingDisplayPromoted: MessagesInterceptor = async (ctx, run) => {
+export const withThinkingDisplayPromoted: MessagesInterceptor = async (ctx, _request, run) => {
   const downstreamDisplay = resolveMessagesDownstreamThinkingDisplay(ctx);
   const thinking = ctx.payload.thinking;
   const hasActiveThinking = !!thinking && thinking.type !== 'disabled';

@@ -1,74 +1,21 @@
 import type { Context } from 'hono';
 
 import type { PerformanceApiName } from '../../../repo/types.ts';
-import { type BackgroundScheduler, backgroundSchedulerFromContext } from '../../../runtime/background.ts';
-import type { ProviderModelRecord } from '../../providers/types.ts';
-import { type PerformanceTelemetryContext, type RecordRequestPerformance, recordRequestPerformanceForApiKey, runtimeLocationFromRequest } from '../../shared/telemetry/performance.ts';
-import { type RecordUsage, recordUsageForApiKey } from '../../shared/telemetry/usage.ts';
-import type { LlmExchangeMeta, LlmSourceApi, LlmTargetApi } from '../interceptors.ts';
+import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
+import { type PerformanceTelemetryContext, recordRequestPerformanceForApiKey, runtimeLocationFromRequest } from '../../shared/telemetry/performance.ts';
+import { recordUsageForApiKey } from '../../shared/telemetry/usage.ts';
+import type { RequestContext } from '../interceptors.ts';
 import { toInternalDebugError } from '../shared/errors/internal-debug-error.ts';
 import { modelLoadErrorResult } from '../shared/errors/model-load-error.ts';
-import { internalErrorResult, type StreamExecuteResult, type UpstreamErrorResult } from '../shared/errors/result.ts';
+import { internalErrorResult, type ExecuteResult, type UpstreamErrorResult } from '../shared/errors/result.ts';
 import { thrownUpstreamErrorResult } from '../shared/errors/upstream-error.ts';
-import type { EmitInput } from '../targets/emit-types.ts';
-
-interface PerformanceBearingResult {
-  performance?: PerformanceTelemetryContext;
-}
+import type { ProtocolFrame } from '../shared/stream/types.ts';
 
 type PerformanceLlmSourceApi = Exclude<PerformanceApiName, 'embeddings'>;
 
-export interface SourceExecutionContext {
-  requestStartedAt: number;
-  apiKeyId?: string;
-  runtimeLocation: string;
-  scheduleBackground?: BackgroundScheduler;
-  recordUsage: RecordUsage;
-  recordRequestPerformance: RecordRequestPerformance;
-  readonly lastPerformance?: PerformanceTelemetryContext;
-  readonly downstreamAbortController?: AbortController;
-  readonly downstreamAbortSignal?: AbortSignal;
-  beginDownstream(wantsStream: boolean): void;
-  rememberPerformance<T extends PerformanceBearingResult>(result: T): T;
-}
-
-export const sourceExchangeMeta = (source: SourceExecutionContext, binding: ProviderModelRecord, sourceApi: LlmSourceApi, targetApi: LlmTargetApi, model: string): LlmExchangeMeta => ({
-  sourceApi,
-  targetApi,
-  model,
-  upstream: binding.upstream,
-  provider: binding.provider,
-  upstreamModel: binding.upstreamModel,
-  enabledFixes: binding.enabledFixes,
-  apiKeyId: source.apiKeyId,
-  downstreamAbortSignal: source.downstreamAbortSignal,
-});
-
-export const sourceTargetInput = <TPayload extends { model: string }, TTargetApi extends LlmTargetApi, TExtra extends object = Record<never, never>>(
-  source: SourceExecutionContext,
-  binding: ProviderModelRecord,
-  sourceApi: LlmSourceApi,
-  targetApi: TTargetApi,
-  model: string,
-  payload: TPayload,
-  clientStream: boolean,
-  extra?: TExtra,
-): EmitInput<TPayload> & { targetApi: TTargetApi } & TExtra => ({
-  ...sourceExchangeMeta(source, binding, sourceApi, targetApi, model),
-  targetApi,
-  payload,
-  targetInterceptors: binding.targetInterceptors,
-  clientStream,
-  runtimeLocation: source.runtimeLocation,
-  scheduleBackground: source.scheduleBackground,
-  ...(extra ?? ({} as TExtra)),
-});
-
-export const createSourceExecutionContext = (c: Context): SourceExecutionContext => {
+export const createRequestContext = (c: Context, downstreamAbortSignal: AbortSignal | undefined, clientStream: boolean): RequestContext => {
   const apiKeyId = c.get('apiKeyId') as string | undefined;
   const scheduleBackground = backgroundSchedulerFromContext(c);
-  let lastPerformance: PerformanceTelemetryContext | undefined;
-  let downstreamAbortController: AbortController | undefined;
 
   return {
     requestStartedAt: performance.now(),
@@ -77,22 +24,8 @@ export const createSourceExecutionContext = (c: Context): SourceExecutionContext
     scheduleBackground,
     recordUsage: recordUsageForApiKey(apiKeyId),
     recordRequestPerformance: recordRequestPerformanceForApiKey(apiKeyId, scheduleBackground),
-    get lastPerformance() {
-      return lastPerformance;
-    },
-    get downstreamAbortController() {
-      return downstreamAbortController;
-    },
-    get downstreamAbortSignal() {
-      return downstreamAbortController?.signal;
-    },
-    beginDownstream(wantsStream) {
-      downstreamAbortController = wantsStream ? new AbortController() : undefined;
-    },
-    rememberPerformance(result) {
-      if (result.performance) lastPerformance = result.performance;
-      return result;
-    },
+    clientStream,
+    ...(downstreamAbortSignal !== undefined ? { downstreamAbortSignal } : {}),
   };
 };
 
@@ -120,7 +53,7 @@ export const sourceErrorResult = <TEvent>(
     internalStatus: number;
     lastPerformance?: PerformanceTelemetryContext;
   },
-): StreamExecuteResult<TEvent> => {
+): ExecuteResult<ProtocolFrame<TEvent>> => {
   try {
     return modelLoadErrorResult(error, options.lastPerformance);
   } catch {

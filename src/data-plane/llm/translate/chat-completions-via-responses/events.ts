@@ -1,10 +1,16 @@
-import { mapResponsesFinishReasonToChatCompletionsFinishReason } from './result.ts';
-import type { ChatCompletionChunk, ChatReasoningItem, Delta } from '../../../shared/protocol/chat-completions.ts';
+import type { ChatCompletionChunk, ChatCompletionResponse, ChatReasoningItem, Delta } from '../../../shared/protocol/chat-completions.ts';
 import type { ResponseOutputItem, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
 import { toChatReasoningItem } from '../shared/chat-responses-reasoning.ts';
 import { createResponsesOutputOrderState, recordResponseOutputOrderEvent, type ResponsesOutputOrderState, shouldDeferForEarlierResponseOutput } from '../shared/responses-stream-order.ts';
 import { type ResponseEvent, responsePartKey, type UpstreamResponseStreamEvent } from '../shared/responses-stream.ts';
+
+const mapResponsesFinishReasonToChatCompletionsFinishReason = (response: ResponsesResult): ChatCompletionResponse['choices'][0]['finish_reason'] =>
+  response.status === 'incomplete' && response.incomplete_details?.reason === 'max_output_tokens'
+    ? 'length'
+    : response.status === 'completed' && response.output.some(item => item.type === 'function_call')
+      ? 'tool_calls'
+      : 'stop';
 
 const UPSTREAM_RESPONSES_MISSING_TERMINAL_MESSAGE = 'Upstream Responses stream ended without a terminal event.';
 

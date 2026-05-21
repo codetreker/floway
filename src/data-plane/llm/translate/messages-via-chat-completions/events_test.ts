@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 
-import { createChatCompletionsToMessagesStreamState, flushChatCompletionsToMessagesEvents, translateChatCompletionsChunkToMessagesEvents } from './events.ts';
+import { createChatCompletionsToMessagesStreamState, flushChatCompletionsToMessagesEvents, mapChatCompletionsUsageToMessagesUsage, translateChatCompletionsChunkToMessagesEvents } from './events.ts';
 import { assertEquals, assertFalse } from '../../../../test-assert.ts';
 import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
 
@@ -326,4 +326,24 @@ test('translateChatCompletionsChunkToMessagesEvents ignores empty tool_calls arr
   const events3 = translateChatCompletionsChunkToMessagesEvents(chunk({}, 'stop'), state);
   const textBlocks = events3.filter(e => e.type === 'content_block_stop');
   assertEquals(textBlocks.length, 1, 'only one text block should have been closed');
+});
+
+test('mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to cache_read_input_tokens', () => {
+  const usage = mapChatCompletionsUsageToMessagesUsage({
+    prompt_tokens: 100,
+    completion_tokens: 20,
+    prompt_tokens_details: { cached_tokens: 60 },
+  });
+  assertEquals(usage.input_tokens, 40);
+  assertEquals(usage.output_tokens, 20);
+  assertEquals(usage.cache_read_input_tokens, 60);
+});
+
+test('mapChatCompletionsUsageToMessagesUsage omits cache_read_input_tokens when no cache field', () => {
+  const usage = mapChatCompletionsUsageToMessagesUsage({
+    prompt_tokens: 100,
+    completion_tokens: 20,
+  });
+  assertEquals(usage.input_tokens, 100);
+  assertEquals(usage.cache_read_input_tokens, undefined);
 });

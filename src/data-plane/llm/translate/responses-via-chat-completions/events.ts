@@ -1,5 +1,4 @@
-import { mapChatCompletionsUsageToResponsesUsage } from './result.ts';
-import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
+import type { ChatCompletionChunk, ChatCompletionResponse } from '../../../shared/protocol/chat-completions.ts';
 import type { ResponseOutputItem, ResponseOutputReasoning, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import type { ResponsesStreamEvent } from '../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
@@ -7,6 +6,22 @@ import { toResponseReasoningItem } from '../shared/chat-responses-reasoning.ts';
 import { makeResponsesReasoningId } from '../shared/reasoning.ts';
 import * as responses from '../shared/responses-event-builder.ts';
 import { checkWhitespaceOverflow } from '../shared/tool-arguments.ts';
+
+const mapChatCompletionsUsageToResponsesUsage = (usage: ChatCompletionResponse['usage'] | undefined): ResponsesResult['usage'] | undefined =>
+  usage
+    ? {
+        input_tokens: usage.prompt_tokens,
+        output_tokens: usage.completion_tokens,
+        total_tokens: usage.total_tokens,
+        ...(usage.prompt_tokens_details?.cached_tokens !== undefined
+          ? {
+              input_tokens_details: {
+                cached_tokens: usage.prompt_tokens_details.cached_tokens,
+              },
+            }
+          : {}),
+      }
+    : undefined;
 
 const UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE = 'Upstream Chat Completions stream ended without a DONE sentinel.';
 

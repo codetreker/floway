@@ -14,7 +14,7 @@ const CCH_HASH_RE = /cch=[0-9a-f]{5,};?/gi;
 
 const stripText = (text: string): string => text.replace(BILLING_HEADER_LINE_RE, '').replace(CCH_HASH_RE, '').trim();
 
-export const stripBillingAttribution: MessagesInterceptor = (ctx, run) => {
+export const stripBillingAttribution: MessagesInterceptor = (ctx, _request, run) => {
   const { payload } = ctx;
 
   if (typeof payload.system === 'string') {

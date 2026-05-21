@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 
-import { createResponsesToMessagesStreamState, translateResponsesStreamEventToMessagesEvents } from './events.ts';
+import { createResponsesToMessagesStreamState, translateResponsesStreamEventToMessagesEvents, translateResponsesToMessagesResponse } from './events.ts';
 import { assertEquals, assertFalse } from '../../../../test-assert.ts';
 
 test('opaque-only Responses reasoning stream becomes redacted_thinking with packed id', () => {
@@ -502,6 +502,130 @@ test('reasoning stream with whitespace-only summary and encrypted_content become
         type: 'redacted_thinking',
         data: 'opaque_sig@rs_ws',
       },
+    },
+  ]);
+});
+
+test('translateResponsesToMessagesResponse omits signature for text-only reasoning', () => {
+  const result = translateResponsesToMessagesResponse({
+    id: 'resp_123',
+    object: 'response',
+    model: 'gpt-test',
+    output: [
+      {
+        type: 'reasoning',
+        id: 'rs_1',
+        summary: [{ type: 'summary_text', text: 'trace' }],
+      },
+    ],
+    output_text: '',
+    status: 'completed',
+    usage: {
+      input_tokens: 10,
+      output_tokens: 2,
+      total_tokens: 12,
+    },
+  });
+
+  const block = result.content[0];
+  assertEquals(block, { type: 'thinking', thinking: 'trace' });
+  assertFalse('signature' in block);
+});
+
+test('translateResponsesToMessagesResponse packs reasoning id into opaque-only redacted_thinking data', () => {
+  const result = translateResponsesToMessagesResponse({
+    id: 'resp_123',
+    object: 'response',
+    model: 'gpt-test',
+    output: [
+      {
+        type: 'reasoning',
+        id: 'rs_1',
+        summary: [],
+        encrypted_content: 'opaque_sig',
+      },
+    ],
+    output_text: '',
+    status: 'completed',
+    usage: {
+      input_tokens: 10,
+      output_tokens: 2,
+      total_tokens: 12,
+    },
+  });
+
+  assertEquals(result.content, [
+    {
+      type: 'redacted_thinking',
+      data: 'opaque_sig@rs_1',
+    },
+  ]);
+});
+
+test('translateResponsesToMessagesResponse drops reasoning with neither summary nor encrypted_content', () => {
+  const result = translateResponsesToMessagesResponse({
+    id: 'resp_drop',
+    object: 'response',
+    model: 'gpt-test',
+    output: [
+      { type: 'reasoning', id: 'rs_empty', summary: [] },
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'hello' }],
+      },
+    ],
+    output_text: 'hello',
+    status: 'completed',
+    usage: { input_tokens: 5, output_tokens: 1, total_tokens: 6 },
+  });
+
+  assertEquals(result.content, [{ type: 'text', text: 'hello' }]);
+});
+
+test('translateResponsesToMessagesResponse drops reasoning with explicit undefined encrypted_content', () => {
+  const result = translateResponsesToMessagesResponse({
+    id: 'resp_undef',
+    object: 'response',
+    model: 'gpt-test',
+    output: [
+      {
+        type: 'reasoning',
+        id: 'rs_undef',
+        summary: [],
+        encrypted_content: undefined,
+      },
+    ],
+    output_text: '',
+    status: 'completed',
+    usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+  });
+
+  assertEquals(result.content, []);
+});
+
+test('translateResponsesToMessagesResponse treats whitespace-only summary as opaque-only reasoning and packs id', () => {
+  const result = translateResponsesToMessagesResponse({
+    id: 'resp_ws',
+    object: 'response',
+    model: 'gpt-test',
+    output: [
+      {
+        type: 'reasoning',
+        id: 'rs_ws',
+        summary: [{ type: 'summary_text', text: '   \n  ' }],
+        encrypted_content: 'opaque_sig',
+      },
+    ],
+    output_text: '',
+    status: 'completed',
+    usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+  });
+
+  assertEquals(result.content, [
+    {
+      type: 'redacted_thinking',
+      data: 'opaque_sig@rs_ws',
     },
   ]);
 });

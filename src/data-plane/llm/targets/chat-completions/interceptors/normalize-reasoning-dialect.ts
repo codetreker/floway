@@ -76,7 +76,7 @@ const rewriteInboundChunk = (chunk: ChatCompletionChunk): ChatCompletionChunk =>
   return changed ? { ...chunk, choices } : chunk;
 };
 
-export const withDeepseekReasoningDialect: ChatCompletionsInterceptor = async (ctx, run) => {
+export const withDeepseekReasoningDialect: ChatCompletionsInterceptor = async (ctx, _request, run) => {
   ctx.payload = rewriteOutboundPayload(ctx.payload);
 
   const result = await run();

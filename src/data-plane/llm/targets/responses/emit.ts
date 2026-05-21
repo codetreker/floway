@@ -2,34 +2,28 @@ import { responsesStreamFramesToEvents } from './events/from-stream.ts';
 import { interceptorsForResponses } from './interceptors/index.ts';
 import type { TelemetryModelIdentity } from '../../../../repo/types.ts';
 import type { ResponsesPayload } from '../../../shared/protocol/responses.ts';
-import { runInterceptors } from '../../interceptors.ts';
-import { eventResult } from '../../shared/errors/result.ts';
+import { type RequestContext, type ResponsesInvocation, runInterceptors } from '../../interceptors.ts';
+import { eventResult, type ExecuteResult } from '../../shared/errors/result.ts';
 import type { ResponsesStreamEvent } from '../../shared/protocol/responses.ts';
-import type { EmitInput, EmitResult } from '../emit-types.ts';
-import { targetExchangeMeta, targetInternalError, targetModelIdentity, targetProviderResultToFrames } from '../emit.ts';
-
-export interface EmitToResponsesInput extends EmitInput<ResponsesPayload> {
-  targetApi: 'responses';
-}
+import type { ProtocolFrame } from '../../shared/stream/types.ts';
+import { targetInternalError, targetModelIdentity, targetProviderResultToFrames } from '../emit.ts';
 
 const targetApi = 'responses';
 
-export const emitToResponses = async (input: EmitToResponsesInput): Promise<EmitResult<ResponsesStreamEvent>> => {
+export const emitToResponses = async (invocation: ResponsesInvocation, request: RequestContext): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
   let modelIdentity: TelemetryModelIdentity | undefined;
 
   try {
-    const ctx = { ...targetExchangeMeta(input), payload: input.payload };
-    return await runInterceptors(ctx, interceptorsForResponses(input), async () => {
+    return await runInterceptors(invocation, request, interceptorsForResponses(invocation), async () => {
       const upstreamStartedAt = performance.now();
-      const { model: _model, ...body } = ctx.payload;
-      const providerResult = await input.provider.callResponses(input.upstreamModel, body, ctx.downstreamAbortSignal);
-      modelIdentity = targetModelIdentity(input, providerResult.modelKey);
-      const telemetryInput = { ...input, payload: ctx.payload };
-      const result = await targetProviderResultToFrames(telemetryInput, targetApi, providerResult, modelIdentity, upstreamStartedAt);
+      const { model: _model, ...body } = invocation.payload;
+      const providerResult = await invocation.provider.callResponses(invocation.upstreamModel, body as Omit<ResponsesPayload, 'model'>, request.downstreamAbortSignal);
+      modelIdentity = targetModelIdentity(invocation, providerResult.modelKey);
+      const result = await targetProviderResultToFrames(invocation, request, targetApi, providerResult, modelIdentity, upstreamStartedAt);
 
       return result.type === 'events' ? eventResult(responsesStreamFramesToEvents(result.events), result.modelIdentity, result.performance, result.finalMetadata) : result;
     });
   } catch (error) {
-    return targetInternalError(input, targetApi, error, modelIdentity);
+    return targetInternalError(invocation, request, targetApi, error, modelIdentity);
   }
 };

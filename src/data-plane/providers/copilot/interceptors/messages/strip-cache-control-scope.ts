@@ -20,7 +20,7 @@ const stripBlockScope = (block: Record<string, unknown>): void => {
   block.cache_control = Object.keys(rest).length > 0 ? rest : undefined;
 };
 
-export const withCacheControlScopeStripped: MessagesInterceptor = async (ctx, run) => {
+export const withCacheControlScopeStripped: MessagesInterceptor = async (ctx, _request, run) => {
   if (Array.isArray(ctx.payload.system)) {
     for (const block of ctx.payload.system as unknown as Record<string, unknown>[]) {
       stripBlockScope(block);

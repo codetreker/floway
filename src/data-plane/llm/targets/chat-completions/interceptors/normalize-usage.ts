@@ -74,7 +74,7 @@ const splitOrNormalizeChunk = (chunk: ChatCompletionChunk): readonly ChatComplet
   ];
 };
 
-export const withUsageNormalized: ChatCompletionsInterceptor = async (_ctx, run) => {
+export const withUsageNormalized: ChatCompletionsInterceptor = async (_ctx, _request, run) => {
   const result = await run();
   if (result.type !== 'events') return result;
   return {

@@ -1,16 +1,16 @@
 import { test } from 'vitest';
 
 import { withUsageNormalized } from './normalize-usage.ts';
-import { chatCompletionsExchangeContext, testTelemetryModelIdentity } from './test-helpers.ts';
+import { chatCompletionsInvocation, stubRequestContext, testTelemetryModelIdentity } from './test-helpers.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import type { ChatCompletionChunk, ChatCompletionsPayload } from '../../../../shared/protocol/chat-completions.ts';
-import type { ChatCompletionsExchangeResult } from '../../../interceptors.ts';
+import type { ExecuteResult } from '../../../shared/errors/result.ts';
 import { eventResult } from '../../../shared/errors/result.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '../../../shared/stream/types.ts';
 
-const baseCtx = (payload: ChatCompletionsPayload = { model: 'test-model', messages: [] }): ReturnType<typeof chatCompletionsExchangeContext> => chatCompletionsExchangeContext(payload);
+const baseCtx = (payload: ChatCompletionsPayload = { model: 'test-model', messages: [] }): ReturnType<typeof chatCompletionsInvocation> => chatCompletionsInvocation(payload);
 
-const collectFrames = async (result: ChatCompletionsExchangeResult): Promise<ProtocolFrame<ChatCompletionChunk>[]> => {
+const collectFrames = async (result: ExecuteResult<ProtocolFrame<ChatCompletionChunk>>): Promise<ProtocolFrame<ChatCompletionChunk>[]> => {
   if (result.type !== 'events') throw new Error('expected events result');
   const out: ProtocolFrame<ChatCompletionChunk>[] = [];
   for await (const frame of result.events) out.push(frame);
@@ -18,7 +18,7 @@ const collectFrames = async (result: ChatCompletionsExchangeResult): Promise<Pro
 };
 
 const runWithFrames = async (...frames: ProtocolFrame<ChatCompletionChunk>[]): Promise<ProtocolFrame<ChatCompletionChunk>[]> => {
-  const result = await withUsageNormalized(baseCtx(), () =>
+  const result = await withUsageNormalized(baseCtx(), stubRequestContext, () =>
     Promise.resolve(
       eventResult(
         (async function* () {

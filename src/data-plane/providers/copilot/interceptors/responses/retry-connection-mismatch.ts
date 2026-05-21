@@ -181,7 +181,7 @@ const collectAndFixAll = async (payload: ResponsesPayload): Promise<boolean> => 
   return true;
 };
 
-export const withConnectionMismatchRetried: ResponsesInterceptor = async (ctx, run) => {
+export const withConnectionMismatchRetried: ResponsesInterceptor = async (ctx, _request, run) => {
   await applySpottedFixes(ctx.payload);
 
   const first = await run();

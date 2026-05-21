@@ -1,15 +1,15 @@
 import { test } from 'vitest';
 
 import { withReasoningDisabledOnForcedToolChoice } from './disable-reasoning-on-forced-tool-choice.ts';
-import { chatCompletionsExchangeContext, testTelemetryModelIdentity } from './test-helpers.ts';
+import { chatCompletionsInvocation, stubRequestContext, testTelemetryModelIdentity } from './test-helpers.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import type { ChatCompletionsPayload } from '../../../../shared/protocol/chat-completions.ts';
 import { eventResult } from '../../../shared/errors/result.ts';
 
 const okEvents = () => Promise.resolve(eventResult((async function* () {})(), testTelemetryModelIdentity));
 
-const emitInput = (payload: ChatCompletionsPayload, enabledFixes: ReadonlySet<string> = new Set()): ReturnType<typeof chatCompletionsExchangeContext> =>
-  chatCompletionsExchangeContext(payload, enabledFixes);
+const emitInput = (payload: ChatCompletionsPayload, enabledFixes: ReadonlySet<string> = new Set()): ReturnType<typeof chatCompletionsInvocation> =>
+  chatCompletionsInvocation(payload, enabledFixes);
 
 test('chat completions required tool_choice strips reasoning_effort', async () => {
   const input = emitInput({
@@ -19,7 +19,7 @@ test('chat completions required tool_choice strips reasoning_effort', async () =
     tool_choice: 'required',
   });
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequestContext, okEvents);
 
   assertEquals(input.payload.reasoning_effort, undefined);
   const out = input.payload as unknown as Record<string, unknown>;
@@ -35,7 +35,7 @@ test('chat completions object tool_choice is forced', async () => {
     tool_choice: { type: 'function', function: { name: 'x' } },
   });
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequestContext, okEvents);
 
   assertEquals(input.payload.reasoning_effort, undefined);
 });
@@ -51,7 +51,7 @@ test('chat completions vendor flags add explicit disable fields', async () => {
     new Set(['vendor-deepseek', 'vendor-qwen']),
   );
 
-  await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+  await withReasoningDisabledOnForcedToolChoice(input, stubRequestContext, okEvents);
 
   const out = input.payload as unknown as Record<string, unknown>;
   assertEquals(out.thinking, { type: 'disabled' });
@@ -70,7 +70,7 @@ test('chat completions non-forced tool_choice leaves reasoning untouched', async
       new Set(['vendor-deepseek']),
     );
 
-    await withReasoningDisabledOnForcedToolChoice(input, okEvents);
+    await withReasoningDisabledOnForcedToolChoice(input, stubRequestContext, okEvents);
 
     assertEquals(input.payload.reasoning_effort, 'high');
     const out = input.payload as unknown as Record<string, unknown>;

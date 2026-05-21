@@ -1,18 +1,19 @@
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 
+import { collectResponsesProtocolEventsToResult } from './events/reassemble.ts';
+import { responsesProtocolFrameToSSEFrame } from './events/to-sse.ts';
+import type { PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
+import type { RequestContext } from '../../interceptors.ts';
 import { type InternalDebugError, toInternalDebugError } from '../../shared/errors/internal-debug-error.ts';
-import type { StreamExecuteResult } from '../../shared/errors/result.ts';
+import type { ExecuteResult } from '../../shared/errors/result.ts';
 import { upstreamErrorToResponse } from '../../shared/errors/upstream-error.ts';
 import type { ResponsesStreamEvent } from '../../shared/protocol/responses.ts';
 import { isResponsesTerminalEvent, RESPONSES_MISSING_TERMINAL_MESSAGE } from '../../shared/protocol/responses.ts';
 import { type StreamCompletion, writeSSEFrames } from '../../shared/stream/proxy-sse.ts';
 import { type ProtocolFrame, sseCommentFrame, sseFrame } from '../../shared/stream/types.ts';
-import type { SourceExecutionContext } from '../execute.ts';
 import { createSourceStreamState, eventResultMetadata, recordSourcePerformance, recordSourceUsage, rememberSourceFrameUsage, sourceStreamFailed } from '../respond.ts';
 import { tokenUsageFromResponsesFrame, tokenUsageFromResponsesResult } from '../usage.ts';
-import { collectResponsesProtocolEventsToResult } from './events/reassemble.ts';
-import { responsesProtocolFrameToSSEFrame } from './events/to-sse.ts';
 
 const internalResponsesErrorPayload = (error: InternalDebugError) => ({
   error: {
@@ -75,14 +76,21 @@ const responsesSseFrames = async function* (frames: AsyncIterable<ProtocolFrame<
   }
 };
 
-export const respondResponses = async (c: Context, result: StreamExecuteResult<ResponsesStreamEvent>, wantsStream: boolean, source: SourceExecutionContext): Promise<Response> => {
+export const respondResponses = async (
+  c: Context,
+  result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>,
+  wantsStream: boolean,
+  request: RequestContext,
+  lastPerformance: PerformanceTelemetryContext | undefined,
+  downstreamAbortController: AbortController | undefined,
+): Promise<Response> => {
   if (result.type === 'upstream-error') {
-    recordSourcePerformance(source, result.performance, true);
+    recordSourcePerformance(request, result.performance ?? lastPerformance, true);
     return upstreamErrorToResponse(result);
   }
 
   if (result.type === 'internal-error') {
-    recordSourcePerformance(source, result.performance, true);
+    recordSourcePerformance(request, result.performance ?? lastPerformance, true);
     return internalResponsesErrorResponse(result.status, result.error);
   }
 
@@ -93,11 +101,11 @@ export const respondResponses = async (c: Context, result: StreamExecuteResult<R
     try {
       const response = await collectResponsesProtocolEventsToResult(frames);
       const metadata = await eventResultMetadata(result);
-      await recordSourceUsage(metadata.modelIdentity, tokenUsageFromResponsesResult(response), source.recordUsage);
-      recordSourcePerformance(source, metadata.performance, state.failed || response.status === 'failed');
+      await recordSourceUsage(metadata.modelIdentity, tokenUsageFromResponsesResult(response), request.recordUsage);
+      recordSourcePerformance(request, metadata.performance, state.failed || response.status === 'failed');
       return Response.json(response);
     } catch (error) {
-      recordSourcePerformance(source, result.performance, true);
+      recordSourcePerformance(request, result.performance ?? lastPerformance, true);
       return internalResponsesErrorResponse(502, toInternalDebugError(error, 'responses'));
     }
   }
@@ -107,14 +115,14 @@ export const respondResponses = async (c: Context, result: StreamExecuteResult<R
     try {
       completion = await writeSSEFrames(stream, responsesSseFrames(frames, state), {
         keepAlive: { frame: sseCommentFrame('keepalive') },
-        downstreamAbortController: source.downstreamAbortController,
+        downstreamAbortController,
       });
     } finally {
       const metadata = await eventResultMetadata(result);
       try {
-        await recordSourceUsage(metadata.modelIdentity, state.usage, source.recordUsage);
+        await recordSourceUsage(metadata.modelIdentity, state.usage, request.recordUsage);
       } finally {
-        recordSourcePerformance(source, metadata.performance, sourceStreamFailed(completion, state));
+        recordSourcePerformance(request, metadata.performance, sourceStreamFailed(completion, state));
       }
     }
   });

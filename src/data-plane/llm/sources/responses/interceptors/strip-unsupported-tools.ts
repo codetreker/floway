@@ -70,7 +70,7 @@ export const stripUnsupportedToolsFromPayload = (payload: ResponsesPayload): voi
   stripToolChoice(payload, removedUnsupportedTool);
 };
 
-export const stripUnsupportedTools: ResponsesInterceptor = (ctx, run) => {
+export const stripUnsupportedTools: ResponsesInterceptor = (ctx, _request, run) => {
   stripUnsupportedToolsFromPayload(ctx.payload);
   return run();
 };

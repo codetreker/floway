@@ -4,8 +4,8 @@ import { withCyberPolicyRetried } from './retry-cyber-policy.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
 import type { ResponsesPayload, ResponsesResult } from '../../../../shared/protocol/responses.ts';
-import type { ResponsesExchangeContext, ResponsesExchangeResult } from '../../../interceptors.ts';
-import { eventResult } from '../../../shared/errors/result.ts';
+import type { RequestContext, ResponsesInvocation } from '../../../interceptors.ts';
+import { eventResult, type ExecuteResult } from '../../../shared/errors/result.ts';
 import type { ResponsesStreamEvent } from '../../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../../shared/stream/types.ts';
 
@@ -24,7 +24,7 @@ const makePayload = (): ResponsesPayload => ({
   parallel_tool_calls: true,
 });
 
-const makeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
+const makeInvocation = (payload: ResponsesPayload): ResponsesInvocation => ({
   sourceApi: 'responses',
   targetApi: 'responses',
   model: payload.model,
@@ -33,6 +33,15 @@ const makeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
   provider: stubProvider(),
   upstreamModel: stubUpstreamModel(),
   enabledFixes: new Set<string>(),
+});
+
+const stubRequest = (overrides: { downstreamAbortSignal?: AbortSignal } = {}): RequestContext => ({
+  requestStartedAt: 0,
+  runtimeLocation: 'test',
+  clientStream: true,
+  recordUsage: async () => {},
+  recordRequestPerformance: () => {},
+  ...(overrides.downstreamAbortSignal !== undefined ? { downstreamAbortSignal: overrides.downstreamAbortSignal } : {}),
 });
 
 type PromiseState<T> = { type: 'pending' } | { type: 'fulfilled'; value: T } | { type: 'rejected'; error: unknown };
@@ -110,7 +119,7 @@ const deltaEvent = (delta: string, sequence_number = 1): ResponsesStreamEvent =>
   delta,
 });
 
-const protocolResult = (events: readonly ResponsesStreamEvent[], modelIdentity = testTelemetryModelIdentity, performance?: ResponsesExchangeResult['performance']): ResponsesExchangeResult =>
+const protocolResult = (events: readonly ResponsesStreamEvent[], modelIdentity = testTelemetryModelIdentity, performance?: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>['performance']): ExecuteResult<ProtocolFrame<ResponsesStreamEvent>> =>
   eventResult(
     (async function* () {
       for (const event of events) yield eventFrame(event);
@@ -141,7 +150,7 @@ const performanceFor = (modelKey: string) => ({
   runtimeLocation: 'test',
 });
 
-const upstreamCyberPolicyError = (message: string): ResponsesExchangeResult => ({
+const upstreamCyberPolicyError = (message: string): ExecuteResult<ProtocolFrame<ResponsesStreamEvent>> => ({
   type: 'upstream-error',
   status: 400,
   headers: new Headers({ 'content-type': 'application/json' }),
@@ -156,7 +165,7 @@ const upstreamCyberPolicyError = (message: string): ResponsesExchangeResult => (
   ),
 });
 
-const upstreamServerError = (message: string): ResponsesExchangeResult => ({
+const upstreamServerError = (message: string): ExecuteResult<ProtocolFrame<ResponsesStreamEvent>> => ({
   type: 'upstream-error',
   status: 500,
   headers: new Headers({ 'content-type': 'application/json' }),
@@ -175,7 +184,7 @@ test('withCyberPolicyRetried retries fatal upstream cyber policy errors before r
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts < 6) {
@@ -193,7 +202,7 @@ test('withCyberPolicyRetried retries first Responses protocol cyber policy failu
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts < 3) {
@@ -216,7 +225,7 @@ test('withCyberPolicyRetried buffers converted fallback prologue frames before r
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts === 1) {
@@ -252,7 +261,7 @@ test('withCyberPolicyRetried attributes streaming retries to the final provider 
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts === 1) {
@@ -282,7 +291,7 @@ test('withCyberPolicyRetried returns successful streams without draining them', 
     markStreamDrained = () => resolve('drained');
   });
 
-  const resultPromise = withCyberPolicyRetried(makeContext(payload), () =>
+  const resultPromise = withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () =>
     Promise.resolve(
       eventResult(
         (async function* () {
@@ -315,7 +324,7 @@ test('withCyberPolicyRetried returns streaming results before the first upstream
     releaseFirstFrame = resolve;
   });
 
-  const resultPromise = withCyberPolicyRetried(makeContext(payload), () =>
+  const resultPromise = withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () =>
     Promise.resolve(
       eventResult(
         (async function* () {
@@ -341,10 +350,8 @@ test('withCyberPolicyRetried does not start another streaming retry after downst
   const cyberPolicyFrame = eventFrame(cyberPolicyEvent('resp_blocked_after_abort'));
 
   const result = await withCyberPolicyRetried(
-    {
-      ...makeContext(payload),
-      downstreamAbortSignal: downstreamAbortController.signal,
-    },
+    makeInvocation(payload),
+    stubRequest({ downstreamAbortSignal: downstreamAbortController.signal }),
     () => {
       attempts += 1;
       return Promise.resolve(
@@ -372,7 +379,7 @@ test('withCyberPolicyRetried streams the final HTTP cyber policy failure after a
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts === 1) {
@@ -407,7 +414,7 @@ test('withCyberPolicyRetried streams a later HTTP upstream failure after a strea
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts === 1) {
@@ -440,7 +447,7 @@ test('withCyberPolicyRetried preserves debug fields for later internal failures 
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
 
     if (attempts === 1) {
@@ -489,7 +496,7 @@ test('withCyberPolicyRetried returns the final cyber policy failure after exhaus
   const payload = makePayload();
   let attempts = 0;
 
-  const result = await withCyberPolicyRetried(makeContext(payload), () => {
+  const result = await withCyberPolicyRetried(makeInvocation(payload), stubRequest(), () => {
     attempts += 1;
     return Promise.resolve(upstreamCyberPolicyError(`blocked ${attempts}`));
   });

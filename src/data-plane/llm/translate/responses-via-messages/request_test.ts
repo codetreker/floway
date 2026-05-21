@@ -3,7 +3,6 @@ import { test } from 'vitest';
 import { translateResponsesToMessages } from './request.ts';
 import { assertEquals, assertFalse } from '../../../../test-assert.ts';
 import { MESSAGES_FALLBACK_MAX_TOKENS } from '../../../shared/protocol/messages.ts';
-import { translateResponsesToMessagesResponse } from '../messages-via-responses/result.ts';
 
 const stubRemoteImageLoader = (result: { mediaType: string | null; data: Uint8Array } | null) => () => Promise.resolve(result);
 
@@ -125,32 +124,6 @@ test('translateResponsesToMessages packs reasoning id into the Anthropic signatu
   });
 });
 
-test('translateResponsesToMessagesResponse omits signature for text-only reasoning', () => {
-  const result = translateResponsesToMessagesResponse({
-    id: 'resp_123',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      {
-        type: 'reasoning',
-        id: 'rs_1',
-        summary: [{ type: 'summary_text', text: 'trace' }],
-      },
-    ],
-    output_text: '',
-    status: 'completed',
-    usage: {
-      input_tokens: 10,
-      output_tokens: 2,
-      total_tokens: 12,
-    },
-  });
-
-  const block = result.content[0];
-  assertEquals(block, { type: 'thinking', thinking: 'trace' });
-  assertFalse('signature' in block);
-});
-
 test('translateResponsesToMessages omits generic metadata instead of coercing it to metadata.user_id', async () => {
   const result = await translateResponsesToMessages({
     model: 'claude-test',
@@ -219,104 +192,6 @@ test('translateResponsesToMessages resolves remote input images through the shar
         media_type: 'image/png',
         data: 'AQID',
       },
-    },
-  ]);
-});
-
-test('translateResponsesToMessagesResponse packs reasoning id into opaque-only redacted_thinking data', () => {
-  const result = translateResponsesToMessagesResponse({
-    id: 'resp_123',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      {
-        type: 'reasoning',
-        id: 'rs_1',
-        summary: [],
-        encrypted_content: 'opaque_sig',
-      },
-    ],
-    output_text: '',
-    status: 'completed',
-    usage: {
-      input_tokens: 10,
-      output_tokens: 2,
-      total_tokens: 12,
-    },
-  });
-
-  assertEquals(result.content, [
-    {
-      type: 'redacted_thinking',
-      data: 'opaque_sig@rs_1',
-    },
-  ]);
-});
-
-test('translateResponsesToMessagesResponse drops reasoning with neither summary nor encrypted_content', () => {
-  const result = translateResponsesToMessagesResponse({
-    id: 'resp_drop',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      { type: 'reasoning', id: 'rs_empty', summary: [] },
-      {
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'output_text', text: 'hello' }],
-      },
-    ],
-    output_text: 'hello',
-    status: 'completed',
-    usage: { input_tokens: 5, output_tokens: 1, total_tokens: 6 },
-  });
-
-  assertEquals(result.content, [{ type: 'text', text: 'hello' }]);
-});
-
-test('translateResponsesToMessagesResponse drops reasoning with explicit undefined encrypted_content', () => {
-  const result = translateResponsesToMessagesResponse({
-    id: 'resp_undef',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      {
-        type: 'reasoning',
-        id: 'rs_undef',
-        summary: [],
-        encrypted_content: undefined,
-      },
-    ],
-    output_text: '',
-    status: 'completed',
-    usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
-  });
-
-  assertEquals(result.content, []);
-});
-
-test('translateResponsesToMessagesResponse treats whitespace-only summary as opaque-only reasoning and packs id', () => {
-  const result = translateResponsesToMessagesResponse({
-    id: 'resp_ws',
-    object: 'response',
-    model: 'gpt-test',
-    output: [
-      {
-        type: 'reasoning',
-        id: 'rs_ws',
-        summary: [{ type: 'summary_text', text: '   \n  ' }],
-        encrypted_content: 'opaque_sig',
-      },
-    ],
-    output_text: '',
-    status: 'completed',
-    usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
-  });
-
-  assertEquals(result.content, [
-    {
-      type: 'redacted_thinking',
-      data: 'opaque_sig@rs_ws',
     },
   ]);
 });

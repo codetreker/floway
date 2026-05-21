@@ -1,34 +1,28 @@
 import { chatCompletionsStreamFramesToEvents } from './events/from-stream.ts';
+import { interceptorsForChatCompletions } from './interceptors/index.ts';
 import type { TelemetryModelIdentity } from '../../../../repo/types.ts';
 import type { ChatCompletionChunk, ChatCompletionsPayload } from '../../../shared/protocol/chat-completions.ts';
-import { runInterceptors } from '../../interceptors.ts';
-import { eventResult } from '../../shared/errors/result.ts';
-import type { EmitInput, EmitResult } from '../emit-types.ts';
-import { targetExchangeMeta, targetInternalError, targetModelIdentity, targetProviderResultToFrames } from '../emit.ts';
-import { interceptorsForChatCompletions } from './interceptors/index.ts';
-
-export interface EmitToChatCompletionsInput extends EmitInput<ChatCompletionsPayload> {
-  targetApi: 'chat-completions';
-}
+import { type ChatCompletionsInvocation, type RequestContext, runInterceptors } from '../../interceptors.ts';
+import { eventResult, type ExecuteResult } from '../../shared/errors/result.ts';
+import type { ProtocolFrame } from '../../shared/stream/types.ts';
+import { targetInternalError, targetModelIdentity, targetProviderResultToFrames } from '../emit.ts';
 
 const targetApi = 'chat-completions';
 
-export const emitToChatCompletions = async (input: EmitToChatCompletionsInput): Promise<EmitResult<ChatCompletionChunk>> => {
+export const emitToChatCompletions = async (invocation: ChatCompletionsInvocation, request: RequestContext): Promise<ExecuteResult<ProtocolFrame<ChatCompletionChunk>>> => {
   let modelIdentity: TelemetryModelIdentity | undefined;
-  const ctx = { ...targetExchangeMeta(input), payload: input.payload };
 
   try {
-    return await runInterceptors(ctx, interceptorsForChatCompletions(input), async () => {
+    return await runInterceptors(invocation, request, interceptorsForChatCompletions(invocation), async () => {
       const upstreamStartedAt = performance.now();
-      const { model: _model, ...body } = ctx.payload;
-      const providerResult = await input.provider.callChatCompletions(input.upstreamModel, body, ctx.downstreamAbortSignal);
-      modelIdentity = targetModelIdentity(input, providerResult.modelKey);
-      const telemetryInput = { ...input, payload: ctx.payload };
-      const result = await targetProviderResultToFrames(telemetryInput, targetApi, providerResult, modelIdentity, upstreamStartedAt);
+      const { model: _model, ...body } = invocation.payload;
+      const providerResult = await invocation.provider.callChatCompletions(invocation.upstreamModel, body as Omit<ChatCompletionsPayload, 'model'>, request.downstreamAbortSignal);
+      modelIdentity = targetModelIdentity(invocation, providerResult.modelKey);
+      const result = await targetProviderResultToFrames(invocation, request, targetApi, providerResult, modelIdentity, upstreamStartedAt);
 
       return result.type === 'events' ? eventResult(chatCompletionsStreamFramesToEvents(result.events), result.modelIdentity, result.performance, result.finalMetadata) : result;
     });
   } catch (error) {
-    return targetInternalError(input, targetApi, error, modelIdentity);
+    return targetInternalError(invocation, request, targetApi, error, modelIdentity);
   }
 };

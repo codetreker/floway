@@ -1,8 +1,23 @@
-import { geminiResponse, messagesStopReasonToGemini } from './result.ts';
-import type { GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
+import type { GeminiFinishReason, GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
 import type { MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
+import { geminiResponse } from '../shared/gemini-response.ts';
 import { appendGeminiThoughtSignature, flushGeminiThoughtSignature, type GeminiThoughtSignatureState, parseStrictJsonObject, signGeminiPart } from '../shared/gemini.ts';
+
+const messagesStopReasonToGemini = (stopReason: Extract<MessagesStreamEventData, { type: 'message_delta' }>['delta']['stop_reason']): GeminiFinishReason => {
+  switch (stopReason) {
+  case 'end_turn':
+  case 'tool_use':
+  case 'stop_sequence':
+    return 'STOP';
+  case 'max_tokens':
+    return 'MAX_TOKENS';
+  case 'refusal':
+    return 'SAFETY';
+  default:
+    return 'OTHER';
+  }
+};
 
 const UPSTREAM_MESSAGES_MISSING_TERMINAL_MESSAGE = 'Upstream Messages stream ended without a message_stop event.';
 

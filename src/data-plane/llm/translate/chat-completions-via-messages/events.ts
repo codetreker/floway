@@ -1,7 +1,21 @@
-import { mapMessagesStopReasonToChatCompletionsFinishReason } from './result.ts';
-import type { ChatCompletionChunk, Delta } from '../../../shared/protocol/chat-completions.ts';
-import type { MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
+import type { ChatCompletionChunk, ChatCompletionResponse, Delta } from '../../../shared/protocol/chat-completions.ts';
+import type { MessagesResponse, MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
+
+const mapMessagesStopReasonToChatCompletionsFinishReason = (stopReason: MessagesResponse['stop_reason']): ChatCompletionResponse['choices'][0]['finish_reason'] => {
+  switch (stopReason) {
+  case null:
+  case 'end_turn':
+  case 'stop_sequence':
+  case 'pause_turn':
+  case 'refusal':
+    return 'stop';
+  case 'max_tokens':
+    return 'length';
+  case 'tool_use':
+    return 'tool_calls';
+  }
+};
 
 const UPSTREAM_MESSAGES_MISSING_TERMINAL_MESSAGE = 'Upstream Messages stream ended without a message_stop event.';
 

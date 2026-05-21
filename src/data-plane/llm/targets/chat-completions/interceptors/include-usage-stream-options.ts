@@ -9,7 +9,7 @@ import type { ChatCompletionsInterceptor } from '../../../interceptors.ts';
  * References:
  * - https://platform.openai.com/docs/api-reference/chat/create
  */
-export const withUsageStreamOptionsIncluded: ChatCompletionsInterceptor = async (ctx, run) => {
+export const withUsageStreamOptionsIncluded: ChatCompletionsInterceptor = async (ctx, _request, run) => {
   // provider 已强制 stream=true；本 interceptor 仅追加 stream_options.include_usage 以让上游回传 usage
   ctx.payload.stream_options = ctx.payload.stream_options ? { ...ctx.payload.stream_options, include_usage: true } : { include_usage: true };
 

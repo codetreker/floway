@@ -39,7 +39,7 @@ const fixResponsesStreamIds = (event: ResponsesStreamEvent, tracker: StreamIdTra
   } as ResponsesStreamEvent;
 };
 
-export const withOutputItemIdsSynchronized: ResponsesInterceptor = async (_ctx, run) => {
+export const withOutputItemIdsSynchronized: ResponsesInterceptor = async (_ctx, _request, run) => {
   const result = await run();
   if (result.type !== 'events') return result;
 

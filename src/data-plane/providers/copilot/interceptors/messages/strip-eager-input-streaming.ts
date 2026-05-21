@@ -11,7 +11,7 @@ import type { MessagesInterceptor } from '../../../../llm/interceptors.ts';
  * References:
  * - https://github.com/anthropics/anthropic-sdk-typescript/blob/a53f60d59ca904f3e79296586642aac3ce68ae02/src/resources/messages/messages.ts#L1761
  */
-export const withEagerInputStreamingStripped: MessagesInterceptor = async (ctx, run) => {
+export const withEagerInputStreamingStripped: MessagesInterceptor = async (ctx, _request, run) => {
   if (ctx.payload.tools) {
     ctx.payload.tools = ctx.payload.tools.map(tool => {
       const { eager_input_streaming: _, ...rest } = tool as typeof tool & {
