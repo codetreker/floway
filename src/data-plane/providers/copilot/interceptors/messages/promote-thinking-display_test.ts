@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import { eventResult } from "../../../../llm/shared/errors/result.ts";
 import type { MessagesStreamEventData } from "../../../../shared/protocol/messages.ts";
 import {
@@ -82,7 +83,7 @@ const okEvents = (): Promise<MessagesExchangeResult> =>
     testTelemetryModelIdentity,
   ));
 
-Deno.test("resolveMessagesDownstreamThinkingDisplay exposes 4.7+ omitted by default and older Claude as summarized", () => {
+test("resolveMessagesDownstreamThinkingDisplay exposes 4.7+ omitted by default and older Claude as summarized", () => {
   assertEquals(
     resolveMessagesDownstreamThinkingDisplay(makeCtx({ type: "adaptive" })),
     "omitted",
@@ -119,7 +120,7 @@ Deno.test("resolveMessagesDownstreamThinkingDisplay exposes 4.7+ omitted by defa
   );
 });
 
-Deno.test("resolveMessagesDownstreamThinkingDisplay preserves explicit display", () => {
+test("resolveMessagesDownstreamThinkingDisplay preserves explicit display", () => {
   assertEquals(
     resolveMessagesDownstreamThinkingDisplay(
       makeCtx({ type: "adaptive", display: "summarized" }),
@@ -140,14 +141,14 @@ Deno.test("resolveMessagesDownstreamThinkingDisplay preserves explicit display",
   );
 });
 
-Deno.test("resolveMessagesDownstreamThinkingDisplay ignores unknown explicit display values", () => {
+test("resolveMessagesDownstreamThinkingDisplay ignores unknown explicit display values", () => {
   const ctx = makeCtx({ type: "adaptive" });
   (ctx.payload.thinking as { display?: unknown }).display = "omit";
 
   assertEquals(resolveMessagesDownstreamThinkingDisplay(ctx), undefined);
 });
 
-Deno.test("withThinkingDisplayPromoted sends summarized upstream when thinking display is omitted", async () => {
+test("withThinkingDisplayPromoted sends summarized upstream when thinking display is omitted", async () => {
   const ctx = makeCtx({ type: "adaptive" });
 
   await withThinkingDisplayPromoted(ctx, () =>
@@ -167,7 +168,7 @@ Deno.test("withThinkingDisplayPromoted sends summarized upstream when thinking d
   assertEquals(ctx.payload.thinking?.display, "summarized");
 });
 
-Deno.test("withThinkingDisplayPromoted overrides omitted but preserves full", async () => {
+test("withThinkingDisplayPromoted overrides omitted but preserves full", async () => {
   const omittedCtx = makeCtx({ type: "adaptive", display: "omitted" });
   const fullCtx = makeCtx({ type: "adaptive", display: "full" });
 
@@ -178,7 +179,7 @@ Deno.test("withThinkingDisplayPromoted overrides omitted but preserves full", as
   assertEquals(fullCtx.payload.thinking?.display, "full");
 });
 
-Deno.test("withThinkingDisplayPromoted leaves disabled or absent thinking untouched", async () => {
+test("withThinkingDisplayPromoted leaves disabled or absent thinking untouched", async () => {
   const disabledCtx = makeCtx({ type: "disabled" });
   const absentCtx = makeCtx(undefined);
 
@@ -192,7 +193,7 @@ Deno.test("withThinkingDisplayPromoted leaves disabled or absent thinking untouc
   assertEquals(absentCtx.payload.thinking, undefined);
 });
 
-Deno.test("withThinkingDisplayPromoted leaves unknown display values for upstream validation", async () => {
+test("withThinkingDisplayPromoted leaves unknown display values for upstream validation", async () => {
   const ctx = makeCtx({ type: "adaptive" });
   (ctx.payload.thinking as { display?: unknown }).display = "omit";
 
@@ -204,7 +205,7 @@ Deno.test("withThinkingDisplayPromoted leaves unknown display values for upstrea
   assertEquals((ctx.payload.thinking as { display?: unknown }).display, "omit");
 });
 
-Deno.test("withThinkingDisplayPromoted simulates omitted display on protocol events", async () => {
+test("withThinkingDisplayPromoted simulates omitted display on protocol events", async () => {
   const ctx = makeCtx({ type: "adaptive" }, { sourceApi: "responses" });
 
   const result = await withThinkingDisplayPromoted(

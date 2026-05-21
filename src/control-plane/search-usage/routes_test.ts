@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { Hono } from "hono";
 import { initRepo } from "../../repo/index.ts";
 import { InMemoryRepo } from "../../repo/memory.ts";
@@ -47,7 +48,7 @@ const setup = async () => {
   return { app, repo };
 };
 
-Deno.test("/api/search-usage returns records with key metadata and active provider", async () => {
+test("/api/search-usage returns records with key metadata and active provider", async () => {
   const { app, repo } = await setup();
   await repo.searchConfig.save({
     provider: "microsoft-grounding",
@@ -81,7 +82,7 @@ Deno.test("/api/search-usage returns records with key metadata and active provid
   ]);
 });
 
-Deno.test("/api/search-usage filters by provider and rejects invalid provider", async () => {
+test("/api/search-usage filters by provider and rejects invalid provider", async () => {
   const { app } = await setup();
 
   const filtered = await app.request(
@@ -102,7 +103,7 @@ Deno.test("/api/search-usage filters by provider and rejects invalid provider", 
   assertEquals(invalid.status, 400);
 });
 
-Deno.test("/api/search-usage requires start and end", async () => {
+test("/api/search-usage requires start and end", async () => {
   const { app } = await setup();
 
   const missingStart = await app.request("/api/search-usage?end=2026-03-16T00");

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import type { ModelCapabilities } from "../../../providers/capabilities.ts";
 import { planChatRequest } from "./plan.ts";
 
@@ -13,13 +14,13 @@ const capabilities = (
   ...overrides,
 });
 
-Deno.test("planChatRequest rejects capability misses instead of legacy fallback", () => {
+test("planChatRequest rejects capability misses instead of legacy fallback", () => {
   const plan = planChatRequest(capabilities());
 
   assertEquals(plan, null);
 });
 
-Deno.test("planChatRequest prefers native Chat when both Chat and Messages are available", () => {
+test("planChatRequest prefers native Chat when both Chat and Messages are available", () => {
   const plan = planChatRequest(
     capabilities({
       supportedEndpoints: ["messages", "chat_completions"],
@@ -31,7 +32,7 @@ Deno.test("planChatRequest prefers native Chat when both Chat and Messages are a
   assertEquals(plan?.target, "chat-completions");
 });
 
-Deno.test("planChatRequest does not invent legacy fallback without provider endpoints", () => {
+test("planChatRequest does not invent legacy fallback without provider endpoints", () => {
   const plan = planChatRequest(capabilities());
 
   assertEquals(plan, null);

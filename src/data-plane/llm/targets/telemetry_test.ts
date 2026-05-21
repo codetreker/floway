@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import { initRepo } from "../../../repo/index.ts";
 import { InMemoryRepo } from "../../../repo/memory.ts";
 import { stubProvider, stubUpstreamModel } from "../../../test-helpers.ts";
@@ -55,7 +56,7 @@ const baseInput = (
     },
   }) as const;
 
-Deno.test("withUpstreamTelemetry records EOF-without-terminal as upstream failure", async () => {
+test("withUpstreamTelemetry records EOF-without-terminal as upstream failure", async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
@@ -80,7 +81,7 @@ Deno.test("withUpstreamTelemetry records EOF-without-terminal as upstream failur
   assertEquals(rows[0].errors, 1);
 });
 
-Deno.test("withUpstreamTelemetry records upstream-thrown stream errors as upstream failure", async () => {
+test("withUpstreamTelemetry records upstream-thrown stream errors as upstream failure", async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
@@ -111,7 +112,7 @@ Deno.test("withUpstreamTelemetry records upstream-thrown stream errors as upstre
   assertEquals(rows[0].requests, 0);
 });
 
-Deno.test("withUpstreamTelemetry does not record consumer-cancelled streams", async () => {
+test("withUpstreamTelemetry does not record consumer-cancelled streams", async () => {
   const harness = setup();
 
   const iterator = withUpstreamTelemetry(
@@ -132,7 +133,7 @@ Deno.test("withUpstreamTelemetry does not record consumer-cancelled streams", as
   assertEquals(await harness.repo.performance.listAll(), []);
 });
 
-Deno.test("withUpstreamTelemetry does not record downstream-signal-aborted streams", async () => {
+test("withUpstreamTelemetry does not record downstream-signal-aborted streams", async () => {
   const harness = setup();
   const downstreamAbortController = new AbortController();
 
@@ -157,7 +158,7 @@ Deno.test("withUpstreamTelemetry does not record downstream-signal-aborted strea
   assertEquals(await harness.repo.performance.listAll(), []);
 });
 
-Deno.test("withUpstreamTelemetry records failed Responses JSON as upstream failure", async () => {
+test("withUpstreamTelemetry records failed Responses JSON as upstream failure", async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
@@ -197,7 +198,7 @@ Deno.test("withUpstreamTelemetry records failed Responses JSON as upstream failu
   assertEquals(rows[0].requests, 0);
 });
 
-Deno.test("withUpstreamTelemetry records Messages SSE error event as upstream failure", async () => {
+test("withUpstreamTelemetry records Messages SSE error event as upstream failure", async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
@@ -227,7 +228,7 @@ Deno.test("withUpstreamTelemetry records Messages SSE error event as upstream fa
   assertEquals(rows[0].requests, 0);
 });
 
-Deno.test("withUpstreamTelemetry records Responses SSE failure event as upstream failure", async () => {
+test("withUpstreamTelemetry records Responses SSE failure event as upstream failure", async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
@@ -255,7 +256,7 @@ Deno.test("withUpstreamTelemetry records Responses SSE failure event as upstream
   assertEquals(rows[0].requests, 0);
 });
 
-Deno.test("withUpstreamTelemetry treats DONE as terminal only for chat-completions", async () => {
+test("withUpstreamTelemetry treats DONE as terminal only for chat-completions", async () => {
   for (const targetApi of ["messages", "responses"] as const) {
     const harness = setup();
 
@@ -286,7 +287,7 @@ Deno.test("withUpstreamTelemetry treats DONE as terminal only for chat-completio
   }
 });
 
-Deno.test("withUpstreamTelemetry snapshots duration when the success frame arrives", async () => {
+test("withUpstreamTelemetry snapshots duration when the success frame arrives", async () => {
   const harness = setup();
   const startedAt = performance.now();
 
@@ -313,7 +314,7 @@ Deno.test("withUpstreamTelemetry snapshots duration when the success frame arriv
   assertEquals(rows[0].totalMsSum < 40, true);
 });
 
-Deno.test("recordUpstreamHttpFailure records a single error for non-2xx responses", async () => {
+test("recordUpstreamHttpFailure records a single error for non-2xx responses", async () => {
   const harness = setup();
   recordUpstreamHttpFailure(
     baseInput(harness, { sourceApi: "messages" }),
@@ -329,7 +330,7 @@ Deno.test("recordUpstreamHttpFailure records a single error for non-2xx response
   assertEquals(rows[0].requests, 0);
 });
 
-Deno.test("withUpstreamTelemetry skips recording when apiKeyId is absent", async () => {
+test("withUpstreamTelemetry skips recording when apiKeyId is absent", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   const background: Promise<unknown>[] = [];

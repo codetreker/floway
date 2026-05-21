@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import { chatCompletionResultToEvents } from "./from-result.ts";
 
-Deno.test("chatCompletionResultToEvents projects terminal JSON into Chat stream chunks", () => {
+test("chatCompletionResultToEvents projects terminal JSON into Chat stream chunks", () => {
   const frames = Array.from(chatCompletionResultToEvents({
     id: "chatcmpl_1",
     object: "chat.completion",
@@ -43,7 +44,7 @@ Deno.test("chatCompletionResultToEvents projects terminal JSON into Chat stream 
   });
 });
 
-Deno.test("chatCompletionResultToEvents can hide usage chunks for client-visible streams", () => {
+test("chatCompletionResultToEvents can hide usage chunks for client-visible streams", () => {
   const frames = Array.from(chatCompletionResultToEvents({
     id: "chatcmpl_1",
     object: "chat.completion",
@@ -65,7 +66,7 @@ Deno.test("chatCompletionResultToEvents can hide usage chunks for client-visible
   );
 });
 
-Deno.test("chatCompletionResultToEvents preserves all choices from terminal JSON", () => {
+test("chatCompletionResultToEvents preserves all choices from terminal JSON", () => {
   const frames = Array.from(chatCompletionResultToEvents({
     id: "chatcmpl_multi",
     object: "chat.completion",
@@ -129,7 +130,7 @@ Deno.test("chatCompletionResultToEvents preserves all choices from terminal JSON
   });
 });
 
-Deno.test("chatCompletionResultToEvents preserves reasoning_items from terminal JSON", () => {
+test("chatCompletionResultToEvents preserves reasoning_items from terminal JSON", () => {
   const frames = Array.from(chatCompletionResultToEvents({
     id: "chatcmpl_reasoning_items",
     object: "chat.completion",
@@ -169,7 +170,7 @@ Deno.test("chatCompletionResultToEvents preserves reasoning_items from terminal 
   );
 });
 
-Deno.test("chatCompletionResultToEvents preserves DeepSeek reasoning_content from terminal JSON", () => {
+test("chatCompletionResultToEvents preserves DeepSeek reasoning_content from terminal JSON", () => {
   const frames = Array.from(chatCompletionResultToEvents({
     id: "chatcmpl_deepseek_json",
     object: "chat.completion",

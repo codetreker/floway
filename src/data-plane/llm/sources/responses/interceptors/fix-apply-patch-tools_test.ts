@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../../test-assert.ts";
 import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
 import type { ResponsesExchangeContext } from "../../../interceptors.ts";
 import { eventResult } from "../../../shared/errors/result.ts";
@@ -35,7 +36,7 @@ const run = async (payload: ResponsesPayload): Promise<ResponsesPayload> => {
   return payload;
 };
 
-Deno.test("fixApplyPatchTools rewrites the apply_patch custom tool to a function tool", async () => {
+test("fixApplyPatchTools rewrites the apply_patch custom tool to a function tool", async () => {
   const payload = await run({
     model: "gpt-test",
     input: "edit",
@@ -59,7 +60,7 @@ Deno.test("fixApplyPatchTools rewrites the apply_patch custom tool to a function
   );
 });
 
-Deno.test("fixApplyPatchTools leaves non-apply_patch custom tools untouched", async () => {
+test("fixApplyPatchTools leaves non-apply_patch custom tools untouched", async () => {
   // strip-unsupported-tools removes them after this interceptor runs; this
   // test pins the responsibility split.
   const payload = await run({
@@ -74,7 +75,7 @@ Deno.test("fixApplyPatchTools leaves non-apply_patch custom tools untouched", as
   assertEquals(payload.tools?.[0].type, "custom");
 });
 
-Deno.test("fixApplyPatchTools rewrites a forced apply_patch custom tool_choice", async () => {
+test("fixApplyPatchTools rewrites a forced apply_patch custom tool_choice", async () => {
   const payload = await run({
     model: "gpt-test",
     input: "edit",
@@ -92,7 +93,7 @@ Deno.test("fixApplyPatchTools rewrites a forced apply_patch custom tool_choice",
   assertEquals(payload.tool_choice, { type: "function", name: "apply_patch" });
 });
 
-Deno.test("fixApplyPatchTools is a no-op when no apply_patch tool is present", async () => {
+test("fixApplyPatchTools is a no-op when no apply_patch tool is present", async () => {
   const payload = await run({
     model: "gpt-test",
     input: "edit",

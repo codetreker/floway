@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../test-assert.ts";
 import { translateMessagesToResponsesResult } from "../responses-via-messages/result.ts";
 import { translateMessagesToResponses } from "./request.ts";
 import type {
@@ -6,7 +7,7 @@ import type {
   ResponseOutputReasoning,
 } from "../../../shared/protocol/responses.ts";
 
-Deno.test("translateMessagesToResponses synthesizes an rs-prefixed id when the signature is not packed", () => {
+test("translateMessagesToResponses synthesizes an rs-prefixed id when the signature is not packed", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -23,7 +24,7 @@ Deno.test("translateMessagesToResponses synthesizes an rs-prefixed id when the s
   assertEquals(reasoning.encrypted_content, "sig");
 });
 
-Deno.test("translateMessagesToResponses recovers the upstream id from a packed thinking.signature", () => {
+test("translateMessagesToResponses recovers the upstream id from a packed thinking.signature", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -43,7 +44,7 @@ Deno.test("translateMessagesToResponses recovers the upstream id from a packed t
   assertEquals(reasoning.encrypted_content, "enc_abc");
 });
 
-Deno.test("translateMessagesToResponses drops filtered-native tool_choice and rewrites assistant native web-search history as function-call history", () => {
+test("translateMessagesToResponses drops filtered-native tool_choice and rewrites assistant native web-search history as function-call history", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -92,7 +93,7 @@ Deno.test("translateMessagesToResponses drops filtered-native tool_choice and re
   ]);
 });
 
-Deno.test("translateMessagesToResponses maps output_config.effort directly to reasoning.effort", () => {
+test("translateMessagesToResponses maps output_config.effort directly to reasoning.effort", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -104,7 +105,7 @@ Deno.test("translateMessagesToResponses maps output_config.effort directly to re
   assertEquals(result.include, ["reasoning.encrypted_content"]);
 });
 
-Deno.test("translateMessagesToResponses prefers output_config.effort over thinking.disabled", () => {
+test("translateMessagesToResponses prefers output_config.effort over thinking.disabled", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -116,7 +117,7 @@ Deno.test("translateMessagesToResponses prefers output_config.effort over thinki
   assertEquals(result.reasoning, { effort: "high" });
 });
 
-Deno.test("translateMessagesToResponses preserves output_config.effort max at the translation boundary", () => {
+test("translateMessagesToResponses preserves output_config.effort max at the translation boundary", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -127,7 +128,7 @@ Deno.test("translateMessagesToResponses preserves output_config.effort max at th
   assertEquals(result.reasoning, { effort: "max" });
 });
 
-Deno.test("translateMessagesToResponses preserves max_tokens at the translation boundary", () => {
+test("translateMessagesToResponses preserves max_tokens at the translation boundary", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -137,7 +138,7 @@ Deno.test("translateMessagesToResponses preserves max_tokens at the translation 
   assertEquals(result.max_output_tokens, 256);
 });
 
-Deno.test("translateMessagesToResponses maps thinking.disabled to reasoning.effort none", () => {
+test("translateMessagesToResponses maps thinking.disabled to reasoning.effort none", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -149,7 +150,7 @@ Deno.test("translateMessagesToResponses maps thinking.disabled to reasoning.effo
   assertEquals(result.include, ["reasoning.encrypted_content"]);
 });
 
-Deno.test("translateMessagesToResponses ignores non-disabled thinking without output_config.effort", () => {
+test("translateMessagesToResponses ignores non-disabled thinking without output_config.effort", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -160,7 +161,7 @@ Deno.test("translateMessagesToResponses ignores non-disabled thinking without ou
   assertFalse("reasoning" in result);
 });
 
-Deno.test("translateMessagesToResponses preserves explicit temperature and omits translated-path defaults", () => {
+test("translateMessagesToResponses preserves explicit temperature and omits translated-path defaults", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -173,7 +174,7 @@ Deno.test("translateMessagesToResponses preserves explicit temperature and omits
   assertFalse("parallel_tool_calls" in result);
 });
 
-Deno.test("translateMessagesToResponses omits temperature when the source omitted it", () => {
+test("translateMessagesToResponses omits temperature when the source omitted it", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -183,7 +184,7 @@ Deno.test("translateMessagesToResponses omits temperature when the source omitte
   assertFalse("temperature" in result);
 });
 
-Deno.test("translateMessagesToResponses joins multi-block system text with double newlines", () => {
+test("translateMessagesToResponses joins multi-block system text with double newlines", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -197,7 +198,7 @@ Deno.test("translateMessagesToResponses joins multi-block system text with doubl
   assertEquals(result.instructions, "Alpha\n\nBeta");
 });
 
-Deno.test("translateMessagesToResponses preserves redacted_thinking as opaque reasoning input", () => {
+test("translateMessagesToResponses preserves redacted_thinking as opaque reasoning input", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -216,7 +217,7 @@ Deno.test("translateMessagesToResponses preserves redacted_thinking as opaque re
   });
 });
 
-Deno.test("translateMessagesToResponses recovers the upstream id from packed redacted_thinking.data", () => {
+test("translateMessagesToResponses recovers the upstream id from packed redacted_thinking.data", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -235,7 +236,7 @@ Deno.test("translateMessagesToResponses recovers the upstream id from packed red
   });
 });
 
-Deno.test("translateMessagesToResponses omits encrypted_content for text-only thinking input", () => {
+test("translateMessagesToResponses omits encrypted_content for text-only thinking input", () => {
   const result = translateMessagesToResponses({
     model: "gpt-test",
     max_tokens: 256,
@@ -255,7 +256,7 @@ Deno.test("translateMessagesToResponses omits encrypted_content for text-only th
   assertFalse("encrypted_content" in reasoning);
 });
 
-Deno.test("translateMessagesToResponsesResult synthesizes an rs-prefixed id when the signature is not packed", () => {
+test("translateMessagesToResponsesResult synthesizes an rs-prefixed id when the signature is not packed", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -273,7 +274,7 @@ Deno.test("translateMessagesToResponsesResult synthesizes an rs-prefixed id when
   assertEquals(reasoning.encrypted_content, "sig");
 });
 
-Deno.test("translateMessagesToResponsesResult recovers the upstream id from a packed thinking.signature", () => {
+test("translateMessagesToResponsesResult recovers the upstream id from a packed thinking.signature", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -294,7 +295,7 @@ Deno.test("translateMessagesToResponsesResult recovers the upstream id from a pa
   assertEquals(reasoning.encrypted_content, "enc_abc");
 });
 
-Deno.test("translateMessagesToResponsesResult preserves assistant block order", () => {
+test("translateMessagesToResponsesResult preserves assistant block order", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -332,7 +333,7 @@ Deno.test("translateMessagesToResponsesResult preserves assistant block order", 
   assertEquals(result.output_text, "BeforeAfter");
 });
 
-Deno.test("translateMessagesToResponsesResult preserves redacted_thinking as opaque reasoning output", () => {
+test("translateMessagesToResponsesResult preserves redacted_thinking as opaque reasoning output", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -352,7 +353,7 @@ Deno.test("translateMessagesToResponsesResult preserves redacted_thinking as opa
   }]);
 });
 
-Deno.test("translateMessagesToResponsesResult recovers the upstream id from packed redacted_thinking.data", () => {
+test("translateMessagesToResponsesResult recovers the upstream id from packed redacted_thinking.data", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -372,7 +373,7 @@ Deno.test("translateMessagesToResponsesResult recovers the upstream id from pack
   }]);
 });
 
-Deno.test("translateMessagesToResponsesResult omits encrypted_content for text-only thinking output", () => {
+test("translateMessagesToResponsesResult omits encrypted_content for text-only thinking output", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -393,7 +394,7 @@ Deno.test("translateMessagesToResponsesResult omits encrypted_content for text-o
   assertFalse("encrypted_content" in reasoning);
 });
 
-Deno.test("translateMessagesToResponsesResult includes cache_creation_input_tokens in input_tokens", () => {
+test("translateMessagesToResponsesResult includes cache_creation_input_tokens in input_tokens", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",
@@ -416,7 +417,7 @@ Deno.test("translateMessagesToResponsesResult includes cache_creation_input_toke
   assertEquals(result.usage!.input_tokens_details!.cached_tokens, 20);
 });
 
-Deno.test("translateMessagesToResponsesResult handles cache_creation without cache_read", () => {
+test("translateMessagesToResponsesResult handles cache_creation without cache_read", () => {
   const result = translateMessagesToResponsesResult({
     id: "msg_123",
     type: "message",

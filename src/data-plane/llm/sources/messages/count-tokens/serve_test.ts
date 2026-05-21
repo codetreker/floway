@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../../../../shared/copilot.ts";
 import { clearModelsCache } from "../../../../providers/upstream-model-cache.ts";
 import {
@@ -17,7 +18,7 @@ function copilotTokenResponse() {
   });
 }
 
-Deno.test("/v1/messages/count_tokens proxies to Copilot upstream", async () => {
+test("/v1/messages/count_tokens proxies to Copilot upstream", async () => {
   const { apiKey } = await setupAppTest();
   let capturedPath = "";
 
@@ -54,7 +55,7 @@ Deno.test("/v1/messages/count_tokens proxies to Copilot upstream", async () => {
   });
 });
 
-Deno.test("/v1/messages/count_tokens rejects body anthropic_beta", async () => {
+test("/v1/messages/count_tokens rejects body anthropic_beta", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/messages/count_tokens", {
@@ -77,7 +78,7 @@ Deno.test("/v1/messages/count_tokens rejects body anthropic_beta", async () => {
   assertEquals(body.error.param, "anthropic_beta");
 });
 
-Deno.test("/v1/messages/count_tokens rejects body betas", async () => {
+test("/v1/messages/count_tokens rejects body betas", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/messages/count_tokens", {
@@ -100,7 +101,7 @@ Deno.test("/v1/messages/count_tokens rejects body betas", async () => {
   assertEquals(body.error.param, "betas");
 });
 
-Deno.test("/messages/count_tokens aliases /v1/messages/count_tokens", async () => {
+test("/messages/count_tokens aliases /v1/messages/count_tokens", async () => {
   const { apiKey } = await setupAppTest();
   let capturedPath = "";
 
@@ -137,7 +138,7 @@ Deno.test("/messages/count_tokens aliases /v1/messages/count_tokens", async () =
   });
 });
 
-Deno.test("/v1/messages/count_tokens resolves Claude compatibility models before proxying", async () => {
+test("/v1/messages/count_tokens resolves Claude compatibility models before proxying", async () => {
   const { apiKey } = await setupAppTest();
   let upstreamBody: Record<string, unknown> | undefined;
 
@@ -186,7 +187,7 @@ Deno.test("/v1/messages/count_tokens resolves Claude compatibility models before
   assertEquals(upstreamBody?.model, "claude-opus-4.7-1m-internal");
 });
 
-Deno.test("/v1/messages/count_tokens rejects custom-upstream-only models", async () => {
+test("/v1/messages/count_tokens rejects custom-upstream-only models", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -244,7 +245,7 @@ Deno.test("/v1/messages/count_tokens rejects custom-upstream-only models", async
   });
 });
 
-Deno.test("/v1/messages/count_tokens preserves custom upstream /models HTTP errors", async () => {
+test("/v1/messages/count_tokens preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

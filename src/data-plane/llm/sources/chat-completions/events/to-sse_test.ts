@@ -1,11 +1,12 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { ChatCompletionChunk } from "../../../../shared/protocol/chat-completions.ts";
 import { doneFrame, eventFrame } from "../../../shared/stream/types.ts";
 import { chatProtocolFrameToSSEFrame } from "./to-sse.ts";
 
 const includeUsageChunk = { includeUsageChunk: true };
 
-Deno.test("chatProtocolFrameToSSEFrame passes through non-chunk JSON payloads", () => {
+test("chatProtocolFrameToSSEFrame passes through non-chunk JSON payloads", () => {
   const payload = {
     error: { message: "boom" },
   } as unknown as ChatCompletionChunk;
@@ -22,7 +23,7 @@ Deno.test("chatProtocolFrameToSSEFrame passes through non-chunk JSON payloads", 
   });
 });
 
-Deno.test("chatProtocolFrameToSSEFrame serializes DONE without owning termination", () => {
+test("chatProtocolFrameToSSEFrame serializes DONE without owning termination", () => {
   const chunk = {
     id: "chatcmpl_done",
     object: "chat.completion.chunk",

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { createOpenAiUpstream } from "./openai.ts";
 import type { UpstreamConfig } from "../../repo/types.ts";
 import { withMockedFetch } from "../../test-helpers.ts";
@@ -15,7 +16,7 @@ const baseConfig: UpstreamConfig = {
   enabledFixes: [],
 };
 
-Deno.test("createOpenAiUpstream uses default /v1/* paths", async () => {
+test("createOpenAiUpstream uses default /v1/* paths", async () => {
   const upstream = createOpenAiUpstream(baseConfig);
   const seen: string[] = [];
   await withMockedFetch((request) => {
@@ -43,7 +44,7 @@ Deno.test("createOpenAiUpstream uses default /v1/* paths", async () => {
   ]);
 });
 
-Deno.test("createOpenAiUpstream applies path overrides without an automatic /v1 prefix", async () => {
+test("createOpenAiUpstream applies path overrides without an automatic /v1 prefix", async () => {
   const upstream = createOpenAiUpstream({
     ...baseConfig,
     pathOverrides: {
@@ -75,7 +76,7 @@ Deno.test("createOpenAiUpstream applies path overrides without an automatic /v1 
   ]);
 });
 
-Deno.test("createOpenAiUpstream sends the configured bearer token", async () => {
+test("createOpenAiUpstream sends the configured bearer token", async () => {
   const upstream = createOpenAiUpstream(baseConfig);
   let authHeader: string | null = null;
   await withMockedFetch((request) => {
@@ -88,7 +89,7 @@ Deno.test("createOpenAiUpstream sends the configured bearer token", async () => 
   assertEquals(authHeader, "Bearer sk-test");
 });
 
-Deno.test("createOpenAiUpstream surfaces the configured enabled fixes as a Set", () => {
+test("createOpenAiUpstream surfaces the configured enabled fixes as a Set", () => {
   const none = createOpenAiUpstream(baseConfig);
   const withFix = createOpenAiUpstream({
     ...baseConfig,

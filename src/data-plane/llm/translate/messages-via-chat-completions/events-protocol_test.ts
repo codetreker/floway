@@ -1,4 +1,5 @@
-import { assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertRejects } from "../../../../test-assert.ts";
 import type { ChatCompletionChunk } from "../../../shared/protocol/chat-completions.ts";
 import { eventFrame } from "../../shared/stream/types.ts";
 import { translateToSourceEvents } from "./events.ts";
@@ -9,7 +10,7 @@ const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   }
 };
 
-Deno.test("translateToSourceEvents rejects Chat streams without DONE", async () => {
+test("translateToSourceEvents rejects Chat streams without DONE", async () => {
   async function* stream() {
     yield eventFrame(
       {

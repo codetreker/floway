@@ -1,9 +1,10 @@
-import { assertEquals } from "@std/assert";
-import { FakeTime } from "@std/testing/time";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
+import { FakeTime } from "../../../../test-time.ts";
 import { jsonResponse, withMockedFetch } from "../../../../test-helpers.ts";
 import { createMicrosoftGroundingWebSearchProvider } from "./microsoft-grounding.ts";
 
-Deno.test(
+test(
   "createMicrosoftGroundingWebSearchProvider calls v3 search/web with passage content",
   async () => {
     let request: Request | undefined;
@@ -49,7 +50,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "createMicrosoftGroundingWebSearchProvider rejects blank and overlong queries before fetch",
   async () => {
     let called = false;
@@ -77,7 +78,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "createMicrosoftGroundingWebSearchProvider retries 429 with by-design 1s/2s/4s/8s backoff and ignores retryAfter when the next attempt succeeds",
   async () => {
     const fakeTime = new FakeTime();
@@ -138,7 +139,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "createMicrosoftGroundingWebSearchProvider returns too_many_requests after four by-design 429 retries and ignores retryAfter",
   async () => {
     const fakeTime = new FakeTime();
@@ -189,7 +190,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "createMicrosoftGroundingWebSearchProvider maps 413 to request_too_large",
   async () => {
     await withMockedFetch(

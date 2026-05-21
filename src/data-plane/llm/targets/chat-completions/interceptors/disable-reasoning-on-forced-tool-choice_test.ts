@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { ChatCompletionsPayload } from "../../../../shared/protocol/chat-completions.ts";
 import { eventResult } from "../../../shared/errors/result.ts";
 import { withReasoningDisabledOnForcedToolChoice } from "./disable-reasoning-on-forced-tool-choice.ts";
@@ -18,7 +19,7 @@ const emitInput = (
 ): ReturnType<typeof chatCompletionsExchangeContext> =>
   chatCompletionsExchangeContext(payload, enabledFixes);
 
-Deno.test("chat completions required tool_choice strips reasoning_effort", async () => {
+test("chat completions required tool_choice strips reasoning_effort", async () => {
   const input = emitInput({
     model: "m",
     messages: [],
@@ -34,7 +35,7 @@ Deno.test("chat completions required tool_choice strips reasoning_effort", async
   assertEquals(out.enable_thinking, undefined);
 });
 
-Deno.test("chat completions object tool_choice is forced", async () => {
+test("chat completions object tool_choice is forced", async () => {
   const input = emitInput({
     model: "m",
     messages: [],
@@ -47,7 +48,7 @@ Deno.test("chat completions object tool_choice is forced", async () => {
   assertEquals(input.payload.reasoning_effort, undefined);
 });
 
-Deno.test("chat completions vendor flags add explicit disable fields", async () => {
+test("chat completions vendor flags add explicit disable fields", async () => {
   const input = emitInput({
     model: "m",
     messages: [],
@@ -62,7 +63,7 @@ Deno.test("chat completions vendor flags add explicit disable fields", async () 
   assertEquals(out.enable_thinking, false);
 });
 
-Deno.test("chat completions non-forced tool_choice leaves reasoning untouched", async () => {
+test("chat completions non-forced tool_choice leaves reasoning untouched", async () => {
   for (const tool_choice of ["auto", "none", null] as const) {
     const input = emitInput({
       model: "m",

@@ -1,9 +1,10 @@
+import { test } from "vitest";
 import {
   assertEquals,
   assertExists,
   assertFalse,
   assertStringIncludes,
-} from "@std/assert";
+} from "../../../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../../../shared/copilot.ts";
 import { clearModelsCache } from "../../../providers/upstream-model-cache.ts";
 import type { ResponsesResult } from "../../../shared/protocol/responses.ts";
@@ -302,7 +303,7 @@ const setupNativeWebSearchRouteTest = () =>
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
 
-Deno.test("/v1/messages malformed JSON returns structured internal debug error", async () => {
+test("/v1/messages malformed JSON returns structured internal debug error", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/messages", {
@@ -324,7 +325,7 @@ Deno.test("/v1/messages malformed JSON returns structured internal debug error",
   assertExists(body.error.stack);
 });
 
-Deno.test("/v1/messages rejects body anthropic_beta", async () => {
+test("/v1/messages rejects body anthropic_beta", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/messages", {
@@ -347,7 +348,7 @@ Deno.test("/v1/messages rejects body anthropic_beta", async () => {
   assertEquals(body.error.param, "anthropic_beta");
 });
 
-Deno.test("/v1/messages rejects body betas", async () => {
+test("/v1/messages rejects body betas", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/messages", {
@@ -370,7 +371,7 @@ Deno.test("/v1/messages rejects body betas", async () => {
   assertEquals(body.error.param, "betas");
 });
 
-Deno.test("/v1/messages rewrites upstream context-window errors to Messages compact form", async () => {
+test("/v1/messages rewrites upstream context-window errors to Messages compact form", async () => {
   const { apiKey } = await setupAppTest();
 
   const upstreamError = {
@@ -431,7 +432,7 @@ Deno.test("/v1/messages rewrites upstream context-window errors to Messages comp
   });
 });
 
-Deno.test("/messages uses the same data-plane handler as /v1/messages", async () => {
+test("/messages uses the same data-plane handler as /v1/messages", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -525,7 +526,7 @@ Deno.test("/messages uses the same data-plane handler as /v1/messages", async ()
   });
 });
 
-Deno.test("/v1/messages uses native endpoint and applies native request workarounds", async () => {
+test("/v1/messages uses native endpoint and applies native request workarounds", async () => {
   const { apiKey, githubAccount } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -694,7 +695,7 @@ Deno.test("/v1/messages uses native endpoint and applies native request workarou
   assertEquals(githubAccount.accountType, "individual");
 });
 
-Deno.test("/v1/messages keeps caller thinking and tool_choice unchanged on native adaptive models", async () => {
+test("/v1/messages keeps caller thinking and tool_choice unchanged on native adaptive models", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -814,7 +815,7 @@ Deno.test("/v1/messages keeps caller thinking and tool_choice unchanged on nativ
   assertEquals(upstreamBeta, null);
 });
 
-Deno.test("/v1/messages sends summarized thinking upstream while exposing 4.7 default omitted downstream", async () => {
+test("/v1/messages sends summarized thinking upstream while exposing 4.7 default omitted downstream", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -912,7 +913,7 @@ Deno.test("/v1/messages sends summarized thinking upstream while exposing 4.7 de
   assertEquals(upstreamBeta, null);
 });
 
-Deno.test("/v1/messages streams explicit omitted without thinking_delta while preserving signature", async () => {
+test("/v1/messages streams explicit omitted without thinking_delta while preserving signature", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1022,7 +1023,7 @@ Deno.test("/v1/messages streams explicit omitted without thinking_delta while pr
   assertEquals(upstreamBeta, null);
 });
 
-Deno.test("/v1/messages resolves base Claude models to effort variants before planning", async () => {
+test("/v1/messages resolves base Claude models to effort variants before planning", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1094,7 +1095,7 @@ Deno.test("/v1/messages resolves base Claude models to effort variants before pl
   assertEquals(upstreamBody?.model, "claude-opus-4.7-xhigh");
 });
 
-Deno.test("/v1/messages native streaming filters trailing DONE sentinel", async () => {
+test("/v1/messages native streaming filters trailing DONE sentinel", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1166,7 +1167,7 @@ Deno.test("/v1/messages native streaming filters trailing DONE sentinel", async 
   });
 });
 
-Deno.test("/v1/messages streams malformed upstream Messages SSE as an error event", async () => {
+test("/v1/messages streams malformed upstream Messages SSE as an error event", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1229,7 +1230,7 @@ Deno.test("/v1/messages streams malformed upstream Messages SSE as an error even
   });
 });
 
-Deno.test("/v1/messages forwards Messages tool strict field on native messages", async () => {
+test("/v1/messages forwards Messages tool strict field on native messages", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1335,7 +1336,7 @@ Deno.test("/v1/messages forwards Messages tool strict field on native messages",
   );
 });
 
-Deno.test("/v1/messages keeps strict Messages tools on native messages when both endpoints are available", async () => {
+test("/v1/messages keeps strict Messages tools on native messages when both endpoints are available", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1452,7 +1453,7 @@ Deno.test("/v1/messages keeps strict Messages tools on native messages when both
   );
 });
 
-Deno.test("/v1/messages falls back to chat completions and translates both directions", async () => {
+test("/v1/messages falls back to chat completions and translates both directions", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1562,7 +1563,7 @@ Deno.test("/v1/messages falls back to chat completions and translates both direc
   );
 });
 
-Deno.test("/v1/messages falls back to responses and preserves reasoning round-trip details", async () => {
+test("/v1/messages falls back to responses and preserves reasoning round-trip details", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1678,7 +1679,7 @@ Deno.test("/v1/messages falls back to responses and preserves reasoning round-tr
   );
 });
 
-Deno.test("/v1/messages preserves output_config.effort max when translating to responses", async () => {
+test("/v1/messages preserves output_config.effort max when translating to responses", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1761,7 +1762,7 @@ Deno.test("/v1/messages preserves output_config.effort max when translating to r
   assertEquals(upstreamBody!.include, ["reasoning.encrypted_content"]);
 });
 
-Deno.test("/v1/messages prefers responses on dual-endpoint models when native messages is unavailable", async () => {
+test("/v1/messages prefers responses on dual-endpoint models when native messages is unavailable", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1846,7 +1847,7 @@ Deno.test("/v1/messages prefers responses on dual-endpoint models when native me
   assertFalse("include" in upstreamBody!);
 });
 
-Deno.test("stripReservedKeywords removes entire billing header line from string system", async () => {
+test("stripReservedKeywords removes entire billing header line from string system", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1946,7 +1947,7 @@ Deno.test("stripReservedKeywords removes entire billing header line from string 
   assertEquals(sys.includes("Be concise."), true);
 });
 
-Deno.test("stripReservedKeywords removes billing-only system block without 400 error", async () => {
+test("stripReservedKeywords removes billing-only system block without 400 error", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -2055,7 +2056,7 @@ Deno.test("stripReservedKeywords removes billing-only system block without 400 e
   assertExists(sys[0].cache_control);
 });
 
-Deno.test("/v1/messages strips cache_control.scope only for Copilot Messages", async () => {
+test("/v1/messages strips cache_control.scope only for Copilot Messages", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -2166,7 +2167,7 @@ Deno.test("/v1/messages strips cache_control.scope only for Copilot Messages", a
   assertEquals(content[0].cache_control, { type: "ephemeral" });
 });
 
-Deno.test("/v1/messages preserves cache_control.scope for custom Messages providers", async () => {
+test("/v1/messages preserves cache_control.scope for custom Messages providers", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -2260,7 +2261,7 @@ Deno.test("/v1/messages preserves cache_control.scope for custom Messages provid
   });
 });
 
-Deno.test("/v1/messages forwards native web search unchanged to custom Messages providers by default", async () => {
+test("/v1/messages forwards native web search unchanged to custom Messages providers by default", async () => {
   const { apiKey, repo } = await setupAppTest({
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
@@ -2346,7 +2347,7 @@ Deno.test("/v1/messages forwards native web search unchanged to custom Messages 
   });
 });
 
-Deno.test("/v1/messages applies native web search shim to custom Messages providers when opted in", async () => {
+test("/v1/messages applies native web search shim to custom Messages providers when opted in", async () => {
   const { apiKey, repo } = await setupAppTest({
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
@@ -2439,7 +2440,7 @@ Deno.test("/v1/messages applies native web search shim to custom Messages provid
   });
 });
 
-Deno.test("/v1/messages applies native web search shim to custom Responses targets", async () => {
+test("/v1/messages applies native web search shim to custom Responses targets", async () => {
   const { apiKey, repo } = await setupAppTest({
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
@@ -2546,7 +2547,7 @@ Deno.test("/v1/messages applies native web search shim to custom Responses targe
   assertEquals(searchBody?.query, "latest React docs");
 });
 
-Deno.test("/v1/messages applies native web search shim to custom Chat Completions targets", async () => {
+test("/v1/messages applies native web search shim to custom Chat Completions targets", async () => {
   const { apiKey, repo } = await setupAppTest({
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
@@ -2662,7 +2663,7 @@ Deno.test("/v1/messages applies native web search shim to custom Chat Completion
   assertEquals(searchBody?.query, "latest React docs");
 });
 
-Deno.test("stripReservedKeywords handles all-billing system blocks by removing system entirely", async () => {
+test("stripReservedKeywords handles all-billing system blocks by removing system entirely", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -2763,7 +2764,7 @@ Deno.test("stripReservedKeywords handles all-billing system blocks by removing s
   assertFalse("system" in upstreamBody!);
 });
 
-Deno.test("/v1/messages rewrites native web search to an upstream client tool without renaming web_search and returns pause_turn", async () => {
+test("/v1/messages rewrites native web search to an upstream client tool without renaming web_search and returns pause_turn", async () => {
   const { apiKey, repo } = await setupNativeWebSearchRouteTest();
   const capture: {
     upstreamBody?: Record<string, unknown>;
@@ -2847,7 +2848,7 @@ Deno.test("/v1/messages rewrites native web search to an upstream client tool wi
   }]);
 });
 
-Deno.test("/v1/messages keeps tool_use when native web search shares a turn with client tools", async () => {
+test("/v1/messages keeps tool_use when native web search shares a turn with client tools", async () => {
   const { apiKey } = await setupNativeWebSearchRouteTest();
   const capture: {
     upstreamBody?: Record<string, unknown>;
@@ -2923,7 +2924,7 @@ Deno.test("/v1/messages keeps tool_use when native web search shares a turn with
   assertEquals(capture.searchBody?.query, "latest React docs");
 });
 
-Deno.test("/v1/messages returns internal debug error when native web search is disabled in config", async () => {
+test("/v1/messages returns internal debug error when native web search is disabled in config", async () => {
   const { apiKey } = await setupAppTest({
     searchConfig: {
       provider: "disabled",
@@ -2980,7 +2981,7 @@ Deno.test("/v1/messages returns internal debug error when native web search is d
   });
 });
 
-Deno.test("/v1/messages decodes our native-looking replay into upstream search_result history", async () => {
+test("/v1/messages decodes our native-looking replay into upstream search_result history", async () => {
   const { apiKey } = await setupNativeWebSearchRouteTest();
   const capture: {
     upstreamBody?: Record<string, unknown>;
@@ -3040,7 +3041,7 @@ Deno.test("/v1/messages decodes our native-looking replay into upstream search_r
   );
 });
 
-Deno.test("/v1/messages leaves native-looking replay errors untouched even when native web search stays enabled", async () => {
+test("/v1/messages leaves native-looking replay errors untouched even when native web search stays enabled", async () => {
   const { apiKey } = await setupNativeWebSearchRouteTest();
   const capture: { upstreamBody?: Record<string, unknown> } = {};
 
@@ -3092,7 +3093,7 @@ Deno.test("/v1/messages leaves native-looking replay errors untouched even when 
   );
 });
 
-Deno.test("/v1/messages passes through foreign native-looking history and preserves upstream 400", async () => {
+test("/v1/messages passes through foreign native-looking history and preserves upstream 400", async () => {
   const { apiKey } = await setupAppTest();
   const capture: { upstreamBody?: Record<string, unknown> } = {};
   const upstreamError = {
@@ -3152,7 +3153,7 @@ Deno.test("/v1/messages passes through foreign native-looking history and preser
   assertEquals(foreignAssistantContent[0].type, "server_tool_use");
 });
 
-Deno.test("/v1/messages rejects duplicate native web search tools before upstream fetch", async () => {
+test("/v1/messages rejects duplicate native web search tools before upstream fetch", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -3206,7 +3207,7 @@ Deno.test("/v1/messages rejects duplicate native web search tools before upstrea
   });
 });
 
-Deno.test("/v1/messages rejects native web search tools whose name is not web_search", async () => {
+test("/v1/messages rejects native web search tools whose name is not web_search", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -3259,7 +3260,7 @@ Deno.test("/v1/messages rejects native web search tools whose name is not web_se
   });
 });
 
-Deno.test("/v1/messages rejects native web search tool name collisions before upstream fetch", async () => {
+test("/v1/messages rejects native web search tool name collisions before upstream fetch", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -3317,7 +3318,7 @@ Deno.test("/v1/messages rejects native web search tool name collisions before up
   });
 });
 
-Deno.test("/v1/messages routes native web search through translated /responses target", async () => {
+test("/v1/messages routes native web search through translated /responses target", async () => {
   const { apiKey } = await setupNativeWebSearchRouteTest();
   let upstreamResponsesBody: Record<string, unknown> | undefined;
   let searchBody: Record<string, unknown> | undefined;
@@ -3420,7 +3421,7 @@ Deno.test("/v1/messages routes native web search through translated /responses t
   assertEquals(searchBody?.query, "latest React docs");
 });
 
-Deno.test("/v1/messages routes native web search through translated /chat/completions target", async () => {
+test("/v1/messages routes native web search through translated /chat/completions target", async () => {
   const { apiKey } = await setupNativeWebSearchRouteTest();
   let upstreamChatBody: Record<string, unknown> | undefined;
   let searchBody: Record<string, unknown> | undefined;
@@ -3530,7 +3531,7 @@ Deno.test("/v1/messages routes native web search through translated /chat/comple
   assertEquals(searchBody?.query, "latest React docs");
 });
 
-Deno.test("/v1/messages rejects embedding-only custom upstream model instead of legacy chat fallback", async () => {
+test("/v1/messages rejects embedding-only custom upstream model instead of legacy chat fallback", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -3586,7 +3587,7 @@ Deno.test("/v1/messages rejects embedding-only custom upstream model instead of 
   });
 });
 
-Deno.test("/v1/messages preserves custom upstream /models HTTP errors", async () => {
+test("/v1/messages preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

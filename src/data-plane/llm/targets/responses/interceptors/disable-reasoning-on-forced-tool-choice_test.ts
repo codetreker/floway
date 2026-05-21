@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
 import type { ResponsesExchangeContext } from "../../../interceptors.ts";
 import {
@@ -34,7 +35,7 @@ const exchangeContext = (
   enabledFixes,
 });
 
-Deno.test("responses required tool_choice strips reasoning", async () => {
+test("responses required tool_choice strips reasoning", async () => {
   const input = exchangeContext({
     model: "m",
     input: "hi",
@@ -50,7 +51,7 @@ Deno.test("responses required tool_choice strips reasoning", async () => {
   assertEquals(out.enable_thinking, undefined);
 });
 
-Deno.test("responses object tool_choice is forced", async () => {
+test("responses object tool_choice is forced", async () => {
   const input = exchangeContext({
     model: "m",
     input: "hi",
@@ -63,7 +64,7 @@ Deno.test("responses object tool_choice is forced", async () => {
   assertEquals(input.payload.reasoning, undefined);
 });
 
-Deno.test("responses vendor flags add explicit disable fields", async () => {
+test("responses vendor flags add explicit disable fields", async () => {
   const input = exchangeContext({
     model: "m",
     input: "hi",
@@ -78,7 +79,7 @@ Deno.test("responses vendor flags add explicit disable fields", async () => {
   assertEquals(out.enable_thinking, false);
 });
 
-Deno.test("responses non-forced tool_choice leaves reasoning untouched", async () => {
+test("responses non-forced tool_choice leaves reasoning untouched", async () => {
   for (const tool_choice of ["auto", "none"] as const) {
     const input = exchangeContext({
       model: "m",

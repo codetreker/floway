@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type {
   MessagesPayload,
   MessagesStreamEventData,
@@ -68,7 +69,7 @@ const exchangeContext = (
   enabledFixes: new Set<string>(),
 });
 
-Deno.test("messages forced tool_choice disables thinking and strips output_config", async () => {
+test("messages forced tool_choice disables thinking and strips output_config", async () => {
   const input = exchangeContext({
     model: "m",
     messages: [],
@@ -84,7 +85,7 @@ Deno.test("messages forced tool_choice disables thinking and strips output_confi
   assertEquals(input.payload.output_config, undefined);
 });
 
-Deno.test("messages any tool_choice also disables thinking", async () => {
+test("messages any tool_choice also disables thinking", async () => {
   const input = exchangeContext({
     model: "m",
     messages: [],
@@ -98,7 +99,7 @@ Deno.test("messages any tool_choice also disables thinking", async () => {
   assertEquals(input.payload.thinking, { type: "disabled" });
 });
 
-Deno.test("messages non-forced tool_choice leaves reasoning untouched", async () => {
+test("messages non-forced tool_choice leaves reasoning untouched", async () => {
   for (const type of ["auto", "none"] as const) {
     const input = exchangeContext({
       model: "m",

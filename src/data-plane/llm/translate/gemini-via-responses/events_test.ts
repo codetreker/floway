@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../test-assert.ts";
 import type { GeminiStreamEvent } from "../../../shared/protocol/gemini.ts";
 import type {
   ResponsesResult,
@@ -50,7 +51,7 @@ const drain = async (
   await collect(input);
 };
 
-Deno.test("translateToSourceEvents maps reasoning text, attaches signature to text, and maps completion usage", async () => {
+test("translateToSourceEvents maps reasoning text, attaches signature to text, and maps completion usage", async () => {
   const frames = await collect([
     eventFrame({
       type: "response.reasoning_summary_text.delta",
@@ -122,7 +123,7 @@ Deno.test("translateToSourceEvents maps reasoning text, attaches signature to te
   ]);
 });
 
-Deno.test("translateToSourceEvents flushes an unclaimed reasoning signature at completion", async () => {
+test("translateToSourceEvents flushes an unclaimed reasoning signature at completion", async () => {
   const frames = await collect([
     eventFrame({
       type: "response.output_item.done",
@@ -151,7 +152,7 @@ Deno.test("translateToSourceEvents flushes an unclaimed reasoning signature at c
   ]);
 });
 
-Deno.test("translateToSourceEvents accumulates function call arguments and attaches pending signature", async () => {
+test("translateToSourceEvents accumulates function call arguments and attaches pending signature", async () => {
   const frames = await collect([
     eventFrame({
       type: "response.output_item.done",
@@ -184,7 +185,7 @@ Deno.test("translateToSourceEvents accumulates function call arguments and attac
       type: "response.function_call_arguments.done",
       item_id: "fc_1",
       output_index: 1,
-      arguments: '{"query":"deno"}',
+      arguments: '{"query":"docs"}',
     }),
     eventFrame({
       type: "response.output_item.done",
@@ -210,7 +211,7 @@ Deno.test("translateToSourceEvents accumulates function call arguments and attac
             functionCall: {
               id: "call_1",
               name: "lookup",
-              args: { query: "deno" },
+              args: { query: "docs" },
             },
             thoughtSignature: "sig_tool",
           }],
@@ -227,7 +228,7 @@ Deno.test("translateToSourceEvents accumulates function call arguments and attac
   ]);
 });
 
-Deno.test("translateToSourceEvents maps incomplete and failed finish reasons with usage", async () => {
+test("translateToSourceEvents maps incomplete and failed finish reasons with usage", async () => {
   const maxTokenFrames = await collect([
     eventFrame({
       type: "response.incomplete",
@@ -300,7 +301,7 @@ Deno.test("translateToSourceEvents maps incomplete and failed finish reasons wit
   ]);
 });
 
-Deno.test("translateToSourceEvents throws on Responses error stream events", async () => {
+test("translateToSourceEvents throws on Responses error stream events", async () => {
   await assertRejects(
     async () =>
       await drain([
@@ -315,7 +316,7 @@ Deno.test("translateToSourceEvents throws on Responses error stream events", asy
   );
 });
 
-Deno.test("translateToSourceEvents surfaces input cached_tokens as cachedContentTokenCount", async () => {
+test("translateToSourceEvents surfaces input cached_tokens as cachedContentTokenCount", async () => {
   const frames = await collect([
     eventFrame({
       type: "response.completed",

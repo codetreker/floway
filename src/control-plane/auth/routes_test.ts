@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { requestApp, setupAppTest } from "../../test-helpers.ts";
 
 const SECOND_ACCOUNT = {
@@ -12,7 +13,7 @@ const SECOND_ACCOUNT = {
   },
 };
 
-Deno.test("/auth/github/order updates GitHub account priority order", async () => {
+test("/auth/github/order updates GitHub account priority order", async () => {
   const { repo, adminKey, githubAccount } = await setupAppTest();
   await repo.github.saveAccount(SECOND_ACCOUNT.user.id, SECOND_ACCOUNT);
 

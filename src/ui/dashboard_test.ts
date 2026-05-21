@@ -1,10 +1,11 @@
+import { test } from "vitest";
 import {
   assert,
   assertAlmostEquals,
   assertEquals,
   assertFalse,
   assertStringIncludes,
-} from "@std/assert";
+} from "../test-assert.ts";
 import { DashboardPage } from "./dashboard.tsx";
 
 type ChartDataset = {
@@ -214,7 +215,7 @@ const TEST_USAGE_KEY_COLOR_ORDER = [
   "future-4",
 ];
 
-Deno.test("DashboardPage renders split dashboard shell", () => {
+test("DashboardPage renders split dashboard shell", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, 'x-data="dashboardApp()"');
@@ -226,7 +227,7 @@ Deno.test("DashboardPage renders split dashboard shell", () => {
   assertStringIncludes(html, "function dashboardApp()");
 });
 
-Deno.test("dashboardApp renders performance model percentile chart", () => {
+test("dashboardApp renders performance model percentile chart", () => {
   const { app, charts } = createDashboardHarness();
   const currentHour = new Date();
   currentHour.setMinutes(0, 0, 0);
@@ -257,7 +258,7 @@ Deno.test("dashboardApp renders performance model percentile chart", () => {
   ]);
 });
 
-Deno.test("dashboardApp renders performance chart over the full hourly range", () => {
+test("dashboardApp renders performance chart over the full hourly range", () => {
   const { app, charts } = createDashboardHarness();
   const now = new Date();
   now.setMinutes(0, 0, 0);
@@ -276,7 +277,7 @@ Deno.test("dashboardApp renders performance chart over the full hourly range", (
   assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
 });
 
-Deno.test("dashboardApp renders performance chart with 4h buckets for 7d range", () => {
+test("dashboardApp renders performance chart with 4h buckets for 7d range", () => {
   const { app, charts } = createDashboardHarness();
   const start = new Date();
   start.setMinutes(0, 0, 0);
@@ -302,7 +303,7 @@ Deno.test("dashboardApp renders performance chart with 4h buckets for 7d range",
   assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
 });
 
-Deno.test("dashboardApp renders token chart with labeled 4h buckets for 7d range", () => {
+test("dashboardApp renders token chart with labeled 4h buckets for 7d range", () => {
   const { app, charts } = createDashboardHarness();
   const start = new Date();
   start.setMinutes(0, 0, 0);
@@ -327,7 +328,7 @@ Deno.test("dashboardApp renders token chart with labeled 4h buckets for 7d range
   assertEquals(charts[0].data.datasets[0].data.at(-1), 15);
 });
 
-Deno.test("dashboardApp renders performance percentile comparison chart", () => {
+test("dashboardApp renders performance percentile comparison chart", () => {
   const { app, charts } = createDashboardHarness();
   const currentHour = new Date();
   currentHour.setMinutes(0, 0, 0);
@@ -374,7 +375,7 @@ Deno.test("dashboardApp renders performance percentile comparison chart", () => 
   ]);
 });
 
-Deno.test("DashboardPage renders performance model selector for percentile view", () => {
+test("DashboardPage renders performance model selector for percentile view", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "performanceChartView === 'percentile'");
@@ -382,7 +383,7 @@ Deno.test("DashboardPage renders performance model selector for percentile view"
   assertStringIncludes(html, "performanceModelOptions()");
 });
 
-Deno.test("DashboardPage styles existing select controls", () => {
+test("DashboardPage styles existing select controls", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -394,21 +395,21 @@ Deno.test("DashboardPage styles existing select controls", () => {
   assertStringIncludes(html, "background-position: right 16px center;");
 });
 
-Deno.test("DashboardPage renders performance chart view switcher", () => {
+test("DashboardPage renders performance chart view switcher", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "By Model");
   assertStringIncludes(html, "By Percentile");
 });
 
-Deno.test("DashboardPage loads performance dashboard aggregates in one request", () => {
+test("DashboardPage loads performance dashboard aggregates in one request", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "'/api/performance/overview?'");
   assertFalse(html.includes("this.fetchPerformanceRecords('runtimeLocation'"));
 });
 
-Deno.test("DashboardPage renders the search section below the usage cards without architecture labels", () => {
+test("DashboardPage renders the search section below the usage cards without architecture labels", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "Search Provider");
@@ -428,7 +429,7 @@ Deno.test("DashboardPage renders the search section below the usage cards withou
   );
 });
 
-Deno.test("DashboardPage gates search config controls until saved config has loaded", () => {
+test("DashboardPage gates search config controls until saved config has loaded", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, '<template x-if="!searchConfigLoaded">');
@@ -445,7 +446,7 @@ Deno.test("DashboardPage gates search config controls until saved config has loa
   );
 });
 
-Deno.test("DashboardPage renders helper functions inside script without HTML entity encoding", () => {
+test("DashboardPage renders helper functions inside script without HTML entity encoding", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "const draftFromSearchConfig = ");
@@ -456,7 +457,7 @@ Deno.test("DashboardPage renders helper functions inside script without HTML ent
   assertFalse(html.includes("&quot;tavily&quot;"));
 });
 
-Deno.test("DashboardPage no longer ships pricing regexes to the client", () => {
+test("DashboardPage no longer ships pricing regexes to the client", () => {
   const html = DashboardPage().toString();
 
   // Pricing lives in control-plane token-usage code and is applied server-side.
@@ -466,7 +467,7 @@ Deno.test("DashboardPage no longer ships pricing regexes to the client", () => {
   assertFalse(html.includes("getModelPricing"));
 });
 
-Deno.test("DashboardPage renders clickable usage summary metrics for chart axis selection", () => {
+test("DashboardPage renders clickable usage summary metrics for chart axis selection", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "tokenChartMetric: 'total'");
@@ -507,7 +508,7 @@ Deno.test("DashboardPage renders clickable usage summary metrics for chart axis 
   assertStringIncludes(html, ":class=\"tokenChartMetric === 'total'");
 });
 
-Deno.test("DashboardPage renders cache and prefill tooltip columns without ratio", () => {
+test("DashboardPage renders cache and prefill tooltip columns without ratio", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "Cost'.padStart(9)");
@@ -520,7 +521,7 @@ Deno.test("DashboardPage renders cache and prefill tooltip columns without ratio
   assertFalse(html.includes("Output%"));
 });
 
-Deno.test("DashboardPage does not embed production usage key ids in public HTML", () => {
+test("DashboardPage does not embed production usage key ids in public HTML", () => {
   const html = DashboardPage().toString();
 
   assertFalse(html.includes("46360b74-2457-4a38-a116-7afdb2894632"));
@@ -528,7 +529,7 @@ Deno.test("DashboardPage does not embed production usage key ids in public HTML"
   assertFalse(html.includes("3f2fe5b9-2991-4bb8-bc04-2852f58150ca"));
 });
 
-Deno.test("DashboardPage preserves empty cache hit rate chart points", () => {
+test("DashboardPage preserves empty cache hit rate chart points", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -545,7 +546,7 @@ Deno.test("DashboardPage preserves empty cache hit rate chart points", () => {
   );
 });
 
-Deno.test("dashboardApp copies snippets with textarea fallback when Clipboard API is unavailable", async () => {
+test("dashboardApp copies snippets with textarea fallback when Clipboard API is unavailable", async () => {
   const originalNavigator = Object.getOwnPropertyDescriptor(
     globalThis,
     "navigator",
@@ -611,7 +612,7 @@ Deno.test("dashboardApp copies snippets with textarea fallback when Clipboard AP
   }
 });
 
-Deno.test("DashboardPage filters search usage tooltip items independently from token metric", () => {
+test("DashboardPage filters search usage tooltip items independently from token metric", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -620,7 +621,7 @@ Deno.test("DashboardPage filters search usage tooltip items independently from t
   );
 });
 
-Deno.test("DashboardPage connects percent metric lines across empty points", () => {
+test("DashboardPage connects percent metric lines across empty points", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -633,7 +634,7 @@ Deno.test("DashboardPage connects percent metric lines across empty points", () 
   );
 });
 
-Deno.test("dashboardApp updates chart data and options when switching summary metrics", () => {
+test("dashboardApp updates chart data and options when switching summary metrics", () => {
   const { app, charts } = createDashboardHarness();
   app.tokenData = [
     usageRecord(-2, {
@@ -740,7 +741,7 @@ Deno.test("dashboardApp updates chart data and options when switching summary me
   }
 });
 
-Deno.test("dashboardApp surfaces backend-precomputed cost on chart and summary", () => {
+test("dashboardApp surfaces backend-precomputed cost on chart and summary", () => {
   const { app, charts } = createDashboardHarness();
   const expectedCost = 0.0004185;
   app.tokenData = [
@@ -768,7 +769,7 @@ Deno.test("dashboardApp surfaces backend-precomputed cost on chart and summary",
   }
 });
 
-Deno.test("dashboardApp tooltip shows cached and prefill columns without ratio", () => {
+test("dashboardApp tooltip shows cached and prefill columns without ratio", () => {
   const { app, charts } = createDashboardHarness();
   app.tokenData = [
     usageRecord(0, {
@@ -814,7 +815,7 @@ Deno.test("dashboardApp tooltip shows cached and prefill columns without ratio",
   assertStringIncludes(row, "75.0%");
 });
 
-Deno.test("dashboardApp keeps known usage key colors on selected slots when earlier keys are absent", () => {
+test("dashboardApp keeps known usage key colors on selected slots when earlier keys are absent", () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenData = [
@@ -847,7 +848,7 @@ Deno.test("dashboardApp keeps known usage key colors on selected slots when earl
   assertEquals(ceerRep.backgroundColor, "#64ffda40");
 });
 
-Deno.test("dashboardApp assigns new usage keys to reordered future color slots by creation order", () => {
+test("dashboardApp assigns new usage keys to reordered future color slots by creation order", () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenData = [
@@ -882,7 +883,7 @@ Deno.test("dashboardApp assigns new usage keys to reordered future color slots b
   assertEquals(colorsByKey.get("new-key-3"), "#eeff41");
 });
 
-Deno.test("dashboardApp keeps future key colors stable when an earlier future key is absent", () => {
+test("dashboardApp keeps future key colors stable when an earlier future key is absent", () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenKeyMetadata = [
@@ -913,7 +914,7 @@ Deno.test("dashboardApp keeps future key colors stable when an earlier future ke
   assertEquals(keyChart.data.datasets[0].backgroundColor, "#40c4ff40");
 });
 
-Deno.test("dashboardApp uses key id to break future key creation-time ties", () => {
+test("dashboardApp uses key id to break future key creation-time ties", () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenKeyMetadata = [
@@ -944,7 +945,7 @@ Deno.test("dashboardApp uses key id to break future key creation-time ties", () 
   assertEquals(keyChart.data.datasets[0].backgroundColor, "#40c4ff40");
 });
 
-Deno.test("dashboardApp keeps model colors on known model-id slots when earlier models are absent", () => {
+test("dashboardApp keeps model colors on known model-id slots when earlier models are absent", () => {
   const { app, charts } = createDashboardHarness();
   app.allModels = [{ id: "model-a" }, { id: "model-b" }];
   app.tokenData = [
@@ -961,7 +962,7 @@ Deno.test("dashboardApp keeps model colors on known model-id slots when earlier 
   assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
 });
 
-Deno.test("dashboardApp uses merged-id model labels straight from the API", () => {
+test("dashboardApp uses merged-id model labels straight from the API", () => {
   const { app, charts } = createDashboardHarness();
   app.allModels = [{ id: "claude-opus-4-7" }, { id: "claude-sonnet-4-7" }];
   app.tokenData = [
@@ -978,7 +979,7 @@ Deno.test("dashboardApp uses merged-id model labels straight from the API", () =
   assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
 });
 
-Deno.test("dashboardApp aggregates usage rows that already share a merged model id", () => {
+test("dashboardApp aggregates usage rows that already share a merged model id", () => {
   const { app, charts } = createDashboardHarness();
   app.allModels = [{ id: "claude-opus-4-7" }];
   app.tokenData = [
@@ -1010,7 +1011,7 @@ Deno.test("dashboardApp aggregates usage rows that already share a merged model 
   );
 });
 
-Deno.test("dashboardApp consumes merged model ids straight from /api/models", async () => {
+test("dashboardApp consumes merged model ids straight from /api/models", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input) => {
     const url = String(input);
@@ -1084,7 +1085,7 @@ Deno.test("dashboardApp consumes merged model ids straight from /api/models", as
   }
 });
 
-Deno.test("dashboardApp waits for model metadata before first usage chart render", async () => {
+test("dashboardApp waits for model metadata before first usage chart render", async () => {
   const originalFetch = globalThis.fetch;
   let resolveModels!: () => void;
   const modelsResponse = new Promise<Response>((resolve) => {
@@ -1166,7 +1167,7 @@ Deno.test("dashboardApp waits for model metadata before first usage chart render
   }
 });
 
-Deno.test("DashboardPage usage summary metric focus styling only shows borders on hover or focus-visible", () => {
+test("DashboardPage usage summary metric focus styling only shows borders on hover or focus-visible", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1176,7 +1177,7 @@ Deno.test("DashboardPage usage summary metric focus styling only shows borders o
   assertFalse(html.includes("focus:ring"));
 });
 
-Deno.test("DashboardPage renders mobile-friendly dashboard chrome", () => {
+test("DashboardPage renders mobile-friendly dashboard chrome", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1193,7 +1194,7 @@ Deno.test("DashboardPage renders mobile-friendly dashboard chrome", () => {
   );
 });
 
-Deno.test("DashboardPage renders mobile-friendly admin controls", () => {
+test("DashboardPage renders mobile-friendly admin controls", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1207,7 +1208,7 @@ Deno.test("DashboardPage renders mobile-friendly admin controls", () => {
   assertStringIncludes(html, "min-h-9 min-w-9");
 });
 
-Deno.test("DashboardPage merges Upstream into leftmost Settings tab and places Models before API Keys", () => {
+test("DashboardPage merges Upstream into leftmost Settings tab and places Models before API Keys", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1231,7 +1232,7 @@ Deno.test("DashboardPage merges Upstream into leftmost Settings tab and places M
   assert(apiKeys > models);
 });
 
-Deno.test("DashboardPage renders Settings as masonry settings columns", () => {
+test("DashboardPage renders Settings as masonry settings columns", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "grid grid-cols-1 gap-5 lg:grid-cols-2");
@@ -1248,7 +1249,7 @@ Deno.test("DashboardPage renders Settings as masonry settings columns", () => {
   assertFalse(html.includes("Data Transfer"));
 });
 
-Deno.test("DashboardPage renders compact Settings endpoint rows with docs links", () => {
+test("DashboardPage renders compact Settings endpoint rows with docs links", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1290,7 +1291,7 @@ Deno.test("DashboardPage renders compact Settings endpoint rows with docs links"
   );
 });
 
-Deno.test("DashboardPage uses frontend-only selected GitHub account for quota display", () => {
+test("DashboardPage uses frontend-only selected GitHub account for quota display", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "selectedGithubAccountId: null");
@@ -1305,7 +1306,7 @@ Deno.test("DashboardPage uses frontend-only selected GitHub account for quota di
   assertFalse(html.includes("/auth/github/switch"));
 });
 
-Deno.test("DashboardPage renders Settings import preview responsively", () => {
+test("DashboardPage renders Settings import preview responsively", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1316,7 +1317,7 @@ Deno.test("DashboardPage renders Settings import preview responsively", () => {
   assertFalse(html.includes("grid grid-cols-4 gap-3 mb-4"));
 });
 
-Deno.test("DashboardPage renders Models playground as a mobile stack", () => {
+test("DashboardPage renders Models playground as a mobile stack", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(
@@ -1334,7 +1335,7 @@ Deno.test("DashboardPage renders Models playground as a mobile stack", () => {
   );
 });
 
-Deno.test("DashboardPage renders search usage chart after token summary content", () => {
+test("DashboardPage renders search usage chart after token summary content", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "Search Usage — Per Key");
@@ -1345,7 +1346,7 @@ Deno.test("DashboardPage renders search usage chart after token summary content"
   );
 });
 
-Deno.test("DashboardPage import preview includes usage and performance records", () => {
+test("DashboardPage import preview includes usage and performance records", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "searchUsage: 0");
@@ -1372,7 +1373,7 @@ Deno.test("DashboardPage import preview includes usage and performance records",
   );
 });
 
-Deno.test("DashboardPage makes performance export opt-in", () => {
+test("DashboardPage makes performance export opt-in", () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "exportIncludePerformance: false");
@@ -1380,7 +1381,7 @@ Deno.test("DashboardPage makes performance export opt-in", () => {
   assertStringIncludes(html, "include_performance=1");
 });
 
-Deno.test("dashboardApp renders search usage per-key datasets for active provider only", () => {
+test("dashboardApp renders search usage per-key datasets for active provider only", () => {
   const { app, charts } = createDashboardHarness();
   app.searchUsageActiveProvider = "tavily";
   app.searchUsageData = [
@@ -1411,9 +1412,8 @@ Deno.test("dashboardApp renders search usage per-key datasets for active provide
   assertFalse(searchKeyChart.data.datasets[0].data.includes(7));
 });
 
-Deno.test("dashboardApp model search does not crash when model.name is missing", async () => {
+test("dashboardApp model search does not crash when model.name is missing", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore no-explicit-any
   globalThis.fetch = (input: any) => {
     const url = String(input);
     if (url.startsWith("/api/models")) {
@@ -1473,9 +1473,8 @@ Deno.test("dashboardApp model search does not crash when model.name is missing",
   }
 });
 
-Deno.test("dashboardApp filteredChatModels excludes embedding-only models", async () => {
+test("dashboardApp filteredChatModels excludes embedding-only models", async () => {
   const originalFetch = globalThis.fetch;
-  // deno-lint-ignore no-explicit-any
   globalThis.fetch = (input: any) => {
     const url = String(input);
     if (url.startsWith("/api/models")) {

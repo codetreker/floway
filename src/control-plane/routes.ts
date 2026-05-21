@@ -51,7 +51,7 @@ export const mountControlPlane = (app: Hono) => {
   app.get("/", (c) => {
     const accept = c.req.header("accept") ?? "";
     if (accept.includes("application/json") && !accept.includes("text/html")) {
-      return c.json({ status: "ok", service: "copilot-deno" });
+      return c.json({ status: "ok", service: "copilot-gateway" });
     }
     return c.html(LoginPage());
   });

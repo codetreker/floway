@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { upstreamConfigToFullJson, upstreamConfigToJson } from "./serialize.ts";
 import type { UpstreamConfig } from "../../repo/types.ts";
 
@@ -14,7 +15,7 @@ const sampleConfig: UpstreamConfig = {
   enabledFixes: [],
 };
 
-Deno.test("upstreamConfigToJson omits bearer token and includes bearer_token_set", () => {
+test("upstreamConfigToJson omits bearer token and includes bearer_token_set", () => {
   const result = upstreamConfigToJson(sampleConfig) as Record<string, unknown>;
 
   assertEquals(result.id, "up_test123");
@@ -30,7 +31,7 @@ Deno.test("upstreamConfigToJson omits bearer token and includes bearer_token_set
   assertEquals(result.path_overrides, undefined);
 });
 
-Deno.test("upstreamConfigToJson reports bearer_token_set as false for empty token", () => {
+test("upstreamConfigToJson reports bearer_token_set as false for empty token", () => {
   const result = upstreamConfigToJson({
     ...sampleConfig,
     bearerToken: "",
@@ -39,7 +40,7 @@ Deno.test("upstreamConfigToJson reports bearer_token_set as false for empty toke
   assertEquals(result.bearer_token_set, false);
 });
 
-Deno.test("upstreamConfigToJson surfaces enabled_fixes and path_overrides when set", () => {
+test("upstreamConfigToJson surfaces enabled_fixes and path_overrides when set", () => {
   const result = upstreamConfigToJson({
     ...sampleConfig,
     enabledFixes: ["deepseek-reasoning-dialect"],
@@ -50,7 +51,7 @@ Deno.test("upstreamConfigToJson surfaces enabled_fixes and path_overrides when s
   assertEquals(result.path_overrides, { messages: "/api/v1/messages" });
 });
 
-Deno.test("upstreamConfigToFullJson includes bearer token", () => {
+test("upstreamConfigToFullJson includes bearer token", () => {
   const result = upstreamConfigToFullJson(sampleConfig) as Record<
     string,
     unknown

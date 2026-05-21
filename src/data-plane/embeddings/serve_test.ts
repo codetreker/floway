@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertExists } from "../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../shared/copilot.ts";
 import { clearModelsCache } from "../providers/upstream-model-cache.ts";
 import {
@@ -10,7 +11,7 @@ import {
   withMockedFetch,
 } from "../../test-helpers.ts";
 
-Deno.test("/v1/embeddings wraps scalar string input for Copilot upstream", async () => {
+test("/v1/embeddings wraps scalar string input for Copilot upstream", async () => {
   const { apiKey } = await setupAppTest();
   let forwardedBody: {
     model?: unknown;
@@ -71,7 +72,7 @@ Deno.test("/v1/embeddings wraps scalar string input for Copilot upstream", async
   assertEquals(forwardedBody.encoding_format, "float");
 });
 
-Deno.test("/v1/embeddings records usage under request model when upstream omits model", async () => {
+test("/v1/embeddings records usage under request model when upstream omits model", async () => {
   const { apiKey, repo } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -146,7 +147,7 @@ Deno.test("/v1/embeddings records usage under request model when upstream omits 
   assertEquals(upstreamSuccess.errors, 0);
 });
 
-Deno.test("/v1/embeddings records request and upstream performance", async () => {
+test("/v1/embeddings records request and upstream performance", async () => {
   const { apiKey, githubAccount, repo } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -210,7 +211,7 @@ Deno.test("/v1/embeddings records request and upstream performance", async () =>
   }
 });
 
-Deno.test("/v1/embeddings routes to custom upstream when model is only declared there", async () => {
+test("/v1/embeddings routes to custom upstream when model is only declared there", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -283,7 +284,7 @@ Deno.test("/v1/embeddings routes to custom upstream when model is only declared 
   assertEquals(forwardedBody.input, "hello world");
 });
 
-Deno.test("/v1/embeddings rejects model on custom upstream without /embeddings capability", async () => {
+test("/v1/embeddings rejects model on custom upstream without /embeddings capability", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -337,7 +338,7 @@ Deno.test("/v1/embeddings rejects model on custom upstream without /embeddings c
   });
 });
 
-Deno.test("/v1/embeddings preserves custom upstream /models HTTP errors", async () => {
+test("/v1/embeddings preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -386,7 +387,7 @@ Deno.test("/v1/embeddings preserves custom upstream /models HTTP errors", async 
   });
 });
 
-Deno.test("/v1/embeddings preserves model-load errors hidden by another provider", async () => {
+test("/v1/embeddings preserves model-load errors hidden by another provider", async () => {
   const { apiKey, repo } = await setupAppTest();
   clearModelsCache();
   await clearCopilotTokenCache();
@@ -447,7 +448,7 @@ Deno.test("/v1/embeddings preserves model-load errors hidden by another provider
   });
 });
 
-Deno.test("/v1/embeddings rejects malformed body at the provider-independent boundary", async () => {
+test("/v1/embeddings rejects malformed body at the provider-independent boundary", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {

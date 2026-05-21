@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../test-assert.ts";
 import type { ChatCompletionChunk } from "../../../shared/protocol/chat-completions.ts";
 import type { ResponseStreamEvent } from "../../../shared/protocol/responses.ts";
 import { eventFrame } from "../../shared/stream/types.ts";
@@ -56,7 +57,7 @@ const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   }
 };
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents preserves tool call deltas and terminal output", () => {
+test("translateChatCompletionsChunkToResponsesEvents preserves tool call deltas and terminal output", () => {
   const events = translate([
     chunk({ role: "assistant" }),
     chunk({
@@ -100,7 +101,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents preserves tool call de
   assertEquals(sequenceNumbers(events), events.map((_, index) => index));
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents replaces buffered scalar reasoning with carrier items", () => {
+test("translateChatCompletionsChunkToResponsesEvents replaces buffered scalar reasoning with carrier items", () => {
   const events = translate([
     chunk({ role: "assistant" }),
     chunk({ reasoning_text: "trace" }),
@@ -135,7 +136,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents replaces buffered scal
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents maps usage on incomplete length terminal", () => {
+test("translateChatCompletionsChunkToResponsesEvents maps usage on incomplete length terminal", () => {
   const events = translate([
     chunk({ role: "assistant" }),
     chunk({ content: "partial" }),
@@ -168,7 +169,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents maps usage on incomple
   });
 });
 
-Deno.test("translateToSourceEvents rejects Chat streams without DONE", async () => {
+test("translateToSourceEvents rejects Chat streams without DONE", async () => {
   async function* stream() {
     yield eventFrame(
       {

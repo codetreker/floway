@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import type { PerformanceTelemetryRecord } from "../../repo/types.ts";
 import { aggregatePerformanceForDisplay } from "./aggregate.ts";
 
@@ -22,7 +23,7 @@ const record = (
   ...overrides,
 });
 
-Deno.test("aggregatePerformanceForDisplay groups provider model keys by public model", () => {
+test("aggregatePerformanceForDisplay groups provider model keys by public model", () => {
   const rows = aggregatePerformanceForDisplay([
     record({
       requests: 90,
@@ -50,7 +51,7 @@ Deno.test("aggregatePerformanceForDisplay groups provider model keys by public m
   }]);
 });
 
-Deno.test("aggregatePerformanceForDisplay groups days using caller timezone offset", () => {
+test("aggregatePerformanceForDisplay groups days using caller timezone offset", () => {
   const rows = aggregatePerformanceForDisplay([
     record({ hour: "2026-04-30T16" }),
   ], { bucket: "day", groupBy: "none", timezoneOffsetMinutes: -480 });
@@ -58,7 +59,7 @@ Deno.test("aggregatePerformanceForDisplay groups days using caller timezone offs
   assertEquals(rows[0].bucket, "2026-05-01");
 });
 
-Deno.test("aggregatePerformanceForDisplay groups hours using caller timezone offset", () => {
+test("aggregatePerformanceForDisplay groups hours using caller timezone offset", () => {
   const rows = aggregatePerformanceForDisplay([
     record({ hour: "2026-04-30T16" }),
   ], { bucket: "hour", groupBy: "none", timezoneOffsetMinutes: -480 });
@@ -66,7 +67,7 @@ Deno.test("aggregatePerformanceForDisplay groups hours using caller timezone off
   assertEquals(rows[0].bucket, "2026-05-01T00");
 });
 
-Deno.test("aggregatePerformanceForDisplay aligns 4h buckets to {00,04,08,12,16,20}", () => {
+test("aggregatePerformanceForDisplay aligns 4h buckets to {00,04,08,12,16,20}", () => {
   const rows = aggregatePerformanceForDisplay([
     record({ hour: "2026-04-30T09" }),
     record({ hour: "2026-04-30T11" }),
@@ -80,7 +81,7 @@ Deno.test("aggregatePerformanceForDisplay aligns 4h buckets to {00,04,08,12,16,2
   assertEquals(rows[1].requests, 1);
 });
 
-Deno.test("aggregatePerformanceForDisplay aligns 8h buckets to {00,08,16}", () => {
+test("aggregatePerformanceForDisplay aligns 8h buckets to {00,08,16}", () => {
   const rows = aggregatePerformanceForDisplay([
     record({ hour: "2026-04-30T09" }),
     record({ hour: "2026-04-30T15" }),
@@ -91,7 +92,7 @@ Deno.test("aggregatePerformanceForDisplay aligns 8h buckets to {00,08,16}", () =
   assertEquals(rows[0].requests, 2);
 });
 
-Deno.test("aggregatePerformanceForDisplay aligns 8h buckets in caller timezone", () => {
+test("aggregatePerformanceForDisplay aligns 8h buckets in caller timezone", () => {
   // local = UTC-08:00; UTC 16:00 -> local 08:00 -> 8h bucket starts at 08:00.
   const rows = aggregatePerformanceForDisplay([
     record({ hour: "2026-04-30T16" }),

@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertExists } from "../../../../test-assert.ts";
 import { Hono } from "hono";
 import type { GeminiErrorResponse } from "../../../shared/protocol/gemini.ts";
 import type { InternalDebugError } from "../../shared/errors/internal-debug-error.ts";
@@ -33,7 +34,7 @@ const requestGeminiResponse = async (
   return await app.request("/");
 };
 
-Deno.test("respondGemini preserves non-stream Gemini error event HTTP code", async () => {
+test("respondGemini preserves non-stream Gemini error event HTTP code", async () => {
   const errorEvent: GeminiErrorResponse = {
     error: {
       code: 504,
@@ -54,7 +55,7 @@ Deno.test("respondGemini preserves non-stream Gemini error event HTTP code", asy
   assertEquals(await response.json(), errorEvent);
 });
 
-Deno.test("respondGemini preserves upstream Google RPC Status body", async () => {
+test("respondGemini preserves upstream Google RPC Status body", async () => {
   const upstreamBody: GeminiErrorResponse = {
     error: {
       code: 412,
@@ -74,7 +75,7 @@ Deno.test("respondGemini preserves upstream Google RPC Status body", async () =>
   assertEquals(await response.json(), upstreamBody);
 });
 
-Deno.test("respondGemini internal errors include debug fields in Google RPC Status", async () => {
+test("respondGemini internal errors include debug fields in Google RPC Status", async () => {
   const error: InternalDebugError = {
     type: "internal_error",
     name: "TypeError",

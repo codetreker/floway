@@ -1,4 +1,5 @@
-import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertExists, assertStringIncludes } from "../../../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../../../shared/copilot.ts";
 import { clearModelsCache } from "../../../providers/upstream-model-cache.ts";
 import {
@@ -44,7 +45,7 @@ const responsesCyberPolicyFailureEvent = (model: string) => ({
   },
 });
 
-Deno.test("/v1/chat/completions malformed JSON returns structured internal debug error", async () => {
+test("/v1/chat/completions malformed JSON returns structured internal debug error", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/chat/completions", {
@@ -65,7 +66,7 @@ Deno.test("/v1/chat/completions malformed JSON returns structured internal debug
   assertExists(body.error.stack);
 });
 
-Deno.test("/v1/chat/completions streams malformed upstream Chat SSE as an error event", async () => {
+test("/v1/chat/completions streams malformed upstream Chat SSE as an error event", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -126,7 +127,7 @@ Deno.test("/v1/chat/completions streams malformed upstream Chat SSE as an error 
   });
 });
 
-Deno.test("/v1/chat/completions rejects upstream Chat SSE error payloads in non-stream responses", async () => {
+test("/v1/chat/completions rejects upstream Chat SSE error payloads in non-stream responses", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -188,7 +189,7 @@ Deno.test("/v1/chat/completions rejects upstream Chat SSE error payloads in non-
   });
 });
 
-Deno.test("/v1/chat/completions uses the native chat path on chat-only models", async () => {
+test("/v1/chat/completions uses the native chat path on chat-only models", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -265,7 +266,7 @@ Deno.test("/v1/chat/completions uses the native chat path on chat-only models", 
   assertEquals(upstreamBody!.service_tier, "auto");
 });
 
-Deno.test("/v1/chat/completions uses Copilot's provider-projected Responses endpoint on dual-endpoint models", async () => {
+test("/v1/chat/completions uses Copilot's provider-projected Responses endpoint on dual-endpoint models", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -377,7 +378,7 @@ Deno.test("/v1/chat/completions uses Copilot's provider-projected Responses endp
   assertEquals(upstreamBody?.stream, true);
 });
 
-Deno.test("/v1/chat/completions plans per provider without letting a later native provider preempt provider order", async () => {
+test("/v1/chat/completions plans per provider without letting a later native provider preempt provider order", async () => {
   const { apiKey, repo } = await setupAppTest();
 
   await repo.upstreamConfigs.save({
@@ -519,7 +520,7 @@ Deno.test("/v1/chat/completions plans per provider without letting a later nativ
   assertEquals(upstreamBody?.model, "shared-chat-model");
 });
 
-Deno.test("/v1/chat/completions strips dated Claude aliases before model routing", async () => {
+test("/v1/chat/completions strips dated Claude aliases before model routing", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamPath = "";
@@ -630,7 +631,7 @@ Deno.test("/v1/chat/completions strips dated Claude aliases before model routing
   });
 });
 
-Deno.test("/v1/chat/completions sends base model upstream after dated alias fallback", async () => {
+test("/v1/chat/completions sends base model upstream after dated alias fallback", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -731,7 +732,7 @@ Deno.test("/v1/chat/completions sends base model upstream after dated alias fall
   });
 });
 
-Deno.test("/v1/chat/completions resolves base Claude models to effort variants before planning", async () => {
+test("/v1/chat/completions resolves base Claude models to effort variants before planning", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -803,7 +804,7 @@ Deno.test("/v1/chat/completions resolves base Claude models to effort variants b
   assertEquals(upstreamBody?.model, "claude-opus-4.7-xhigh");
 });
 
-Deno.test("/v1/chat/completions omits the final usage-only SSE chunk unless the caller requested include_usage", async () => {
+test("/v1/chat/completions omits the final usage-only SSE chunk unless the caller requested include_usage", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -907,7 +908,7 @@ Deno.test("/v1/chat/completions omits the final usage-only SSE chunk unless the 
   });
 });
 
-Deno.test("/v1/chat/completions emits requested usage-only SSE chunk on native chat", async () => {
+test("/v1/chat/completions emits requested usage-only SSE chunk on native chat", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1015,7 +1016,7 @@ Deno.test("/v1/chat/completions emits requested usage-only SSE chunk on native c
   });
 });
 
-Deno.test("/v1/chat/completions preserves upstream 400 errors on the native chat path", async () => {
+test("/v1/chat/completions preserves upstream 400 errors on the native chat path", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1078,7 +1079,7 @@ Deno.test("/v1/chat/completions preserves upstream 400 errors on the native chat
   assertEquals(messages[0].role, "user");
 });
 
-Deno.test("/v1/chat/completions translates through messages when the model only supports /v1/messages", async () => {
+test("/v1/chat/completions translates through messages when the model only supports /v1/messages", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1184,7 +1185,7 @@ Deno.test("/v1/chat/completions translates through messages when the model only 
   assertEquals(messages[0].role, "user");
 });
 
-Deno.test("/v1/chat/completions via messages hides forced streaming usage unless requested", async () => {
+test("/v1/chat/completions via messages hides forced streaming usage unless requested", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1280,7 +1281,7 @@ Deno.test("/v1/chat/completions via messages hides forced streaming usage unless
   });
 });
 
-Deno.test("/v1/chat/completions via messages emits requested usage-only SSE chunk", async () => {
+test("/v1/chat/completions via messages emits requested usage-only SSE chunk", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1389,7 +1390,7 @@ Deno.test("/v1/chat/completions via messages emits requested usage-only SSE chun
   });
 });
 
-Deno.test("/v1/chat/completions via responses emits requested usage-only SSE chunk", async () => {
+test("/v1/chat/completions via responses emits requested usage-only SSE chunk", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1492,7 +1493,7 @@ Deno.test("/v1/chat/completions via responses emits requested usage-only SSE chu
   });
 });
 
-Deno.test("/v1/chat/completions via responses streams final HTTP cyber policy retry failure", async () => {
+test("/v1/chat/completions via responses streams final HTTP cyber policy retry failure", async () => {
   const { apiKey } = await setupAppTest();
   const model = "gpt-responses-chat-cyber-policy";
   let responseAttempts = 0;
@@ -1559,7 +1560,7 @@ Deno.test("/v1/chat/completions via responses streams final HTTP cyber policy re
   });
 });
 
-Deno.test("/v1/chat/completions via responses streams later HTTP retry failure", async () => {
+test("/v1/chat/completions via responses streams later HTTP retry failure", async () => {
   const { apiKey } = await setupAppTest();
   const model = "gpt-responses-chat-server-error";
   let responseAttempts = 0;
@@ -1626,7 +1627,7 @@ Deno.test("/v1/chat/completions via responses streams later HTTP retry failure",
   });
 });
 
-Deno.test("/v1/chat/completions fills missing max_tokens from model limits on the messages path", async () => {
+test("/v1/chat/completions fills missing max_tokens from model limits on the messages path", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1740,7 +1741,7 @@ Deno.test("/v1/chat/completions fills missing max_tokens from model limits on th
   assertEquals(upstreamBody!.max_tokens, 6144);
 });
 
-Deno.test("/v1/chat/completions preserves custom upstream /models HTTP errors", async () => {
+test("/v1/chat/completions preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

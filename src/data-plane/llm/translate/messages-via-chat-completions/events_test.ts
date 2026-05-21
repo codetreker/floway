@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../test-assert.ts";
 import type { ChatCompletionChunk } from "../../../shared/protocol/chat-completions.ts";
 import {
   createChatCompletionsToMessagesStreamState,
@@ -30,7 +31,7 @@ const usageChunk = (): ChatCompletionChunk => ({
   },
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents emits opaque-only reasoning as redacted_thinking at finish", () => {
+test("translateChatCompletionsChunkToMessagesEvents emits opaque-only reasoning as redacted_thinking at finish", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -50,7 +51,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents emits opaque-only reaso
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents emits opaque-only reasoning after closing prior text block", () => {
+test("translateChatCompletionsChunkToMessagesEvents emits opaque-only reasoning after closing prior text block", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -85,7 +86,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents emits opaque-only reaso
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents preserves opaque reasoning before later text", () => {
+test("translateChatCompletionsChunkToMessagesEvents preserves opaque reasoning before later text", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -120,7 +121,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents preserves opaque reason
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents keeps text and opaque in one thinking block", () => {
+test("translateChatCompletionsChunkToMessagesEvents keeps text and opaque in one thinking block", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -154,7 +155,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents keeps text and opaque i
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents emits early opaque after later thinking text", () => {
+test("translateChatCompletionsChunkToMessagesEvents emits early opaque after later thinking text", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -188,7 +189,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents emits early opaque afte
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents keeps late opaque with prior reasoning text", () => {
+test("translateChatCompletionsChunkToMessagesEvents keeps late opaque with prior reasoning text", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -236,7 +237,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents keeps late opaque with 
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents preserves later opaque-only reasoning after earlier thinking", () => {
+test("translateChatCompletionsChunkToMessagesEvents preserves later opaque-only reasoning after earlier thinking", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -295,7 +296,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents preserves later opaque-
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents omits signature for text-only reasoning", () => {
+test("translateChatCompletionsChunkToMessagesEvents omits signature for text-only reasoning", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -324,7 +325,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents omits signature for tex
   ));
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents merges final usage-only chunk before message_stop", () => {
+test("translateChatCompletionsChunkToMessagesEvents merges final usage-only chunk before message_stop", () => {
   const state = createChatCompletionsToMessagesStreamState();
   const events = [
     ...translateChatCompletionsChunkToMessagesEvents(
@@ -348,7 +349,7 @@ Deno.test("translateChatCompletionsChunkToMessagesEvents merges final usage-only
   ]);
 });
 
-Deno.test("flushChatCompletionsToMessagesEvents emits pending stop when no usage-only chunk arrives", () => {
+test("flushChatCompletionsToMessagesEvents emits pending stop when no usage-only chunk arrives", () => {
   const state = createChatCompletionsToMessagesStreamState();
 
   translateChatCompletionsChunkToMessagesEvents(
@@ -371,7 +372,7 @@ Deno.test("flushChatCompletionsToMessagesEvents emits pending stop when no usage
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToMessagesEvents ignores empty tool_calls arrays", () => {
+test("translateChatCompletionsChunkToMessagesEvents ignores empty tool_calls arrays", () => {
   const state = createChatCompletionsToMessagesStreamState();
   // First chunk with role: "assistant" and empty tool_calls.
   // Before the fix (choice.delta.tool_calls), empty [] was truthy and

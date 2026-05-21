@@ -1,4 +1,5 @@
-import { assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertRejects } from "../../../../test-assert.ts";
 import type { MessagesStreamEventData } from "../../../shared/protocol/messages.ts";
 import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
 import { translateToSourceEvents } from "./events.ts";
@@ -9,7 +10,7 @@ const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   }
 };
 
-Deno.test("translateToSourceEvents rejects Messages error events", async () => {
+test("translateToSourceEvents rejects Messages error events", async () => {
   async function* stream(): AsyncGenerator<
     ProtocolFrame<MessagesStreamEventData>
   > {
@@ -29,7 +30,7 @@ Deno.test("translateToSourceEvents rejects Messages error events", async () => {
   );
 });
 
-Deno.test("translateToSourceEvents rejects truncated Messages streams without message_stop", async () => {
+test("translateToSourceEvents rejects truncated Messages streams without message_stop", async () => {
   async function* stream(): AsyncGenerator<
     ProtocolFrame<MessagesStreamEventData>
   > {

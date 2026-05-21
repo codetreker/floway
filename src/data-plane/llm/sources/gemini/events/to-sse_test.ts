@@ -1,9 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { GeminiStreamEvent } from "../../../../shared/protocol/gemini.ts";
 import { doneFrame, eventFrame } from "../../../shared/stream/types.ts";
 import { geminiProtocolFrameToSSEFrame } from "./to-sse.ts";
 
-Deno.test("geminiProtocolFrameToSSEFrame emits data-only JSON chunks", () => {
+test("geminiProtocolFrameToSSEFrame emits data-only JSON chunks", () => {
   const chunk = {
     candidates: [{
       index: 0,
@@ -23,7 +24,7 @@ Deno.test("geminiProtocolFrameToSSEFrame emits data-only JSON chunks", () => {
   }]);
 });
 
-Deno.test("geminiProtocolFrameToSSEFrame serializes events without owning termination", () => {
+test("geminiProtocolFrameToSSEFrame serializes events without owning termination", () => {
   const first = {
     candidates: [{
       index: 0,

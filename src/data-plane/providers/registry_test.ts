@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import {
   copilotModels,
   jsonResponse,
@@ -8,7 +9,7 @@ import {
 import { createCopilotProvider } from "./copilot/provider.ts";
 import { getCatalogModels, resolveModelForRequest } from "./registry.ts";
 
-Deno.test("createCopilotProvider exposes provider-owned requested model aliases", async () => {
+test("createCopilotProvider exposes provider-owned requested model aliases", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
   const resolveAlias = instance.resolveRequestedModelId;
@@ -25,7 +26,7 @@ Deno.test("createCopilotProvider exposes provider-owned requested model aliases"
   assertEquals(resolveAlias?.("codex-auto-review"), undefined);
 });
 
-Deno.test("getCatalogModels returns public catalog records without execution bindings", async () => {
+test("getCatalogModels returns public catalog records without execution bindings", async () => {
   const { githubAccount, repo } = await setupAppTest();
 
   await repo.upstreamConfigs.save({
@@ -99,7 +100,7 @@ Deno.test("getCatalogModels returns public catalog records without execution bin
   });
 });
 
-Deno.test("resolveModelForRequest applies provider-owned aliases only to that provider", async () => {
+test("resolveModelForRequest applies provider-owned aliases only to that provider", async () => {
   const { githubAccount, repo } = await setupAppTest();
 
   await repo.upstreamConfigs.save({

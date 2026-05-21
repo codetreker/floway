@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import { translateResponsesToChatCompletions } from "./request.ts";
 import { translateResponsesToChatCompletion } from "../chat-completions-via-responses/result.ts";
 import type {
@@ -10,7 +11,7 @@ import {
   translateResponsesEventToChatCompletionsChunks,
 } from "../chat-completions-via-responses/events.ts";
 
-Deno.test("translateResponsesToChatCompletions merges adjacent assistant reasoning text and tool calls", () => {
+test("translateResponsesToChatCompletions merges adjacent assistant reasoning text and tool calls", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: [
@@ -109,7 +110,7 @@ Deno.test("translateResponsesToChatCompletions merges adjacent assistant reasoni
   ]);
 });
 
-Deno.test("translateResponsesToChatCompletions preserves all reasoning items and projects only the first scalar group", () => {
+test("translateResponsesToChatCompletions preserves all reasoning items and projects only the first scalar group", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: [
@@ -160,7 +161,7 @@ Deno.test("translateResponsesToChatCompletions preserves all reasoning items and
   }]);
 });
 
-Deno.test("translateResponsesToChatCompletion preserves all reasoning items and projects only the first scalar group", () => {
+test("translateResponsesToChatCompletion preserves all reasoning items and projects only the first scalar group", () => {
   const result = translateResponsesToChatCompletion({
     id: "resp_123",
     object: "response",
@@ -206,7 +207,7 @@ Deno.test("translateResponsesToChatCompletion preserves all reasoning items and 
   ]);
 });
 
-Deno.test("translateResponsesToChatCompletion does not fill missing scalar opaque from a later item", () => {
+test("translateResponsesToChatCompletion does not fill missing scalar opaque from a later item", () => {
   const result = translateResponsesToChatCompletion({
     id: "resp_123",
     object: "response",
@@ -245,7 +246,7 @@ Deno.test("translateResponsesToChatCompletion does not fill missing scalar opaqu
   ]);
 });
 
-Deno.test("translateResponsesToChatCompletions preserves explicit null prompt cache and safety fields", () => {
+test("translateResponsesToChatCompletions preserves explicit null prompt cache and safety fields", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: "hello",
@@ -259,7 +260,7 @@ Deno.test("translateResponsesToChatCompletions preserves explicit null prompt ca
   assertEquals(result.safety_identifier, null);
 });
 
-Deno.test("translateResponsesToChatCompletions omits response_format when Responses text.format is absent", () => {
+test("translateResponsesToChatCompletions omits response_format when Responses text.format is absent", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: "Hi",
@@ -269,7 +270,7 @@ Deno.test("translateResponsesToChatCompletions omits response_format when Respon
   assertEquals("response_format" in result, false);
 });
 
-Deno.test("translateResponsesToChatCompletions preserves explicit null text format", () => {
+test("translateResponsesToChatCompletions preserves explicit null text format", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: "Hi",
@@ -279,7 +280,7 @@ Deno.test("translateResponsesToChatCompletions preserves explicit null text form
   assertEquals(result.response_format, null);
 });
 
-Deno.test("translateResponsesToChatCompletions reshapes flat json_schema text format into Chat Completions shape", () => {
+test("translateResponsesToChatCompletions reshapes flat json_schema text format into Chat Completions shape", () => {
   const schema = {
     type: "object",
     properties: { ok: { type: "boolean" } },
@@ -308,7 +309,7 @@ Deno.test("translateResponsesToChatCompletions reshapes flat json_schema text fo
   });
 });
 
-Deno.test("translateResponsesToChatCompletions passes through plain text format without wrapping", () => {
+test("translateResponsesToChatCompletions passes through plain text format without wrapping", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: "Hi",
@@ -318,7 +319,7 @@ Deno.test("translateResponsesToChatCompletions passes through plain text format 
   assertEquals(result.response_format, { type: "text" });
 });
 
-Deno.test("translateResponsesToChatCompletions does not double-wrap an already-wrapped json_schema", () => {
+test("translateResponsesToChatCompletions does not double-wrap an already-wrapped json_schema", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: "Hi",
@@ -336,7 +337,7 @@ Deno.test("translateResponsesToChatCompletions does not double-wrap an already-w
   });
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks emits a completed opaque reasoning item before completion", () => {
+test("translateResponsesEventToChatCompletionsChunks emits a completed opaque reasoning item before completion", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   const created = translateResponsesEventToChatCompletionsChunks({
@@ -402,7 +403,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits a completed opaq
   });
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks does not fill scalar opaque from a later stream item", () => {
+test("translateResponsesEventToChatCompletionsChunks does not fill scalar opaque from a later stream item", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks({
@@ -467,7 +468,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks does not fill scalar o
   assertEquals(completed[0].usage, undefined);
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks emits reasoning_items for every completed reasoning item", () => {
+test("translateResponsesEventToChatCompletionsChunks emits reasoning_items for every completed reasoning item", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks({
@@ -548,7 +549,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits reasoning_items 
   });
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks projects done-only summary text into scalar reasoning_text", () => {
+test("translateResponsesEventToChatCompletionsChunks projects done-only summary text into scalar reasoning_text", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks({
@@ -600,7 +601,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks projects done-only sum
   assertEquals(completed[0].choices[0].finish_reason, "stop");
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks projects output_item.done summary into scalar reasoning_text", () => {
+test("translateResponsesEventToChatCompletionsChunks projects output_item.done summary into scalar reasoning_text", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks({
@@ -645,7 +646,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks projects output_item.d
   assertEquals(completed[0].choices[0].finish_reason, "stop");
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks emits stream usage as a usage-only chunk", () => {
+test("translateResponsesEventToChatCompletionsChunks emits stream usage as a usage-only chunk", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks({
@@ -690,7 +691,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits stream usage as 
   });
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks preserves reasoning before text when opaque data arrives late", () => {
+test("translateResponsesEventToChatCompletionsChunks preserves reasoning before text when opaque data arrives late", () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks({
@@ -767,7 +768,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks preserves reasoning be
   ]);
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks preserves reasoning before later text after reasoning is done", () => {
+test("translateResponsesEventToChatCompletionsChunks preserves reasoning before later text after reasoning is done", () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks({
@@ -844,7 +845,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks preserves reasoning be
   ]);
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks emits output_text.done when no delta arrived", () => {
+test("translateResponsesEventToChatCompletionsChunks emits output_text.done when no delta arrived", () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks({
@@ -873,7 +874,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits output_text.done
   ]);
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks emits function_call_arguments.done when no delta arrived", () => {
+test("translateResponsesEventToChatCompletionsChunks emits function_call_arguments.done when no delta arrived", () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks({
@@ -925,7 +926,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits function_call_ar
   ]);
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks emits all done-only reasoning summary parts", () => {
+test("translateResponsesEventToChatCompletionsChunks emits all done-only reasoning summary parts", () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks({
@@ -980,7 +981,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks emits all done-only re
   );
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks flushes pending done-only reasoning summary at completion", () => {
+test("translateResponsesEventToChatCompletionsChunks flushes pending done-only reasoning summary at completion", () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks({
@@ -1019,7 +1020,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks flushes pending done-o
   ]);
 });
 
-Deno.test("translateResponsesEventToChatCompletionsChunks keeps first scalar reasoning by output order", () => {
+test("translateResponsesEventToChatCompletionsChunks keeps first scalar reasoning by output order", () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks({
@@ -1088,7 +1089,7 @@ Deno.test("translateResponsesEventToChatCompletionsChunks keeps first scalar rea
   ]);
 });
 
-Deno.test("translateResponsesToChatCompletions filters out builtin tools that have no Chat Completions equivalent", () => {
+test("translateResponsesToChatCompletions filters out builtin tools that have no Chat Completions equivalent", () => {
   // Responses exposes server-side builtin tools (web_search_preview,
   // file_search, image_generation, ...) that have no Chat Completions
   // analogue and no `name` field. These should be filtered out rather than
@@ -1144,7 +1145,7 @@ Deno.test("translateResponsesToChatCompletions filters out builtin tools that ha
   assertEquals(result.tools![1].function.description, undefined);
 });
 
-Deno.test("translateResponsesToChatCompletions returns undefined tools when only builtin tools are present", () => {
+test("translateResponsesToChatCompletions returns undefined tools when only builtin tools are present", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: [
@@ -1168,7 +1169,7 @@ Deno.test("translateResponsesToChatCompletions returns undefined tools when only
   assertEquals(result.tools, undefined);
 });
 
-Deno.test("translateResponsesToChatCompletions drops forced builtin tool_choice but keeps function tool_choice", () => {
+test("translateResponsesToChatCompletions drops forced builtin tool_choice but keeps function tool_choice", () => {
   // Forced builtin tool choices have no Chat Completions analogue;
   // they should be dropped (falling back to auto/default).
   const resultWithBuiltinChoice = translateResponsesToChatCompletions({
@@ -1221,7 +1222,7 @@ Deno.test("translateResponsesToChatCompletions drops forced builtin tool_choice 
   });
 });
 
-Deno.test("translateResponsesToChatCompletions returns undefined tool_choice for string auto/required/none choices", () => {
+test("translateResponsesToChatCompletions returns undefined tool_choice for string auto/required/none choices", () => {
   const result = translateResponsesToChatCompletions({
     model: "gpt-test",
     input: [

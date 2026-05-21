@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../shared/copilot.ts";
 import {
   clearModelsCache,
@@ -44,7 +45,7 @@ const loadModelData = async (
   return result.data;
 };
 
-Deno.test("models cache uses L1 cache for 120s and L2 cache for 600s", async () => {
+test("models cache uses L1 cache for 120s and L2 cache for 600s", async () => {
   const { githubAccount } = await setupAppTest();
   clearModelsCache();
   await clearCopilotTokenCache();
@@ -105,7 +106,7 @@ Deno.test("models cache uses L1 cache for 120s and L2 cache for 600s", async () 
   assertEquals(modelsFetches, 1);
 });
 
-Deno.test("models cache refreshes upstream after repo-backed cache expires", async () => {
+test("models cache refreshes upstream after repo-backed cache expires", async () => {
   const { githubAccount } = await setupAppTest();
   clearModelsCache();
   await clearCopilotTokenCache();
@@ -164,7 +165,7 @@ Deno.test("models cache refreshes upstream after repo-backed cache expires", asy
   assertEquals(modelsFetches, 2);
 });
 
-Deno.test("models cache ignores malformed repo-backed entries", async () => {
+test("models cache ignores malformed repo-backed entries", async () => {
   const { githubAccount, repo } = await setupAppTest();
   clearModelsCache();
   await clearCopilotTokenCache();
@@ -233,7 +234,7 @@ Deno.test("models cache ignores malformed repo-backed entries", async () => {
   assertEquals(modelsFetches, 1);
 });
 
-Deno.test("models cache uses stale data after soft expiry on configured load errors until hard expiry", async () => {
+test("models cache uses stale data after soft expiry on configured load errors until hard expiry", async () => {
   const { githubAccount } = await setupAppTest();
   clearModelsCache();
   await clearCopilotTokenCache();
@@ -295,7 +296,7 @@ Deno.test("models cache uses stale data after soft expiry on configured load err
   assertEquals(modelsFetches, 3);
 });
 
-Deno.test("invalidateUpstreamModels clears both L1 and L2 cache for a given upstream", async () => {
+test("invalidateUpstreamModels clears both L1 and L2 cache for a given upstream", async () => {
   const { githubAccount } = await setupAppTest();
   clearModelsCache();
   await clearCopilotTokenCache();

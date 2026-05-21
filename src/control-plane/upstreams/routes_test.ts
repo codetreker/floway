@@ -1,9 +1,10 @@
+import { test } from "vitest";
 // End-to-end validation of POST/PATCH /api/upstreams body validation
 // around the enabled_fixes field: unknown ids hard-reject (400),
 // known ids round-trip through serialization regardless of whether their
 // appliesTo overlaps supported_endpoints.
 
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "../../test-assert.ts";
 import { requestApp, setupAppTest } from "../../test-helpers.ts";
 
 const upstreamCreateBody = (
@@ -17,7 +18,7 @@ const upstreamCreateBody = (
   ...overrides,
 });
 
-Deno.test("POST /api/upstreams rejects unknown enabled_fixes ids", async () => {
+test("POST /api/upstreams rejects unknown enabled_fixes ids", async () => {
   const { adminKey } = await setupAppTest();
 
   const resp = await requestApp("/api/upstreams", {
@@ -40,7 +41,7 @@ Deno.test("POST /api/upstreams rejects unknown enabled_fixes ids", async () => {
   );
 });
 
-Deno.test("POST /api/upstreams accepts known fixes regardless of supported_endpoints overlap", async () => {
+test("POST /api/upstreams accepts known fixes regardless of supported_endpoints overlap", async () => {
   const { adminKey } = await setupAppTest();
 
   // deepseek-reasoning-dialect's appliesTo is chat_completions only, but
@@ -64,7 +65,7 @@ Deno.test("POST /api/upstreams accepts known fixes regardless of supported_endpo
   assertEquals(created.enabled_fixes, ["deepseek-reasoning-dialect"]);
 });
 
-Deno.test("POST /api/upstreams accepts a valid enabled_fixes list and round-trips it", async () => {
+test("POST /api/upstreams accepts a valid enabled_fixes list and round-trips it", async () => {
   const { adminKey } = await setupAppTest();
 
   const create = await requestApp("/api/upstreams", {
@@ -93,7 +94,7 @@ Deno.test("POST /api/upstreams accepts a valid enabled_fixes list and round-trip
   assertEquals(ours?.enabled_fixes, ["deepseek-reasoning-dialect"]);
 });
 
-Deno.test("GET /api/upstream-fixes returns the flag catalog", async () => {
+test("GET /api/upstream-fixes returns the flag catalog", async () => {
   const { adminKey } = await setupAppTest();
 
   const resp = await requestApp("/api/upstream-fixes", {
@@ -108,7 +109,7 @@ Deno.test("GET /api/upstream-fixes returns the flag catalog", async () => {
   assertEquals("defaultFor" in deepseek!, false);
 });
 
-Deno.test("GET /api/upstream-fixes requires admin auth", async () => {
+test("GET /api/upstream-fixes requires admin auth", async () => {
   const { apiKey } = await setupAppTest();
 
   const resp = await requestApp("/api/upstream-fixes", {

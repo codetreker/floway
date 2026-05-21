@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../test-assert.ts";
 import {
   createMessagesToResponsesStreamState,
   translateMessagesEventToResponsesEvents,
@@ -97,7 +98,7 @@ function runToCompletion(usage: {
 
 // ── cache_creation_input_tokens ──
 
-Deno.test("includes cache_creation_input_tokens in input_tokens", () => {
+test("includes cache_creation_input_tokens in input_tokens", () => {
   const result = runToCompletion({
     input_tokens: 100,
     output_tokens: 50,
@@ -111,7 +112,7 @@ Deno.test("includes cache_creation_input_tokens in input_tokens", () => {
   assertEquals(result.usage!.input_tokens_details!.cached_tokens, 20);
 });
 
-Deno.test("handles cache_creation without cache_read", () => {
+test("handles cache_creation without cache_read", () => {
   const result = runToCompletion({
     input_tokens: 100,
     output_tokens: 50,
@@ -123,7 +124,7 @@ Deno.test("handles cache_creation without cache_read", () => {
   assertEquals(result.usage!.input_tokens_details, undefined);
 });
 
-Deno.test("handles no cache fields (backward compat)", () => {
+test("handles no cache fields (backward compat)", () => {
   const result = runToCompletion({
     input_tokens: 100,
     output_tokens: 50,
@@ -134,7 +135,7 @@ Deno.test("handles no cache fields (backward compat)", () => {
   assertEquals(result.usage!.input_tokens_details, undefined);
 });
 
-Deno.test("redacted_thinking stream block becomes opaque Responses reasoning", () => {
+test("redacted_thinking stream block becomes opaque Responses reasoning", () => {
   const state = createMessagesToResponsesStreamState(
     "resp_test",
     "claude-test",
@@ -159,7 +160,7 @@ Deno.test("redacted_thinking stream block becomes opaque Responses reasoning", (
   }]);
 });
 
-Deno.test("redacted_thinking stream block recovers the upstream id from packed data", () => {
+test("redacted_thinking stream block recovers the upstream id from packed data", () => {
   const state = createMessagesToResponsesStreamState(
     "resp_test",
     "claude-test",
@@ -184,7 +185,7 @@ Deno.test("redacted_thinking stream block recovers the upstream id from packed d
   }]);
 });
 
-Deno.test("thinking stream block recovers the upstream id from a packed signature_delta", () => {
+test("thinking stream block recovers the upstream id from a packed signature_delta", () => {
   const state = createMessagesToResponsesStreamState(
     "resp_test",
     "claude-test",
@@ -218,7 +219,7 @@ Deno.test("thinking stream block recovers the upstream id from a packed signatur
   }]);
 });
 
-Deno.test("thinking stream block start omits undefined encrypted_content", () => {
+test("thinking stream block start omits undefined encrypted_content", () => {
   const state = createMessagesToResponsesStreamState(
     "resp_test",
     "claude-test",
@@ -243,7 +244,7 @@ Deno.test("thinking stream block start omits undefined encrypted_content", () =>
   assertFalse("encrypted_content" in added.item);
 });
 
-Deno.test("thinking stream block stop omits undefined encrypted_content", () => {
+test("thinking stream block stop omits undefined encrypted_content", () => {
   const state = createMessagesToResponsesStreamState(
     "resp_test",
     "claude-test",
@@ -277,7 +278,7 @@ Deno.test("thinking stream block stop omits undefined encrypted_content", () => 
   assertFalse("encrypted_content" in done.item);
 });
 
-Deno.test("max_tokens stream stop becomes response.incomplete", () => {
+test("max_tokens stream stop becomes response.incomplete", () => {
   const state = createMessagesToResponsesStreamState(
     "resp_max_tokens",
     "claude-test",

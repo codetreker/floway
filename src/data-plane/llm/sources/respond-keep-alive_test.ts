@@ -1,5 +1,6 @@
-import { assertEquals } from "@std/assert";
-import { FakeTime } from "@std/testing/time";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
+import { FakeTime } from "../../../test-time.ts";
 import { type Context, Hono } from "hono";
 import type { ChatCompletionChunk } from "../../shared/protocol/chat-completions.ts";
 import type { GeminiStreamEvent } from "../../shared/protocol/gemini.ts";
@@ -152,7 +153,7 @@ const source = (): SourceExecutionContext => ({
   rememberPerformance: (result) => result,
 });
 
-Deno.test("Messages streaming keepalive uses Anthropic ping events", async () => {
+test("Messages streaming keepalive uses Anthropic ping events", async () => {
   await assertSourceKeepAlive<MessagesStreamEventData>(
     (c, events) =>
       respondMessages(
@@ -165,7 +166,7 @@ Deno.test("Messages streaming keepalive uses Anthropic ping events", async () =>
   );
 });
 
-Deno.test("Responses streaming keepalive uses SSE comments", async () => {
+test("Responses streaming keepalive uses SSE comments", async () => {
   await assertSourceKeepAlive<ResponsesStreamEvent>(
     (c, events) =>
       respondResponses(
@@ -178,7 +179,7 @@ Deno.test("Responses streaming keepalive uses SSE comments", async () => {
   );
 });
 
-Deno.test("Chat Completions streaming keepalive uses SSE comments", async () => {
+test("Chat Completions streaming keepalive uses SSE comments", async () => {
   await assertSourceKeepAlive<ChatCompletionChunk>(
     (c, events) =>
       respondChatCompletions(
@@ -192,7 +193,7 @@ Deno.test("Chat Completions streaming keepalive uses SSE comments", async () => 
   );
 });
 
-Deno.test("Gemini streaming keepalive uses SSE comments", async () => {
+test("Gemini streaming keepalive uses SSE comments", async () => {
   await assertSourceKeepAlive<GeminiStreamEvent>(
     (c, events) =>
       respondGemini(

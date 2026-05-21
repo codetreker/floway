@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertExists } from "../../../../../test-assert.ts";
 import type {
   MessagesAssistantContentBlock,
   MessagesClientTool,
@@ -197,7 +198,7 @@ const messagesResponseToProtocolFrames = (
   response: MessagesResponse,
 ): ProtocolFrame<MessagesStreamEventData>[] => messagesResultToEvents(response);
 
-Deno.test("web search shim payload codecs use minimal cgws1 payloads", () => {
+test("web search shim payload codecs use minimal cgws1 payloads", () => {
   const encryptedContent = encodeWebSearchResultPayload({
     content: [{ type: "text", text: "Claude Shannon was born in 1916." }],
   });
@@ -264,7 +265,7 @@ Deno.test("web search shim payload codecs use minimal cgws1 payloads", () => {
   );
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest rewrites both native tool versions to client tools without renaming web_search", () => {
+test("prepareMessagesWebSearchShimRequest rewrites both native tool versions to client tools without renaming web_search", () => {
   for (const type of ["web_search_20250305", "web_search_20260209"] as const) {
     const prepared = prepareMessagesWebSearchShimRequest({
       model: "claude-test",
@@ -304,7 +305,7 @@ Deno.test("prepareMessagesWebSearchShimRequest rewrites both native tool version
   }
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest rejects duplicate native tools", () => {
+test("prepareMessagesWebSearchShimRequest rejects duplicate native tools", () => {
   const prepared = prepareMessagesWebSearchShimRequest({
     model: "claude-test",
     max_tokens: 64,
@@ -319,7 +320,7 @@ Deno.test("prepareMessagesWebSearchShimRequest rejects duplicate native tools", 
   });
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest rejects native web search tools whose name is not web_search", () => {
+test("prepareMessagesWebSearchShimRequest rejects native web search tools whose name is not web_search", () => {
   for (const type of ["web_search_20250305", "web_search_20260209"] as const) {
     const prepared = prepareMessagesWebSearchShimRequest({
       model: "claude-test",
@@ -335,7 +336,7 @@ Deno.test("prepareMessagesWebSearchShimRequest rejects native web search tools w
   }
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest rejects native web search name collisions with client tools", () => {
+test("prepareMessagesWebSearchShimRequest rejects native web search name collisions with client tools", () => {
   const prepared = prepareMessagesWebSearchShimRequest({
     model: "claude-test",
     max_tokens: 64,
@@ -357,7 +358,7 @@ Deno.test("prepareMessagesWebSearchShimRequest rejects native web search name co
   });
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest decodes our native-looking replay into upstream tool history", () => {
+test("prepareMessagesWebSearchShimRequest decodes our native-looking replay into upstream tool history", () => {
   const prepared = prepareMessagesWebSearchShimRequest(
     makeNativeReplayPayload(),
   );
@@ -394,7 +395,7 @@ Deno.test("prepareMessagesWebSearchShimRequest decodes our native-looking replay
   assertEquals(prepared.state.requestSearchResultOwnership, ["owned"]);
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest leaves native-looking replay errors untouched", () => {
+test("prepareMessagesWebSearchShimRequest leaves native-looking replay errors untouched", () => {
   const payload: MessagesPayload = {
     model: "claude-test",
     max_tokens: 64,
@@ -431,7 +432,7 @@ Deno.test("prepareMessagesWebSearchShimRequest leaves native-looking replay erro
   assertEquals(prepared.payload, payload);
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest passes through foreign native-looking history that does not decode", () => {
+test("prepareMessagesWebSearchShimRequest passes through foreign native-looking history that does not decode", () => {
   const payload: MessagesPayload = {
     model: "claude-test",
     max_tokens: 64,
@@ -472,7 +473,7 @@ Deno.test("prepareMessagesWebSearchShimRequest passes through foreign native-loo
   assertEquals(prepared.payload, payload);
 });
 
-Deno.test("prepareMessagesWebSearchShimRequest creates a separate user tool_result message when the trailing user message is not a tool_result turn", () => {
+test("prepareMessagesWebSearchShimRequest creates a separate user tool_result message when the trailing user message is not a tool_result turn", () => {
   const payload: MessagesPayload = {
     model: "claude-test",
     max_tokens: 64,
@@ -530,7 +531,7 @@ Deno.test("prepareMessagesWebSearchShimRequest creates a separate user tool_resu
   });
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative converts pure web_search tool_use into pause_turn", async () => {
+test("rewriteMessagesWebSearchResponseToNative converts pure web_search tool_use into pause_turn", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -560,7 +561,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative converts pure web_search too
   }]);
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative keeps remaining client tool_use in mixed turn", async () => {
+test("rewriteMessagesWebSearchResponseToNative keeps remaining client tool_use in mixed turn", async () => {
   const rewritten = await rewriteMessagesWebSearchResponseToNative(
     makeUpstreamToolUseResponse([
       {
@@ -589,7 +590,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative keeps remaining client tool_
   );
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative synthesizes max_uses_exceeded without calling the provider", async () => {
+test("rewriteMessagesWebSearchResponseToNative synthesizes max_uses_exceeded without calling the provider", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   let called = false;
@@ -624,7 +625,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative synthesizes max_uses_exceede
   assertEquals(await repo.searchUsage.listAll(), []);
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative maps provider errors into native-looking tool-result errors", async () => {
+test("rewriteMessagesWebSearchResponseToNative maps provider errors into native-looking tool-result errors", async () => {
   const rewritten = await rewriteMessagesWebSearchResponseToNative(
     makeUpstreamToolUseResponse([{
       name: "web_search",
@@ -647,7 +648,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative maps provider errors into na
   assertEquals(rewritten.stop_reason, "pause_turn");
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative uses invalid_tool_input for blank queries", async () => {
+test("rewriteMessagesWebSearchResponseToNative uses invalid_tool_input for blank queries", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -674,7 +675,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative uses invalid_tool_input for 
   assertEquals(await repo.searchUsage.listAll(), []);
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative uses query_too_long without recording usage", async () => {
+test("rewriteMessagesWebSearchResponseToNative uses query_too_long without recording usage", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -701,7 +702,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative uses query_too_long without 
   assertEquals(await repo.searchUsage.listAll(), []);
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative forwards only definition-level domain policy to the provider", async () => {
+test("rewriteMessagesWebSearchResponseToNative forwards only definition-level domain policy to the provider", async () => {
   let providerRequest: {
     query: string;
     allowedDomains?: string[];
@@ -743,7 +744,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative forwards only definition-lev
   assertEquals(rewritten.stop_reason, "pause_turn");
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative counts thrown provider attempts toward max_uses within the same turn", async () => {
+test("rewriteMessagesWebSearchResponseToNative counts thrown provider attempts toward max_uses within the same turn", async () => {
   let callCount = 0;
 
   const rewritten = await rewriteMessagesWebSearchResponseToNative(
@@ -788,7 +789,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative counts thrown provider attem
   });
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative rewrites search_result_location citations only for owned indices", async () => {
+test("rewriteMessagesWebSearchResponseToNative rewrites search_result_location citations only for owned indices", async () => {
   const rewritten = await rewriteMessagesWebSearchResponseToNative(
     {
       id: "msg_citations",
@@ -834,7 +835,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative rewrites search_result_locat
   assertEquals(textBlock.citations?.[1]?.type, "search_result_location");
 });
 
-Deno.test("collectAndRewriteMessagesWebSearchEventsToNative rewrites collected events once", async () => {
+test("collectAndRewriteMessagesWebSearchEventsToNative rewrites collected events once", async () => {
   const frames = collectAndRewriteMessagesWebSearchEventsToNative(
     toAsyncIterable(
       messagesResponseToProtocolFrames(
@@ -856,7 +857,7 @@ Deno.test("collectAndRewriteMessagesWebSearchEventsToNative rewrites collected e
   assertEquals(rewritten.content[1].type, "web_search_tool_result");
 });
 
-Deno.test("rewriteMessagesWebSearchResponseToNative preserves user-defined web_search tool calls in replay-only mode", async () => {
+test("rewriteMessagesWebSearchResponseToNative preserves user-defined web_search tool calls in replay-only mode", async () => {
   const { tools: _tools, ...replayPayload } = makeNativeReplayPayload();
   const prepared = prepareMessagesWebSearchShimRequest({
     ...replayPayload,
@@ -893,7 +894,7 @@ Deno.test("rewriteMessagesWebSearchResponseToNative preserves user-defined web_s
   assertEquals(rewritten, upstreamResponse);
 });
 
-Deno.test("withMessagesWebSearchShim returns internal-error when request requires disabled search config", async () => {
+test("withMessagesWebSearchShim returns internal-error when request requires disabled search config", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   await repo.searchConfig.save(DEFAULT_SEARCH_CONFIG);
@@ -911,7 +912,7 @@ Deno.test("withMessagesWebSearchShim returns internal-error when request require
   assertEquals(result.type, "internal-error");
 });
 
-Deno.test("withMessagesWebSearchShim allows replay-only history when the search provider is disabled", async () => {
+test("withMessagesWebSearchShim allows replay-only history when the search provider is disabled", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   await repo.searchConfig.save(DEFAULT_SEARCH_CONFIG);
@@ -959,7 +960,7 @@ Deno.test("withMessagesWebSearchShim allows replay-only history when the search 
   assertEquals(textBlock.citations?.[0]?.type, "web_search_result_location");
 });
 
-Deno.test("withMessagesWebSearchShim emits native-like citation deltas for replay-only history", async () => {
+test("withMessagesWebSearchShim emits native-like citation deltas for replay-only history", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   await repo.searchConfig.save(DEFAULT_SEARCH_CONFIG);

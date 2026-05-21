@@ -1,4 +1,5 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertStringIncludes } from "../../../../../test-assert.ts";
 import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
 import type { ResponsesExchangeContext } from "../../../../llm/interceptors.ts";
 import { initRepo } from "../../../../../repo/index.ts";
@@ -25,7 +26,7 @@ const exchangeContext = (
   enabledFixes: new Set<string>(),
 });
 
-Deno.test("withConnectionMismatchRetried does not retry unrelated upstream errors", async () => {
+test("withConnectionMismatchRetried does not retry unrelated upstream errors", async () => {
   initRepo(new InMemoryRepo());
 
   const originalId = btoa("0123456789abcdefghij");
@@ -74,7 +75,7 @@ Deno.test("withConnectionMismatchRetried does not retry unrelated upstream error
   assertEquals(result.type, "upstream-error");
 });
 
-Deno.test("withConnectionMismatchRetried rewrites already-spotted ids before the first attempt", async () => {
+test("withConnectionMismatchRetried rewrites already-spotted ids before the first attempt", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type {
   ChatCompletionChunk,
   ChatCompletionsPayload,
@@ -50,7 +51,7 @@ const usageRecord = (
   usage: NonNullable<ChatCompletionChunk["usage"]>,
 ): Record<string, unknown> => usage as unknown as Record<string, unknown>;
 
-Deno.test("withUsageNormalized rewrites DeepSeek prompt_cache_hit_tokens on protocol usage carriers", async () => {
+test("withUsageNormalized rewrites DeepSeek prompt_cache_hit_tokens on protocol usage carriers", async () => {
   const frames = await runWithFrames(eventFrame({
     id: "x",
     object: "chat.completion.chunk",
@@ -76,7 +77,7 @@ Deno.test("withUsageNormalized rewrites DeepSeek prompt_cache_hit_tokens on prot
   assertEquals("prompt_cache_miss_tokens" in usage, false);
 });
 
-Deno.test("withUsageNormalized rewrites Kimi flat cached_tokens on protocol usage carriers", async () => {
+test("withUsageNormalized rewrites Kimi flat cached_tokens on protocol usage carriers", async () => {
   const frames = await runWithFrames(eventFrame({
     id: "x",
     object: "chat.completion.chunk",
@@ -98,7 +99,7 @@ Deno.test("withUsageNormalized rewrites Kimi flat cached_tokens on protocol usag
   assertEquals("cached_tokens" in usage, false);
 });
 
-Deno.test("withUsageNormalized leaves standard prompt_tokens_details untouched", async () => {
+test("withUsageNormalized leaves standard prompt_tokens_details untouched", async () => {
   const frames = await runWithFrames(eventFrame({
     id: "x",
     object: "chat.completion.chunk",
@@ -122,7 +123,7 @@ Deno.test("withUsageNormalized leaves standard prompt_tokens_details untouched",
   });
 });
 
-Deno.test("withUsageNormalized relocates usage from a non-empty choices chunk to a synthesized carrier", async () => {
+test("withUsageNormalized relocates usage from a non-empty choices chunk to a synthesized carrier", async () => {
   const frames = await runWithFrames(eventFrame({
     id: "chatcmpl_1",
     object: "chat.completion.chunk",
@@ -158,7 +159,7 @@ Deno.test("withUsageNormalized relocates usage from a non-empty choices chunk to
   assertEquals("prompt_cache_hit_tokens" in usage, false);
 });
 
-Deno.test("withUsageNormalized rewrites usage in-place on a spec-compliant carrier chunk", async () => {
+test("withUsageNormalized rewrites usage in-place on a spec-compliant carrier chunk", async () => {
   const frames = await runWithFrames(eventFrame({
     id: "chatcmpl_2",
     object: "chat.completion.chunk",
@@ -182,7 +183,7 @@ Deno.test("withUsageNormalized rewrites usage in-place on a spec-compliant carri
   assertEquals("cached_tokens" in usage, false);
 });
 
-Deno.test("withUsageNormalized leaves chunks without usage untouched", async () => {
+test("withUsageNormalized leaves chunks without usage untouched", async () => {
   const original = eventFrame(
     {
       id: "chatcmpl_3",
@@ -202,7 +203,7 @@ Deno.test("withUsageNormalized leaves chunks without usage untouched", async () 
   assertEquals(frames, [original]);
 });
 
-Deno.test("withUsageNormalized passes protocol done frames through verbatim", async () => {
+test("withUsageNormalized passes protocol done frames through verbatim", async () => {
   const done = doneFrame();
 
   const frames = await runWithFrames(done);

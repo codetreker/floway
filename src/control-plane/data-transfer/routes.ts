@@ -228,7 +228,6 @@ export const exportData = async (c: Context) => {
 
 /** POST /api/import — import data with merge or replace mode */
 export const importData = async (c: Context) => {
-  // deno-lint-ignore no-explicit-any
   const body = await c.req.json<{ mode: string; data: any }>();
   const { mode, data } = body;
 

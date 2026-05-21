@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import {
   copilotModels,
   jsonResponse,
@@ -8,7 +9,7 @@ import {
 import { messagesCopilotSourceInterceptors } from "./interceptors/messages/index.ts";
 import { createCopilotProvider } from "./provider.ts";
 
-Deno.test("Copilot provider exposes the highest-priority non-Claude endpoint", async () => {
+test("Copilot provider exposes the highest-priority non-Claude endpoint", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
   const provider = instance.provider;
@@ -48,7 +49,7 @@ Deno.test("Copilot provider exposes the highest-priority non-Claude endpoint", a
   });
 });
 
-Deno.test("Copilot provider exposes only Responses for Claude when available", async () => {
+test("Copilot provider exposes only Responses for Claude when available", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
   const provider = instance.provider;
@@ -92,7 +93,7 @@ Deno.test("Copilot provider exposes only Responses for Claude when available", a
   });
 });
 
-Deno.test("Copilot provider owns the claude-* Messages capability workaround", async () => {
+test("Copilot provider owns the claude-* Messages capability workaround", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
   const provider = instance.provider;
@@ -152,7 +153,7 @@ Deno.test("Copilot provider owns the claude-* Messages capability workaround", a
   assertEquals(upstreamBody?.model, "claude-haiku-chat-listed");
 });
 
-Deno.test("Copilot provider selects raw variants that support the target endpoint", async () => {
+test("Copilot provider selects raw variants that support the target endpoint", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
   const provider = instance.provider;
@@ -208,14 +209,14 @@ Deno.test("Copilot provider selects raw variants that support the target endpoin
   assertEquals(responsesBody?.model, "claude-opus-4.7");
 });
 
-Deno.test("Copilot provider owns default response retry fix", async () => {
+test("Copilot provider owns default response retry fix", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
 
   assertEquals(instance.enabledFixes.has("retry-cyber-policy"), true);
 });
 
-Deno.test("Copilot provider enables Copilot-owned Messages source interceptors by default", async () => {
+test("Copilot provider enables Copilot-owned Messages source interceptors by default", async () => {
   const { githubAccount } = await setupAppTest();
   const instance = await createCopilotProvider(githubAccount);
 

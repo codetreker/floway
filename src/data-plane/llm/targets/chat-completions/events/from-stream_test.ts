@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import { sseFrame } from "../../../shared/stream/types.ts";
 import { chatCompletionsStreamFramesToEvents } from "./from-stream.ts";
 
@@ -8,7 +9,7 @@ const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   return collected;
 };
 
-Deno.test("chatCompletionsStreamFramesToEvents parses Chat SSE chunks and done sentinel", async () => {
+test("chatCompletionsStreamFramesToEvents parses Chat SSE chunks and done sentinel", async () => {
   const frames = await collect(
     chatCompletionsStreamFramesToEvents((async function* () {
       yield sseFrame(JSON.stringify({
@@ -42,7 +43,7 @@ Deno.test("chatCompletionsStreamFramesToEvents parses Chat SSE chunks and done s
   }, { type: "done" }]);
 });
 
-Deno.test("chatCompletionsStreamFramesToEvents rejects malformed Chat SSE JSON", async () => {
+test("chatCompletionsStreamFramesToEvents rejects malformed Chat SSE JSON", async () => {
   await assertRejects(
     async () => {
       await collect(chatCompletionsStreamFramesToEvents((async function* () {
@@ -54,7 +55,7 @@ Deno.test("chatCompletionsStreamFramesToEvents rejects malformed Chat SSE JSON",
   );
 });
 
-Deno.test("chatCompletionsStreamFramesToEvents rejects upstream Chat SSE error payloads", async () => {
+test("chatCompletionsStreamFramesToEvents rejects upstream Chat SSE error payloads", async () => {
   await assertRejects(
     async () => {
       await collect(chatCompletionsStreamFramesToEvents((async function* () {

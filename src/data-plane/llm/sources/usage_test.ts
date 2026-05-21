@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import type { MessagesStreamEventData } from "../../shared/protocol/messages.ts";
 import { eventFrame } from "../shared/stream/types.ts";
 import {
@@ -9,7 +10,7 @@ import {
 const stop = () =>
   eventFrame({ type: "message_stop" } satisfies MessagesStreamEventData);
 
-Deno.test("Messages stream usage keeps start input and delta output", () => {
+test("Messages stream usage keeps start input and delta output", () => {
   const state = createMessagesStreamUsageState();
 
   assertEquals(
@@ -60,7 +61,7 @@ Deno.test("Messages stream usage keeps start input and delta output", () => {
   });
 });
 
-Deno.test("Messages stream usage can recover input from delta", () => {
+test("Messages stream usage can recover input from delta", () => {
   const state = createMessagesStreamUsageState();
 
   tokenUsageFromMessagesFrame(

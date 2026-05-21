@@ -1,5 +1,6 @@
-import { assertEquals } from "@std/assert";
-import { FakeTime } from "@std/testing/time";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
+import { FakeTime } from "../../../../test-time.ts";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { parseSSEStream } from "./parse-sse.ts";
@@ -117,7 +118,7 @@ const cancelStateWithin = async (
   }
 };
 
-Deno.test("writeSSEFrames emits SSE comment keepalive frames while idle", async () => {
+test("writeSSEFrames emits SSE comment keepalive frames while idle", async () => {
   const time = new FakeTime();
   const idle = createIdleSSEEvents();
 
@@ -140,7 +141,7 @@ Deno.test("writeSSEFrames emits SSE comment keepalive frames while idle", async 
   }
 });
 
-Deno.test("writeSSEFrames emits Messages ping keepalive frames while idle", async () => {
+test("writeSSEFrames emits Messages ping keepalive frames while idle", async () => {
   const time = new FakeTime();
   const idle = createIdleSSEEvents();
 
@@ -169,7 +170,7 @@ Deno.test("writeSSEFrames emits Messages ping keepalive frames while idle", asyn
   }
 });
 
-Deno.test("writeSSEFrames does not emit keepalive before ready events", async () => {
+test("writeSSEFrames does not emit keepalive before ready events", async () => {
   const response = await requestProxySSE(
     (async function* () {
       yield sseFrame("{}", "response.completed");
@@ -183,7 +184,7 @@ Deno.test("writeSSEFrames does not emit keepalive before ready events", async ()
   );
 });
 
-Deno.test("writeSSEFrames stops idle iterator and timer when the response is canceled", async () => {
+test("writeSSEFrames stops idle iterator and timer when the response is canceled", async () => {
   const time = new FakeTime();
   const idle = createIdleSSEEvents();
 
@@ -204,7 +205,7 @@ Deno.test("writeSSEFrames stops idle iterator and timer when the response is can
   }
 });
 
-Deno.test("writeSSEFrames handles pending iterator errors after the response is canceled", async () => {
+test("writeSSEFrames handles pending iterator errors after the response is canceled", async () => {
   const idle = createIdleSSEEvents();
   const response = await requestProxySSE(idle.events, {
     keepAlive: { intervalMs: 1_000, frame: sseCommentFrame("keepalive") },
@@ -219,7 +220,7 @@ Deno.test("writeSSEFrames handles pending iterator errors after the response is 
   assertEquals(idle.returnCalled(), true);
 });
 
-Deno.test("writeSSEFrames aborts a pending upstream SSE reader when the downstream response is canceled", async () => {
+test("writeSSEFrames aborts a pending upstream SSE reader when the downstream response is canceled", async () => {
   const upstreamCanceled = deferred<void>();
   let upstreamController!: ReadableStreamDefaultController<Uint8Array>;
   const downstreamAbortController = new AbortController();

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import { mergeClaudeVariants } from "./merge-claude-variants.ts";
 import type { CopilotModelsResponse, CopilotRawModel } from "./types.ts";
 
@@ -62,7 +63,7 @@ const claudeVariant = (
     : {}),
 });
 
-Deno.test("mergeClaudeVariants merges 4.7 base + high + xhigh + 1m-internal", () => {
+test("mergeClaudeVariants merges 4.7 base + high + xhigh + 1m-internal", () => {
   const input: CopilotModelsResponse = {
     object: "list",
     data: [
@@ -135,7 +136,7 @@ Deno.test("mergeClaudeVariants merges 4.7 base + high + xhigh + 1m-internal", ()
   ]);
 });
 
-Deno.test("mergeClaudeVariants merges 4.6 base + 1m", () => {
+test("mergeClaudeVariants merges 4.6 base + 1m", () => {
   const input: CopilotModelsResponse = {
     object: "list",
     data: [
@@ -183,7 +184,7 @@ Deno.test("mergeClaudeVariants merges 4.6 base + 1m", () => {
   ]);
 });
 
-Deno.test("mergeClaudeVariants leaves non-Claude models untouched", () => {
+test("mergeClaudeVariants leaves non-Claude models untouched", () => {
   const input: CopilotModelsResponse = {
     object: "list",
     data: [
@@ -200,7 +201,7 @@ Deno.test("mergeClaudeVariants leaves non-Claude models untouched", () => {
   );
 });
 
-Deno.test("mergeClaudeVariants preserves order across mixed claude/non-claude models", () => {
+test("mergeClaudeVariants preserves order across mixed claude/non-claude models", () => {
   const input: CopilotModelsResponse = {
     object: "list",
     data: [

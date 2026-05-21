@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import {
   jsonResponse,
   requestApp,
@@ -7,7 +8,7 @@ import {
 } from "../../test-helpers.ts";
 import { DEFAULT_SEARCH_CONFIG } from "../../data-plane/tools/web-search/search-config.ts";
 
-Deno.test("/api/search-config GET returns the default disabled config for admin", async () => {
+test("/api/search-config GET returns the default disabled config for admin", async () => {
   const { adminKey } = await setupAppTest();
 
   const response = await requestApp("/api/search-config", {
@@ -18,7 +19,7 @@ Deno.test("/api/search-config GET returns the default disabled config for admin"
   assertEquals(await response.json(), DEFAULT_SEARCH_CONFIG);
 });
 
-Deno.test("/api/search-config PUT persists config and POST /test returns preview", async () => {
+test("/api/search-config PUT persists config and POST /test returns preview", async () => {
   const { adminKey } = await setupAppTest();
 
   await withMockedFetch((request) => {

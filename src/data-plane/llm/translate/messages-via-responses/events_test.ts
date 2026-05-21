@@ -1,10 +1,11 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../test-assert.ts";
 import {
   createResponsesToMessagesStreamState,
   translateResponsesStreamEventToMessagesEvents,
 } from "./events.ts";
 
-Deno.test("opaque-only Responses reasoning stream becomes redacted_thinking with packed id", () => {
+test("opaque-only Responses reasoning stream becomes redacted_thinking with packed id", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents({
@@ -28,7 +29,7 @@ Deno.test("opaque-only Responses reasoning stream becomes redacted_thinking with
   }]);
 });
 
-Deno.test("text-only Responses reasoning stream omits signature deltas", () => {
+test("text-only Responses reasoning stream omits signature deltas", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -68,7 +69,7 @@ Deno.test("text-only Responses reasoning stream omits signature deltas", () => {
   ));
 });
 
-Deno.test("Responses reasoning stream packs id into signature when done summary is empty after text delta", () => {
+test("Responses reasoning stream packs id into signature when done summary is empty after text delta", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -110,7 +111,7 @@ Deno.test("Responses reasoning stream packs id into signature when done summary 
   ]);
 });
 
-Deno.test("done-only Responses reasoning summary stream emits thinking text once", () => {
+test("done-only Responses reasoning summary stream emits thinking text once", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -145,7 +146,7 @@ Deno.test("done-only Responses reasoning summary stream emits thinking text once
   );
 });
 
-Deno.test("done-only Responses reasoning summary stream emits every summary part once", () => {
+test("done-only Responses reasoning summary stream emits every summary part once", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -188,7 +189,7 @@ Deno.test("done-only Responses reasoning summary stream emits every summary part
   );
 });
 
-Deno.test("opaque-only Responses reasoning stream preserves source order when opaque data arrives late", () => {
+test("opaque-only Responses reasoning stream preserves source order when opaque data arrives late", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -236,7 +237,7 @@ Deno.test("opaque-only Responses reasoning stream preserves source order when op
   ]);
 });
 
-Deno.test("Responses reasoning stream preserves source order when later reasoning finishes first", () => {
+test("Responses reasoning stream preserves source order when later reasoning finishes first", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -307,7 +308,7 @@ Deno.test("Responses reasoning stream preserves source order when later reasonin
   ]);
 });
 
-Deno.test("Responses stream keeps later text deferred until earlier tool block is done", () => {
+test("Responses stream keeps later text deferred until earlier tool block is done", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -384,7 +385,7 @@ Deno.test("Responses stream keeps later text deferred until earlier tool block i
   ]);
 });
 
-Deno.test("reasoning stream with neither summary nor encrypted_content emits no block", () => {
+test("reasoning stream with neither summary nor encrypted_content emits no block", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents({
@@ -396,7 +397,7 @@ Deno.test("reasoning stream with neither summary nor encrypted_content emits no 
   assertEquals(events, []);
 });
 
-Deno.test("reasoning stream with explicit undefined encrypted_content emits no block", () => {
+test("reasoning stream with explicit undefined encrypted_content emits no block", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents({
@@ -413,7 +414,7 @@ Deno.test("reasoning stream with explicit undefined encrypted_content emits no b
   assertEquals(events, []);
 });
 
-Deno.test("reasoning stream with whitespace-only summary and encrypted_content becomes redacted_thinking with packed id", () => {
+test("reasoning stream with whitespace-only summary and encrypted_content becomes redacted_thinking with packed id", () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents({

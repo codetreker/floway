@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type {
   MessagesResponse,
   MessagesSearchResultBlock,
@@ -47,7 +48,7 @@ type _serverToolUseInputIsQueryObject = Expect<
   Equal<MessagesServerToolUseBlock["input"], { query: string }>
 >;
 
-Deno.test("reassembleMessagesEvents reassembles text response", async () => {
+test("reassembleMessagesEvents reassembles text response", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -119,7 +120,7 @@ Deno.test("reassembleMessagesEvents reassembles text response", async () => {
   assertEquals(result.usage.output_tokens, 5);
 });
 
-Deno.test("MessagesTool supports both client and native web search shapes", () => {
+test("MessagesTool supports both client and native web search shapes", () => {
   const clientTool: MessagesTool = {
     name: "get_weather",
     description: "Fetches weather",
@@ -147,7 +148,7 @@ Deno.test("MessagesTool supports both client and native web search shapes", () =
   }
 });
 
-Deno.test("Anthropic native web search shared shapes match Task 1 contracts", () => {
+test("Anthropic native web search shared shapes match Task 1 contracts", () => {
   const searchCitation: MessagesSearchResultLocationCitation = {
     type: "search_result_location",
     url: "https://docs.example.com/api-guide",
@@ -194,7 +195,7 @@ Deno.test("Anthropic native web search shared shapes match Task 1 contracts", ()
   }
 });
 
-Deno.test("reassembleMessagesEvents reassembles tool_use response", async () => {
+test("reassembleMessagesEvents reassembles tool_use response", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -267,7 +268,7 @@ Deno.test("reassembleMessagesEvents reassembles tool_use response", async () => 
   assertEquals(tu.input, { x: 42 });
 });
 
-Deno.test("reassembleMessagesEvents falls back to empty tool input for malformed JSON", async () => {
+test("reassembleMessagesEvents falls back to empty tool input for malformed JSON", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -326,7 +327,7 @@ Deno.test("reassembleMessagesEvents falls back to empty tool input for malformed
   });
 });
 
-Deno.test("reassembleMessagesEvents reassembles thinking blocks", async () => {
+test("reassembleMessagesEvents reassembles thinking blocks", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -417,7 +418,7 @@ Deno.test("reassembleMessagesEvents reassembles thinking blocks", async () => {
   assertEquals(result.content[1].type, "text");
 });
 
-Deno.test("reassembleMessagesEvents omits signature for text-only thinking blocks", async () => {
+test("reassembleMessagesEvents omits signature for text-only thinking blocks", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -471,7 +472,7 @@ Deno.test("reassembleMessagesEvents omits signature for text-only thinking block
   assertEquals(result.content[0], { type: "thinking", thinking: "trace" });
 });
 
-Deno.test("reassembleMessagesEvents throws on error event", async () => {
+test("reassembleMessagesEvents throws on error event", async () => {
   const body = makeEvents([
     {
       event: "error",
@@ -489,7 +490,7 @@ Deno.test("reassembleMessagesEvents throws on error event", async () => {
   );
 });
 
-Deno.test("reassembleMessagesEvents reassembles native web search blocks and usage", async () => {
+test("reassembleMessagesEvents reassembles native web search blocks and usage", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -608,7 +609,7 @@ Deno.test("reassembleMessagesEvents reassembles native web search blocks and usa
   );
 });
 
-Deno.test("reassembleMessagesEvents accumulates citations across multiple text deltas", async () => {
+test("reassembleMessagesEvents accumulates citations across multiple text deltas", async () => {
   const body = makeEvents([
     {
       event: "message_start",
@@ -694,7 +695,7 @@ Deno.test("reassembleMessagesEvents accumulates citations across multiple text d
   assertEquals(block.citations?.[1]?.type, "web_search_result_location");
 });
 
-Deno.test("reassembleMessagesEvents handles citations_delta and normalizes source fields", async () => {
+test("reassembleMessagesEvents handles citations_delta and normalizes source fields", async () => {
   const body = makeEvents([
     {
       event: "message_start",

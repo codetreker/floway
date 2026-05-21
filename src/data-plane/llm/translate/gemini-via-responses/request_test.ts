@@ -1,8 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import type { GeminiGenerateContentRequest } from "../../../shared/protocol/gemini.ts";
 import { buildTargetRequest } from "./request.ts";
 
-Deno.test("buildTargetRequest maps instructions and multimodal user input without defaults", () => {
+test("buildTargetRequest maps instructions and multimodal user input without defaults", () => {
   const payload: GeminiGenerateContentRequest = {
     systemInstruction: {
       parts: [{ text: "Be precise." }, { text: "Use markdown." }],
@@ -35,7 +36,7 @@ Deno.test("buildTargetRequest maps instructions and multimodal user input withou
   });
 });
 
-Deno.test("buildTargetRequest maps assistant reasoning, function calls, and call-order outputs", () => {
+test("buildTargetRequest maps assistant reasoning, function calls, and call-order outputs", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [{
       role: "model",
@@ -114,7 +115,7 @@ Deno.test("buildTargetRequest maps assistant reasoning, function calls, and call
   ]);
 });
 
-Deno.test("buildTargetRequest preserves model action parts that carry only a thought signature", () => {
+test("buildTargetRequest preserves model action parts that carry only a thought signature", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [{
       role: "model",
@@ -156,7 +157,7 @@ Deno.test("buildTargetRequest preserves model action parts that carry only a tho
   ]);
 });
 
-Deno.test("buildTargetRequest maps generation config, JSON schema, and reasoning controls", () => {
+test("buildTargetRequest maps generation config, JSON schema, and reasoning controls", () => {
   const schema = {
     type: "object",
     properties: { answer: { type: "string" } },
@@ -199,7 +200,7 @@ Deno.test("buildTargetRequest maps generation config, JSON schema, and reasoning
   );
 });
 
-Deno.test("buildTargetRequest filters tools to allowed function names for ANY mode", () => {
+test("buildTargetRequest filters tools to allowed function names for ANY mode", () => {
   const result = buildTargetRequest(
     {
       tools: [{
@@ -232,7 +233,7 @@ Deno.test("buildTargetRequest filters tools to allowed function names for ANY mo
   assertEquals(result.tool_choice, "required");
 });
 
-Deno.test("buildTargetRequest maps thinking budget thresholds and zero-budget disable", () => {
+test("buildTargetRequest maps thinking budget thresholds and zero-budget disable", () => {
   assertEquals(
     buildTargetRequest(
       { generationConfig: { thinkingConfig: { thinkingBudget: 2048 } } },
@@ -279,7 +280,7 @@ Deno.test("buildTargetRequest maps thinking budget thresholds and zero-budget di
   );
 });
 
-Deno.test("buildTargetRequest maps tool declarations and tool choice modes only when tools exist", () => {
+test("buildTargetRequest maps tool declarations and tool choice modes only when tools exist", () => {
   const payload: GeminiGenerateContentRequest = {
     tools: [{
       functionDeclarations: [{

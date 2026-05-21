@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertExists } from "../../../../../test-assert.ts";
 import { clearModelsCache } from "../../../../providers/upstream-model-cache.ts";
 import { clearCopilotTokenCache } from "../../../../../shared/copilot.ts";
 import {
@@ -9,7 +10,7 @@ import {
   withMockedFetch,
 } from "../../../../../test-helpers.ts";
 
-Deno.test("/v1beta/models/:model:countTokens translates Gemini request to Messages count_tokens", async () => {
+test("/v1beta/models/:model:countTokens translates Gemini request to Messages count_tokens", async () => {
   const { apiKey } = await setupAppTest();
   let upstreamBody: Record<string, unknown> | undefined;
 
@@ -73,7 +74,7 @@ Deno.test("/v1beta/models/:model:countTokens translates Gemini request to Messag
   }]);
 });
 
-Deno.test("/v1beta/models/:model:countTokens supports top-level contents", async () => {
+test("/v1beta/models/:model:countTokens supports top-level contents", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -119,7 +120,7 @@ Deno.test("/v1beta/models/:model:countTokens supports top-level contents", async
   });
 });
 
-Deno.test("/v1beta/models/:model:countTokens internal failures include debug fields", async () => {
+test("/v1beta/models/:model:countTokens internal failures include debug fields", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -171,7 +172,7 @@ Deno.test("/v1beta/models/:model:countTokens internal failures include debug fie
   });
 });
 
-Deno.test("/v1beta/models/:model:countTokens rejects custom-upstream-only models", async () => {
+test("/v1beta/models/:model:countTokens rejects custom-upstream-only models", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -229,7 +230,7 @@ Deno.test("/v1beta/models/:model:countTokens rejects custom-upstream-only models
   });
 });
 
-Deno.test("/v1beta/models/:model:countTokens preserves custom upstream /models HTTP errors", async () => {
+test("/v1beta/models/:model:countTokens preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

@@ -1,8 +1,9 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../../test-assert.ts";
 import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
 import { stripUnsupportedToolsFromPayload } from "./strip-unsupported-tools.ts";
 
-Deno.test("stripUnsupportedToolsFromPayload removes image_generation tools", () => {
+test("stripUnsupportedToolsFromPayload removes image_generation tools", () => {
   const payload = {
     model: "gpt-test",
     input: "draw this",
@@ -25,7 +26,7 @@ Deno.test("stripUnsupportedToolsFromPayload removes image_generation tools", () 
   assertEquals(payload.tool_choice, "auto");
 });
 
-Deno.test("stripUnsupportedToolsFromPayload removes forced image_generation tool_choice", () => {
+test("stripUnsupportedToolsFromPayload removes forced image_generation tool_choice", () => {
   const payload = {
     model: "gpt-test",
     input: "draw this",
@@ -39,7 +40,7 @@ Deno.test("stripUnsupportedToolsFromPayload removes forced image_generation tool
   assertFalse("tool_choice" in payload);
 });
 
-Deno.test("stripUnsupportedToolsFromPayload removes required tool_choice when no tools remain", () => {
+test("stripUnsupportedToolsFromPayload removes required tool_choice when no tools remain", () => {
   const payload = {
     model: "gpt-test",
     input: "draw this",
@@ -53,7 +54,7 @@ Deno.test("stripUnsupportedToolsFromPayload removes required tool_choice when no
   assertFalse("tool_choice" in payload);
 });
 
-Deno.test("stripUnsupportedToolsFromPayload removes Codex hosted server tools that lack a name", () => {
+test("stripUnsupportedToolsFromPayload removes Codex hosted server tools that lack a name", () => {
   // Codex emits hosted Responses entries (web_search, tool_search, namespace,
   // image_generation) alongside ordinary function tools. None carry a top-level
   // `name`/`parameters` pair, so leaking them into translation produces malformed
@@ -83,7 +84,7 @@ Deno.test("stripUnsupportedToolsFromPayload removes Codex hosted server tools th
   assertEquals(payload.tool_choice, "auto");
 });
 
-Deno.test("stripUnsupportedToolsFromPayload removes a forced web_search tool_choice", () => {
+test("stripUnsupportedToolsFromPayload removes a forced web_search tool_choice", () => {
   const payload = {
     model: "gpt-test",
     input: "search",
@@ -97,7 +98,7 @@ Deno.test("stripUnsupportedToolsFromPayload removes a forced web_search tool_cho
   assertFalse("tool_choice" in payload);
 });
 
-Deno.test("stripUnsupportedToolsFromPayload removes leftover custom Freeform tools", () => {
+test("stripUnsupportedToolsFromPayload removes leftover custom Freeform tools", () => {
   // fix-apply-patch-tools rewrites `apply_patch` into a function tool before
   // this interceptor runs. Any remaining `custom` entry is a Freeform tool the
   // gateway has no shim for and would surface upstream as

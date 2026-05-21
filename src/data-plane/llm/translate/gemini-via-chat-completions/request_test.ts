@@ -1,8 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import type { GeminiGenerateContentRequest } from "../../../shared/protocol/gemini.ts";
 import { buildTargetRequest } from "./request.ts";
 
-Deno.test("buildTargetRequest maps system instruction and multimodal user content", () => {
+test("buildTargetRequest maps system instruction and multimodal user content", () => {
   const payload: GeminiGenerateContentRequest = {
     systemInstruction: {
       parts: [{ text: "Be precise." }, { text: "Use markdown." }],
@@ -36,7 +37,7 @@ Deno.test("buildTargetRequest maps system instruction and multimodal user conten
   });
 });
 
-Deno.test("buildTargetRequest maps function calls, tool responses, and reasoning history", () => {
+test("buildTargetRequest maps function calls, tool responses, and reasoning history", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [
       {
@@ -44,7 +45,7 @@ Deno.test("buildTargetRequest maps function calls, tool responses, and reasoning
         parts: [
           { text: "private trace", thought: true, thoughtSignature: "sig_1" },
           { text: "I will call a tool." },
-          { functionCall: { name: "lookup", args: { query: "deno" } } },
+          { functionCall: { name: "lookup", args: { query: "docs" } } },
         ],
       },
       {
@@ -68,7 +69,7 @@ Deno.test("buildTargetRequest maps function calls, tool responses, and reasoning
       tool_calls: [{
         id: "gemini_call_0_2",
         type: "function",
-        function: { name: "lookup", arguments: '{"query":"deno"}' },
+        function: { name: "lookup", arguments: '{"query":"docs"}' },
       }],
     },
     {
@@ -79,7 +80,7 @@ Deno.test("buildTargetRequest maps function calls, tool responses, and reasoning
   ]);
 });
 
-Deno.test("buildTargetRequest matches omitted functionResponse ids to same-name calls in call order", () => {
+test("buildTargetRequest matches omitted functionResponse ids to same-name calls in call order", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [
       {
@@ -131,7 +132,7 @@ Deno.test("buildTargetRequest matches omitted functionResponse ids to same-name 
   ]);
 });
 
-Deno.test("buildTargetRequest does not rematch a prior call already answered by explicit id", () => {
+test("buildTargetRequest does not rematch a prior call already answered by explicit id", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [
       {
@@ -187,7 +188,7 @@ Deno.test("buildTargetRequest does not rematch a prior call already answered by 
   ]);
 });
 
-Deno.test("buildTargetRequest maps generation config and reasoning effort", () => {
+test("buildTargetRequest maps generation config and reasoning effort", () => {
   const payload: GeminiGenerateContentRequest = {
     generationConfig: {
       maxOutputTokens: 512,
@@ -220,7 +221,7 @@ Deno.test("buildTargetRequest maps generation config and reasoning effort", () =
   });
 });
 
-Deno.test("buildTargetRequest maps structured output schema and zero thinking budget", () => {
+test("buildTargetRequest maps structured output schema and zero thinking budget", () => {
   const schema = {
     type: "object",
     properties: { answer: { type: "string" } },
@@ -252,7 +253,7 @@ Deno.test("buildTargetRequest maps structured output schema and zero thinking bu
   );
 });
 
-Deno.test("buildTargetRequest maps tool declarations and tool choice modes", () => {
+test("buildTargetRequest maps tool declarations and tool choice modes", () => {
   const payload: GeminiGenerateContentRequest = {
     tools: [{
       functionDeclarations: [{
@@ -346,7 +347,7 @@ Deno.test("buildTargetRequest maps tool declarations and tool choice modes", () 
   );
 });
 
-Deno.test("buildTargetRequest filters tools to allowed function names for ANY mode", () => {
+test("buildTargetRequest filters tools to allowed function names for ANY mode", () => {
   const result = buildTargetRequest(
     {
       tools: [{
@@ -375,7 +376,7 @@ Deno.test("buildTargetRequest filters tools to allowed function names for ANY mo
   assertEquals(result.tool_choice, "required");
 });
 
-Deno.test("buildTargetRequest maps thinking budget thresholds", () => {
+test("buildTargetRequest maps thinking budget thresholds", () => {
   assertEquals(
     buildTargetRequest(
       { generationConfig: { thinkingConfig: { thinkingBudget: 0 } } },

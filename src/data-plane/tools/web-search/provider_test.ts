@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import { initRepo } from "../../../repo/index.ts";
 import { InMemoryRepo } from "../../../repo/memory.ts";
 import { jsonResponse, withMockedFetch } from "../../../test-helpers.ts";
@@ -11,7 +12,7 @@ import {
   FIXED_SEARCH_CONFIG_TEST_QUERY,
 } from "./search-config.ts";
 
-Deno.test(
+test(
   "resolveConfiguredWebSearchProvider returns disabled, missing-credential, or enabled",
   () => {
     assertEquals(resolveConfiguredWebSearchProvider(DEFAULT_SEARCH_CONFIG), {
@@ -44,7 +45,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "testSearchConfigConnection returns structured disabled and missing-credential errors",
   async () => {
     assertEquals(await testSearchConfigConnection(DEFAULT_SEARCH_CONFIG), {
@@ -76,7 +77,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "testSearchConfigConnection previews at most three normalized results",
   async () => {
     await withMockedFetch(
@@ -131,7 +132,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "testSearchConfigConnection returns no_results when the provider returns no previews",
   async () => {
     await withMockedFetch(
@@ -158,7 +159,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "testSearchConfigConnection returns preview results for Microsoft Grounding too",
   async () => {
     await withMockedFetch(
@@ -196,7 +197,7 @@ Deno.test(
   },
 );
 
-Deno.test("testSearchConfigConnection does not record search usage", async () => {
+test("testSearchConfigConnection does not record search usage", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 

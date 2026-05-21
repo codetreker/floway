@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type {
   GeminiGenerateContentResponse,
   GeminiStreamEvent,
@@ -6,7 +7,7 @@ import type {
 import { eventFrame } from "../../../shared/stream/types.ts";
 import { collectGeminiProtocolEventsToResponse } from "./to-response.ts";
 
-Deno.test("collectGeminiProtocolEventsToResponse assembles candidate parts and final metadata", async () => {
+test("collectGeminiProtocolEventsToResponse assembles candidate parts and final metadata", async () => {
   async function* events() {
     const payloads: GeminiStreamEvent[] = [{
       candidates: [{
@@ -91,7 +92,7 @@ Deno.test("collectGeminiProtocolEventsToResponse assembles candidate parts and f
   assertEquals(await collectGeminiProtocolEventsToResponse(events()), expected);
 });
 
-Deno.test("collectGeminiProtocolEventsToResponse throws Gemini error events", async () => {
+test("collectGeminiProtocolEventsToResponse throws Gemini error events", async () => {
   const errorEvent = {
     error: {
       code: 429,

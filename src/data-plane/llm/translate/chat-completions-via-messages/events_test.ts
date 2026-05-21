@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import {
   createMessagesToChatCompletionsStreamState,
   translateMessagesEventToChatCompletionsChunks,
@@ -52,7 +53,7 @@ const MSG_START: MessagesStreamEventData = {
 
 // ── createMessagesToChatCompletionsStreamState ──
 
-Deno.test("initial state has correct defaults", () => {
+test("initial state has correct defaults", () => {
   const state = createMessagesToChatCompletionsStreamState();
   assertEquals(state.messageId, "");
   assertEquals(state.model, "");
@@ -64,7 +65,7 @@ Deno.test("initial state has correct defaults", () => {
 
 // ── message_start ──
 
-Deno.test("message_start → chunk with role:assistant", () => {
+test("message_start → chunk with role:assistant", () => {
   const state = createMessagesToChatCompletionsStreamState();
   const result = translateMessagesEventToChatCompletionsChunks(
     MSG_START,
@@ -79,7 +80,7 @@ Deno.test("message_start → chunk with role:assistant", () => {
   assertEquals(chunks[0].object, "chat.completion.chunk");
 });
 
-Deno.test("message_start sets state including usage", () => {
+test("message_start sets state including usage", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   assertEquals(state.messageId, "msg_test");
@@ -88,7 +89,7 @@ Deno.test("message_start sets state including usage", () => {
   assertEquals(state.cachedPromptTokens, 0);
 });
 
-Deno.test("message_start captures cache_read_input_tokens", () => {
+test("message_start captures cache_read_input_tokens", () => {
   const state = createMessagesToChatCompletionsStreamState();
   const msgStart = MSG_START as {
     type: "message_start";
@@ -111,7 +112,7 @@ Deno.test("message_start captures cache_read_input_tokens", () => {
 
 // ── content_block_start: text ──
 
-Deno.test("text content_block_start → no output", () => {
+test("text content_block_start → no output", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -124,7 +125,7 @@ Deno.test("text content_block_start → no output", () => {
 
 // ── content_block_start: thinking ──
 
-Deno.test("thinking content_block_start → no output", () => {
+test("thinking content_block_start → no output", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -137,7 +138,7 @@ Deno.test("thinking content_block_start → no output", () => {
 
 // ── content_block_start: redacted_thinking ──
 
-Deno.test("redacted_thinking content_block_start → reasoning_opaque chunk", () => {
+test("redacted_thinking content_block_start → reasoning_opaque chunk", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -152,7 +153,7 @@ Deno.test("redacted_thinking content_block_start → reasoning_opaque chunk", ()
 
 // ── content_block_start: tool_use ──
 
-Deno.test("tool_use content_block_start → tool_calls init chunk", () => {
+test("tool_use content_block_start → tool_calls init chunk", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -171,7 +172,7 @@ Deno.test("tool_use content_block_start → tool_calls init chunk", () => {
   assertEquals(tc![0].function!.arguments, "");
 });
 
-Deno.test("multiple tool_use blocks increment index", () => {
+test("multiple tool_use blocks increment index", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
 
@@ -195,7 +196,7 @@ Deno.test("multiple tool_use blocks increment index", () => {
 
 // ── content_block_delta: text_delta ──
 
-Deno.test("text_delta → content delta", () => {
+test("text_delta → content delta", () => {
   const d = deltas([
     MSG_START,
     {
@@ -213,7 +214,7 @@ Deno.test("text_delta → content delta", () => {
   assertEquals(d[1].content, "Hello");
 });
 
-Deno.test("multiple text_deltas → multiple content chunks", () => {
+test("multiple text_deltas → multiple content chunks", () => {
   const d = deltas([
     MSG_START,
     {
@@ -238,7 +239,7 @@ Deno.test("multiple text_deltas → multiple content chunks", () => {
 
 // ── content_block_delta: thinking_delta ──
 
-Deno.test("thinking_delta → reasoning_text delta", () => {
+test("thinking_delta → reasoning_text delta", () => {
   const d = deltas([
     MSG_START,
     {
@@ -257,7 +258,7 @@ Deno.test("thinking_delta → reasoning_text delta", () => {
 
 // ── content_block_delta: signature_delta ──
 
-Deno.test("signature_delta → reasoning_opaque delta", () => {
+test("signature_delta → reasoning_opaque delta", () => {
   const d = deltas([
     MSG_START,
     {
@@ -281,7 +282,7 @@ Deno.test("signature_delta → reasoning_opaque delta", () => {
 
 // ── content_block_delta: input_json_delta ──
 
-Deno.test("input_json_delta → tool_calls arguments delta", () => {
+test("input_json_delta → tool_calls arguments delta", () => {
   const d = deltas([
     MSG_START,
     {
@@ -308,7 +309,7 @@ Deno.test("input_json_delta → tool_calls arguments delta", () => {
 
 // ── content_block_stop ──
 
-Deno.test("content_block_stop → no output, resets block type", () => {
+test("content_block_stop → no output, resets block type", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   translateMessagesEventToChatCompletionsChunks({
@@ -326,7 +327,7 @@ Deno.test("content_block_stop → no output, resets block type", () => {
 
 // ── message_delta ──
 
-Deno.test("message_delta with end_turn emits finish chunk plus usage-only chunk", () => {
+test("message_delta with end_turn emits finish chunk plus usage-only chunk", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state); // input_tokens: 10
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -345,7 +346,7 @@ Deno.test("message_delta with end_turn emits finish chunk plus usage-only chunk"
   assertEquals(chunks[1].usage!.prompt_tokens_details, undefined);
 });
 
-Deno.test("message_delta with tool_use → finish_reason tool_calls", () => {
+test("message_delta with tool_use → finish_reason tool_calls", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -358,7 +359,7 @@ Deno.test("message_delta with tool_use → finish_reason tool_calls", () => {
   );
 });
 
-Deno.test("message_delta with max_tokens → finish_reason length", () => {
+test("message_delta with max_tokens → finish_reason length", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -371,7 +372,7 @@ Deno.test("message_delta with max_tokens → finish_reason length", () => {
   );
 });
 
-Deno.test("message_delta with stop_sequence → finish_reason stop", () => {
+test("message_delta with stop_sequence → finish_reason stop", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -384,7 +385,7 @@ Deno.test("message_delta with stop_sequence → finish_reason stop", () => {
   );
 });
 
-Deno.test("message_delta with pause_turn → finish_reason stop", () => {
+test("message_delta with pause_turn → finish_reason stop", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -397,7 +398,7 @@ Deno.test("message_delta with pause_turn → finish_reason stop", () => {
   );
 });
 
-Deno.test("message_delta with refusal → finish_reason stop", () => {
+test("message_delta with refusal → finish_reason stop", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -410,7 +411,7 @@ Deno.test("message_delta with refusal → finish_reason stop", () => {
   );
 });
 
-Deno.test("message_delta without usage → no usage on chunk", () => {
+test("message_delta without usage → no usage on chunk", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -420,7 +421,7 @@ Deno.test("message_delta without usage → no usage on chunk", () => {
   assertEquals((result as ChatCompletionChunk[])[0].usage, undefined);
 });
 
-Deno.test("message_delta usage includes cache_read_input_tokens from message_start", () => {
+test("message_delta usage includes cache_read_input_tokens from message_start", () => {
   const state = createMessagesToChatCompletionsStreamState();
   // message_start with cache
   translateMessagesEventToChatCompletionsChunks({
@@ -454,7 +455,7 @@ Deno.test("message_delta usage includes cache_read_input_tokens from message_sta
 
 // ── message_stop ──
 
-Deno.test("message_stop → DONE", () => {
+test("message_stop → DONE", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks(MSG_START, state);
   const result = translateMessagesEventToChatCompletionsChunks({
@@ -465,7 +466,7 @@ Deno.test("message_stop → DONE", () => {
 
 // ── ping / error ──
 
-Deno.test("ping → no output", () => {
+test("ping → no output", () => {
   const state = createMessagesToChatCompletionsStreamState();
   const result = translateMessagesEventToChatCompletionsChunks(
     { type: "ping" },
@@ -474,7 +475,7 @@ Deno.test("ping → no output", () => {
   assertEquals(result, []);
 });
 
-Deno.test("error → no output", () => {
+test("error → no output", () => {
   const state = createMessagesToChatCompletionsStreamState();
   const result = translateMessagesEventToChatCompletionsChunks({
     type: "error",
@@ -485,7 +486,7 @@ Deno.test("error → no output", () => {
 
 // ── All chunk fields carry correct id/model/created ──
 
-Deno.test("all chunks carry message id, model, and created", () => {
+test("all chunks carry message id, model, and created", () => {
   const chunks = processFlat([
     MSG_START,
     {
@@ -511,7 +512,7 @@ Deno.test("all chunks carry message id, model, and created", () => {
 
 // ── Full streaming scenarios ──
 
-Deno.test("full text stream scenario", () => {
+test("full text stream scenario", () => {
   const d = deltas([
     MSG_START,
     {
@@ -542,7 +543,7 @@ Deno.test("full text stream scenario", () => {
   assertEquals(d.length, 4); // role + 2 text + finish
 });
 
-Deno.test("full thinking + text stream scenario", () => {
+test("full thinking + text stream scenario", () => {
   const d = deltas([
     MSG_START,
     {
@@ -580,7 +581,7 @@ Deno.test("full thinking + text stream scenario", () => {
   assertEquals(d[3].content, "Answer");
 });
 
-Deno.test("full tool_use stream scenario", () => {
+test("full tool_use stream scenario", () => {
   const d = deltas([
     MSG_START,
     {
@@ -628,7 +629,7 @@ Deno.test("full tool_use stream scenario", () => {
   assertEquals(d[4].tool_calls![0].function!.arguments, '"test"}');
 });
 
-Deno.test("full redacted_thinking + text stream scenario", () => {
+test("full redacted_thinking + text stream scenario", () => {
   const d = deltas([
     MSG_START,
     {
@@ -655,7 +656,7 @@ Deno.test("full redacted_thinking + text stream scenario", () => {
   assertEquals(d[2].content, "Response");
 });
 
-Deno.test("later reasoning blocks are ignored for Chat scalar streaming", () => {
+test("later reasoning blocks are ignored for Chat scalar streaming", () => {
   const d = deltas([
     MSG_START,
     {
@@ -701,7 +702,7 @@ Deno.test("later reasoning blocks are ignored for Chat scalar streaming", () => 
   ]);
 });
 
-Deno.test("first redacted_thinking block suppresses later readable thinking in Chat scalar streaming", () => {
+test("first redacted_thinking block suppresses later readable thinking in Chat scalar streaming", () => {
   const d = deltas([
     MSG_START,
     {
@@ -730,7 +731,7 @@ Deno.test("first redacted_thinking block suppresses later readable thinking in C
   assertEquals(d.map((delta) => delta.reasoning_text).filter(Boolean), []);
 });
 
-Deno.test("thinking + tool_use stream (interleaved thinking)", () => {
+test("thinking + tool_use stream (interleaved thinking)", () => {
   const d = deltas([
     MSG_START,
     {
@@ -769,7 +770,7 @@ Deno.test("thinking + tool_use stream (interleaved thinking)", () => {
   assertEquals(d[4].tool_calls![0].function!.arguments, '{"x":1}');
 });
 
-Deno.test("multiple tool_use blocks in stream", () => {
+test("multiple tool_use blocks in stream", () => {
   const d = deltas([
     MSG_START,
     {
@@ -805,7 +806,7 @@ Deno.test("multiple tool_use blocks in stream", () => {
 
 // ── Edge: DONE signal propagation ──
 
-Deno.test("events after message_stop are not processed", () => {
+test("events after message_stop are not processed", () => {
   const results = process([
     MSG_START,
     {
@@ -828,7 +829,7 @@ Deno.test("events after message_stop are not processed", () => {
 
 // ── Edge: empty deltas ──
 
-Deno.test("empty text_delta produces chunk with empty content", () => {
+test("empty text_delta produces chunk with empty content", () => {
   const d = deltas([
     MSG_START,
     {
@@ -847,7 +848,7 @@ Deno.test("empty text_delta produces chunk with empty content", () => {
 
 // ── cache_creation_input_tokens ──
 
-Deno.test("message_start captures cache_creation_input_tokens", () => {
+test("message_start captures cache_creation_input_tokens", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks({
     type: "message_start",
@@ -868,7 +869,7 @@ Deno.test("message_start captures cache_creation_input_tokens", () => {
   assertEquals(state.cachedPromptTokens, 20);
 });
 
-Deno.test("message_delta usage includes cache_creation_input_tokens in prompt_tokens", () => {
+test("message_delta usage includes cache_creation_input_tokens in prompt_tokens", () => {
   const state = createMessagesToChatCompletionsStreamState();
   translateMessagesEventToChatCompletionsChunks({
     type: "message_start",

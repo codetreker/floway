@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../test-assert.ts";
 import { initRepo } from "../../../repo/index.ts";
 import { InMemoryRepo } from "../../../repo/memory.ts";
 import {
@@ -6,7 +7,7 @@ import {
   searchWebWithoutRecordingUsage,
 } from "./search.ts";
 
-Deno.test("searchWebAndRecordUsage records successful provider calls", async () => {
+test("searchWebAndRecordUsage records successful provider calls", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -25,7 +26,7 @@ Deno.test("searchWebAndRecordUsage records successful provider calls", async () 
   assertEquals(records[0].requests, 1);
 });
 
-Deno.test("searchWebAndRecordUsage records provider error results", async () => {
+test("searchWebAndRecordUsage records provider error results", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -49,7 +50,7 @@ Deno.test("searchWebAndRecordUsage records provider error results", async () => 
   assertEquals(records[0].requests, 1);
 });
 
-Deno.test("searchWebAndRecordUsage records when a provider throws", async () => {
+test("searchWebAndRecordUsage records when a provider throws", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -72,7 +73,7 @@ Deno.test("searchWebAndRecordUsage records when a provider throws", async () => 
   assertEquals(records[0].requests, 1);
 });
 
-Deno.test("searchWebAndRecordUsage returns provider result when recording fails", async () => {
+test("searchWebAndRecordUsage returns provider result when recording fails", async () => {
   const repo = new InMemoryRepo();
   repo.searchUsage.record = () => Promise.reject(new Error("write failed"));
   initRepo(repo);
@@ -99,7 +100,7 @@ Deno.test("searchWebAndRecordUsage returns provider result when recording fails"
   assertEquals(loggedErrors.length, 1);
 });
 
-Deno.test("searchWebWithoutRecordingUsage does not record", async () => {
+test("searchWebWithoutRecordingUsage does not record", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 

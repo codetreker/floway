@@ -1,9 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { ResponsesStreamEvent } from "../../../shared/protocol/responses.ts";
 import { eventFrame } from "../../../shared/stream/types.ts";
 import { responsesProtocolFrameToSSEFrame } from "./to-sse.ts";
 
-Deno.test("responsesProtocolFrameToSSEFrame serializes events without owning termination", () => {
+test("responsesProtocolFrameToSSEFrame serializes events without owning termination", () => {
   const frames = [
     eventFrame(
       {

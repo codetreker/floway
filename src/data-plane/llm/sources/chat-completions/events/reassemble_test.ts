@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type {
   ChatCompletionChunk,
   ChatCompletionResponse,
@@ -22,7 +23,7 @@ function makeEvents<T = ChatCompletionChunk>(
   })();
 }
 
-Deno.test("reassembleChatCompletionChunks reassembles text response", async () => {
+test("reassembleChatCompletionChunks reassembles text response", async () => {
   const body = makeEvents([
     {
       data: {
@@ -69,7 +70,7 @@ Deno.test("reassembleChatCompletionChunks reassembles text response", async () =
   assertEquals(result.usage?.prompt_tokens, 10);
 });
 
-Deno.test("reassembleChatCompletionChunks rejects upstream Chat error payloads", async () => {
+test("reassembleChatCompletionChunks rejects upstream Chat error payloads", async () => {
   const body = makeEvents([
     {
       data: {
@@ -88,7 +89,7 @@ Deno.test("reassembleChatCompletionChunks rejects upstream Chat error payloads",
   );
 });
 
-Deno.test("reassembleChatCompletionChunks reassembles tool calls", async () => {
+test("reassembleChatCompletionChunks reassembles tool calls", async () => {
   const body = makeEvents([
     {
       data: {
@@ -148,7 +149,7 @@ Deno.test("reassembleChatCompletionChunks reassembles tool calls", async () => {
   );
 });
 
-Deno.test("reassembleChatCompletionChunks reassembles reasoning fields", async () => {
+test("reassembleChatCompletionChunks reassembles reasoning fields", async () => {
   const body = makeEvents([
     {
       data: {
@@ -190,7 +191,7 @@ Deno.test("reassembleChatCompletionChunks reassembles reasoning fields", async (
   assertEquals(result.choices[0].message.content, "reply");
 });
 
-Deno.test("reassembleChatCompletionChunks appends reasoning_items deltas in order", async () => {
+test("reassembleChatCompletionChunks appends reasoning_items deltas in order", async () => {
   const body = makeEvents([
     {
       data: {

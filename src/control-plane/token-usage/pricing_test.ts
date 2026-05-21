@@ -1,7 +1,8 @@
-import { assertAlmostEquals, assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertAlmostEquals, assertEquals } from "../../test-assert.ts";
 import { getModelPricing, recordCostUsd } from "./pricing.ts";
 
-Deno.test("getModelPricing matches public Claude id", () => {
+test("getModelPricing matches public Claude id", () => {
   assertEquals(getModelPricing("claude-opus-4-7"), {
     input: 5,
     cacheRead: 0.5,
@@ -10,7 +11,7 @@ Deno.test("getModelPricing matches public Claude id", () => {
   });
 });
 
-Deno.test("getModelPricing covers gpt-5 family by exact id and regex", () => {
+test("getModelPricing covers gpt-5 family by exact id and regex", () => {
   assertEquals(getModelPricing("gpt-5.5"), {
     input: 5,
     cacheRead: 0.5,
@@ -23,11 +24,11 @@ Deno.test("getModelPricing covers gpt-5 family by exact id and regex", () => {
   });
 });
 
-Deno.test("getModelPricing returns null for unknown ids", () => {
+test("getModelPricing returns null for unknown ids", () => {
   assertEquals(getModelPricing("totally-made-up-model"), null);
 });
 
-Deno.test("recordCostUsd splits prefill/cache-read/cache-write/output", () => {
+test("recordCostUsd splits prefill/cache-read/cache-write/output", () => {
   // claude-opus-4-7: input 5, cacheRead 0.5, cacheWrite 6.25, output 25 per 1M tokens.
   // 100k input where 60k is cache-read, 10k is cache-write, leaves 30k prefill.
   // 50k output. Cost in USD:
@@ -46,6 +47,6 @@ Deno.test("recordCostUsd splits prefill/cache-read/cache-write/output", () => {
   assertAlmostEquals(cost, 1.4925, 1e-9);
 });
 
-Deno.test("recordCostUsd returns 0 for unknown models", () => {
+test("recordCostUsd returns 0 for unknown models", () => {
   assertEquals(recordCostUsd("totally-made-up", 100, 100, 0, 0), 0);
 });

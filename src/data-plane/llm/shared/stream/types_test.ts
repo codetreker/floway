@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import {
   doneFrame,
   eventFrame,
@@ -7,18 +8,18 @@ import {
   sseFrame,
 } from "./types.ts";
 
-Deno.test("eventFrame carries structured protocol events", () => {
+test("eventFrame carries structured protocol events", () => {
   assertEquals(eventFrame({ type: "message_stop" }), {
     type: "event",
     event: { type: "message_stop" },
   });
 });
 
-Deno.test("doneFrame marks protocol sentinels without raw SSE text", () => {
+test("doneFrame marks protocol sentinels without raw SSE text", () => {
   assertEquals(doneFrame(), { type: "done" });
 });
 
-Deno.test("raw stream frame helpers keep upstream payload shape", () => {
+test("raw stream frame helpers keep upstream payload shape", () => {
   assertEquals(jsonFrame({ ok: true }), { type: "json", data: { ok: true } });
   assertEquals(sseFrame("{}", "message_stop"), {
     type: "sse",
@@ -27,7 +28,7 @@ Deno.test("raw stream frame helpers keep upstream payload shape", () => {
   });
 });
 
-Deno.test("sseCommentFrame carries comment keepalive payloads", () => {
+test("sseCommentFrame carries comment keepalive payloads", () => {
   assertEquals(sseCommentFrame("keepalive"), {
     type: "sse-comment",
     comment: "keepalive",

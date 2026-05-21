@@ -1,8 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import { initEnv } from "../../../runtime/env.ts";
 import { runtimeLocationFromRequest } from "./performance.ts";
 
-Deno.test("runtimeLocationFromRequest prefers Cloudflare colo", () => {
+test("runtimeLocationFromRequest prefers Cloudflare colo", () => {
   initEnv(() => "fallback-location");
   const request = new Request("https://example.test");
   Object.defineProperty(request, "cf", { value: { colo: "SJC" } });
@@ -10,16 +11,16 @@ Deno.test("runtimeLocationFromRequest prefers Cloudflare colo", () => {
   assertEquals(runtimeLocationFromRequest(request), "SJC");
 });
 
-Deno.test("runtimeLocationFromRequest uses env fallback outside Cloudflare", () => {
-  initEnv((name) => name === "RUNTIME_LOCATION" ? "deno-us-west" : "");
+test("runtimeLocationFromRequest uses env fallback outside Cloudflare", () => {
+  initEnv((name) => name === "RUNTIME_LOCATION" ? "worker-local" : "");
 
   assertEquals(
     runtimeLocationFromRequest(new Request("https://example.test")),
-    "deno-us-west",
+    "worker-local",
   );
 });
 
-Deno.test("runtimeLocationFromRequest uses unknown without colo or env", () => {
+test("runtimeLocationFromRequest uses unknown without colo or env", () => {
   initEnv(() => "");
 
   assertEquals(

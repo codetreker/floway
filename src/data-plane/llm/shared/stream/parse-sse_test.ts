@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import { parseSSEStream } from "./parse-sse.ts";
 
 interface Deferred<T> {
@@ -44,7 +45,7 @@ const collect = async (text: string) => {
   return frames;
 };
 
-Deno.test("parseSSEStream flushes a final data line without a trailing newline", async () => {
+test("parseSSEStream flushes a final data line without a trailing newline", async () => {
   assertEquals(await collect("event: message_delta\ndata: not json"), [{
     type: "sse",
     event: "message_delta",
@@ -52,7 +53,7 @@ Deno.test("parseSSEStream flushes a final data line without a trailing newline",
   }]);
 });
 
-Deno.test("parseSSEStream cancels a pending reader when its signal aborts", async () => {
+test("parseSSEStream cancels a pending reader when its signal aborts", async () => {
   const upstreamCanceled = deferred<void>();
   let upstreamController!: ReadableStreamDefaultController<Uint8Array>;
   const downstreamAbortController = new AbortController();

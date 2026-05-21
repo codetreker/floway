@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type {
   ResponsesResult,
   ResponseStreamEvent,
@@ -27,7 +28,7 @@ function makeEvents<T = ResponsesReassembleEvent>(
   })();
 }
 
-Deno.test("reassembleResponsesEvents extracts response from completed event", async () => {
+test("reassembleResponsesEvents extracts response from completed event", async () => {
   const expected: ResponsesResult = {
     id: "resp_1",
     object: "response",
@@ -74,7 +75,7 @@ Deno.test("reassembleResponsesEvents extracts response from completed event", as
   assertEquals(result.output_text, "Hello");
 });
 
-Deno.test("reassembleResponsesEvents handles incomplete event", async () => {
+test("reassembleResponsesEvents handles incomplete event", async () => {
   const incomplete: ResponsesResult = {
     id: "resp_2",
     object: "response",
@@ -96,7 +97,7 @@ Deno.test("reassembleResponsesEvents handles incomplete event", async () => {
   assertEquals(result.status, "incomplete");
 });
 
-Deno.test("reassembleResponsesEvents throws on error event", async () => {
+test("reassembleResponsesEvents throws on error event", async () => {
   const body = makeEvents([
     { event: "error", data: { type: "error", message: "bad request" } },
   ]);
@@ -108,7 +109,7 @@ Deno.test("reassembleResponsesEvents throws on error event", async () => {
   );
 });
 
-Deno.test("reassembleResponsesEvents throws when stream ends without terminal event", async () => {
+test("reassembleResponsesEvents throws when stream ends without terminal event", async () => {
   const body = makeEvents([
     {
       event: "response.created",

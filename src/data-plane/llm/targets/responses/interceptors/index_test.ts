@@ -1,6 +1,7 @@
+import { test } from "vitest";
 // Order assertion for the Responses target assembler.
 
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "../../../../../test-assert.ts";
 import { responsesCopilotInterceptors } from "../../../../providers/copilot/interceptors/responses/index.ts";
 import {
   interceptorsForResponses,
@@ -8,7 +9,7 @@ import {
 } from "./index.ts";
 import { withCyberPolicyRetried } from "./retry-cyber-policy.ts";
 
-Deno.test("interceptorsForResponses on provider with Copilot interceptors and retry-cyber-policy", () => {
+test("interceptorsForResponses on provider with Copilot interceptors and retry-cyber-policy", () => {
   const provider = {
     enabledFixes: new Set(["retry-cyber-policy"]),
     targetInterceptors: { responses: responsesCopilotInterceptors },
@@ -21,7 +22,7 @@ Deno.test("interceptorsForResponses on provider with Copilot interceptors and re
   );
 });
 
-Deno.test("interceptorsForResponses on provider with Copilot interceptors and no enabled fixes: only provider block", () => {
+test("interceptorsForResponses on provider with Copilot interceptors and no enabled fixes: only provider block", () => {
   const provider = {
     enabledFixes: new Set<string>(),
     targetInterceptors: { responses: responsesCopilotInterceptors },
@@ -31,7 +32,7 @@ Deno.test("interceptorsForResponses on provider with Copilot interceptors and no
   assertEquals(assembled, [...responsesCopilotInterceptors]);
 });
 
-Deno.test("interceptorsForResponses without provider interceptors: opt-in only by enabledFixes", () => {
+test("interceptorsForResponses without provider interceptors: opt-in only by enabledFixes", () => {
   const without = interceptorsForResponses({
     enabledFixes: new Set<string>(),
   });
@@ -46,7 +47,7 @@ Deno.test("interceptorsForResponses without provider interceptors: opt-in only b
   assertEquals(withFix, [withCyberPolicyRetried]);
 });
 
-Deno.test("interceptorsForResponses ignores unknown enabledFixes silently at the assembler layer", () => {
+test("interceptorsForResponses ignores unknown enabledFixes silently at the assembler layer", () => {
   // Control plane rejects unknown ids on write; repo doesn't filter by
   // catalog on read, so unknown ids from older snapshots can reach the
   // assembler. The optional filter is a no-op on ids that don't match a

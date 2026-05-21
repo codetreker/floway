@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../test-assert.ts";
 import type { MessagesStreamEventData } from "../../../shared/protocol/messages.ts";
 import type {
   ResponsesResult,
@@ -41,7 +42,7 @@ const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   }
 };
 
-Deno.test("translateToSourceEvents does not emit mixed frames for created+completed fallback", async () => {
+test("translateToSourceEvents does not emit mixed frames for created+completed fallback", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "response.created",
@@ -82,7 +83,7 @@ Deno.test("translateToSourceEvents does not emit mixed frames for created+comple
   );
 });
 
-Deno.test("translateToSourceEvents stops after Responses terminal fallback", async () => {
+test("translateToSourceEvents stops after Responses terminal fallback", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "response.completed",
@@ -118,7 +119,7 @@ Deno.test("translateToSourceEvents stops after Responses terminal fallback", asy
   );
 });
 
-Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", async () => {
+test("translateToSourceEvents preserves refusal text from JSON fallback", async () => {
   async function* stream() {
     yield* responsesResultToEvents({
       id: "resp_refusal",
@@ -152,7 +153,7 @@ Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", a
   assertEquals(text.join(""), "No.");
 });
 
-Deno.test("translateToSourceEvents translates Responses failed terminal to Messages error", async () => {
+test("translateToSourceEvents translates Responses failed terminal to Messages error", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "response.failed",
@@ -192,7 +193,7 @@ Deno.test("translateToSourceEvents translates Responses failed terminal to Messa
   ]);
 });
 
-Deno.test("translateToSourceEvents translates Responses error terminal to Messages error", async () => {
+test("translateToSourceEvents translates Responses error terminal to Messages error", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "error",
@@ -224,7 +225,7 @@ Deno.test("translateToSourceEvents translates Responses error terminal to Messag
   ]);
 });
 
-Deno.test("translateToSourceEvents rejects truncated Responses streams without terminal events", async () => {
+test("translateToSourceEvents rejects truncated Responses streams without terminal events", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "response.output_text.delta",

@@ -1,9 +1,10 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { MessagesStreamEventData } from "../../../../shared/protocol/messages.ts";
 import { eventFrame } from "../../../shared/stream/types.ts";
 import { messagesProtocolFrameToSSEFrame } from "./to-sse.ts";
 
-Deno.test("messagesProtocolFrameToSSEFrame serializes events without owning termination", () => {
+test("messagesProtocolFrameToSSEFrame serializes events without owning termination", () => {
   const frames = [
     eventFrame({ type: "message_stop" } satisfies MessagesStreamEventData),
     eventFrame({ type: "ping" } satisfies MessagesStreamEventData),
@@ -12,7 +13,7 @@ Deno.test("messagesProtocolFrameToSSEFrame serializes events without owning term
   assertEquals(frames.map((frame) => frame?.event), ["message_stop", "ping"]);
 });
 
-Deno.test("messagesProtocolFrameToSSEFrame maps search_result_location url to SSE source", () => {
+test("messagesProtocolFrameToSSEFrame maps search_result_location url to SSE source", () => {
   const frame = messagesProtocolFrameToSSEFrame(
     eventFrame(
       {

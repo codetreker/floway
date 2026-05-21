@@ -1,6 +1,6 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../test-assert.ts";
 import { type D1Database, D1Repo } from "./d1.ts";
-import { DenoKvRepo } from "./deno.ts";
 import { InMemoryRepo } from "./memory.ts";
 import type { SearchUsageRecord, SearchUsageRepo } from "./types.ts";
 
@@ -124,36 +124,12 @@ const assertRejectsInvalidProvider = async (repo: SearchUsageRepo) => {
   );
 };
 
-Deno.test("memory search usage repo records, queries, overwrites, and clears", async () => {
+test("memory search usage repo records, queries, overwrites, and clears", async () => {
   await exerciseSearchUsageRepo(new InMemoryRepo().searchUsage);
 });
 
-Deno.test("memory search usage repo rejects invalid provider names", async () => {
+test("memory search usage repo rejects invalid provider names", async () => {
   await assertRejectsInvalidProvider(new InMemoryRepo().searchUsage);
-});
-
-Deno.test("Deno KV search usage repo records, queries, overwrites, and clears", async () => {
-  const kv = await Deno.openKv();
-  try {
-    await exerciseSearchUsageRepo(new DenoKvRepo(kv).searchUsage);
-  } finally {
-    for await (const entry of kv.list({ prefix: ["search_usage"] })) {
-      await kv.delete(entry.key);
-    }
-    kv.close();
-  }
-});
-
-Deno.test("Deno KV search usage repo rejects invalid provider names", async () => {
-  const kv = await Deno.openKv();
-  try {
-    await assertRejectsInvalidProvider(new DenoKvRepo(kv).searchUsage);
-  } finally {
-    for await (const entry of kv.list({ prefix: ["search_usage"] })) {
-      await kv.delete(entry.key);
-    }
-    kv.close();
-  }
 });
 
 class FakeD1PreparedStatement {
@@ -277,17 +253,17 @@ class FakeD1Database implements D1Database {
   }
 }
 
-Deno.test("D1 search usage repo records, queries, overwrites, and clears", async () => {
+test("D1 search usage repo records, queries, overwrites, and clears", async () => {
   await exerciseSearchUsageRepo(new D1Repo(new FakeD1Database()).searchUsage);
 });
 
-Deno.test("D1 search usage repo rejects invalid provider names", async () => {
+test("D1 search usage repo rejects invalid provider names", async () => {
   await assertRejectsInvalidProvider(
     new D1Repo(new FakeD1Database()).searchUsage,
   );
 });
 
-Deno.test("D1 search usage repo rejects invalid stored provider names", async () => {
+test("D1 search usage repo rejects invalid stored provider names", async () => {
   const db = new FakeD1Database();
   db.rows.push({
     provider: "disabled",

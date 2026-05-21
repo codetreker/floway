@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../../test-assert.ts";
 import type { ResponsesResult } from "../../../../shared/protocol/responses.ts";
 import { responsesResultToEvents } from "./from-result.ts";
 
@@ -16,7 +17,7 @@ const completedResponse: ResponsesResult = {
   usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
 };
 
-Deno.test("responsesResultToEvents projects terminal JSON into Responses stream events", () => {
+test("responsesResultToEvents projects terminal JSON into Responses stream events", () => {
   const frames = Array.from(responsesResultToEvents(completedResponse));
 
   assertEquals(frames.map((frame) => frame.type), [
@@ -43,7 +44,7 @@ Deno.test("responsesResultToEvents projects terminal JSON into Responses stream 
   ]);
 });
 
-Deno.test("responsesResultToEvents starts JSON fallback streams with an empty in-progress snapshot", () => {
+test("responsesResultToEvents starts JSON fallback streams with an empty in-progress snapshot", () => {
   const frames = Array.from(responsesResultToEvents(completedResponse));
   const created = frames[0].event as {
     type: "response.created";
@@ -64,7 +65,7 @@ Deno.test("responsesResultToEvents starts JSON fallback streams with an empty in
   assertEquals(completed?.type, "response.completed");
 });
 
-Deno.test("responsesResultToEvents keeps incomplete details only on the terminal event", () => {
+test("responsesResultToEvents keeps incomplete details only on the terminal event", () => {
   const frames = Array.from(responsesResultToEvents({
     ...completedResponse,
     id: "resp_incomplete",
@@ -89,7 +90,7 @@ Deno.test("responsesResultToEvents keeps incomplete details only on the terminal
   );
 });
 
-Deno.test("responsesResultToEvents keeps failure details only on the terminal event", () => {
+test("responsesResultToEvents keeps failure details only on the terminal event", () => {
   const frames = Array.from(responsesResultToEvents({
     id: "resp_failed",
     object: "response",

@@ -1,10 +1,11 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type { ChatCompletionResponse } from "../../../../shared/protocol/chat-completions.ts";
 import { eventFrame } from "../../../shared/stream/types.ts";
 import { chatCompletionResultToEvents } from "../../../targets/chat-completions/events/from-result.ts";
 import { collectChatProtocolEventsToCompletion } from "./reassemble.ts";
 
-Deno.test("collectChatProtocolEventsToCompletion reassembles synthetic Chat chunks", async () => {
+test("collectChatProtocolEventsToCompletion reassembles synthetic Chat chunks", async () => {
   const expected: ChatCompletionResponse = {
     id: "chatcmpl_1",
     object: "chat.completion",
@@ -29,7 +30,7 @@ Deno.test("collectChatProtocolEventsToCompletion reassembles synthetic Chat chun
   assertEquals(await collectChatProtocolEventsToCompletion(events()), expected);
 });
 
-Deno.test("collectChatProtocolEventsToCompletion rejects Chat streams without DONE", async () => {
+test("collectChatProtocolEventsToCompletion rejects Chat streams without DONE", async () => {
   async function* events() {
     yield eventFrame({
       id: "chatcmpl_truncated",

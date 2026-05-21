@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse } from "../../../../test-assert.ts";
 import { MESSAGES_FALLBACK_MAX_TOKENS } from "../../../shared/protocol/messages.ts";
 import { translateResponsesToMessagesResponse } from "../messages-via-responses/result.ts";
 import { translateResponsesToMessages } from "./request.ts";
@@ -8,7 +9,7 @@ const stubRemoteImageLoader = (
 ) =>
 () => Promise.resolve(result);
 
-Deno.test("translateResponsesToMessages maps reasoning.effort none to thinking.disabled", async () => {
+test("translateResponsesToMessages maps reasoning.effort none to thinking.disabled", async () => {
   const result = await translateResponsesToMessages({
     model: "claude-test",
     input: [{ type: "message", role: "user", content: "hi" }],
@@ -29,7 +30,7 @@ Deno.test("translateResponsesToMessages maps reasoning.effort none to thinking.d
   assertFalse("output_config" in result);
 });
 
-Deno.test("translateResponsesToMessages maps reasoning.effort directly to output_config.effort", async () => {
+test("translateResponsesToMessages maps reasoning.effort directly to output_config.effort", async () => {
   const result = await translateResponsesToMessages({
     model: "claude-test",
     input: [{ type: "message", role: "user", content: "hi" }],
@@ -50,7 +51,7 @@ Deno.test("translateResponsesToMessages maps reasoning.effort directly to output
   assertFalse("thinking" in result);
 });
 
-Deno.test("translateResponsesToMessages defaults max_tokens to MESSAGES_FALLBACK_MAX_TOKENS when neither source nor fallbackMaxOutputTokens supplies one", async () => {
+test("translateResponsesToMessages defaults max_tokens to MESSAGES_FALLBACK_MAX_TOKENS when neither source nor fallbackMaxOutputTokens supplies one", async () => {
   const result = await translateResponsesToMessages({
     model: "claude-test",
     input: [{ type: "message", role: "user", content: "hi" }],
@@ -69,7 +70,7 @@ Deno.test("translateResponsesToMessages defaults max_tokens to MESSAGES_FALLBACK
   assertEquals(result.max_tokens, MESSAGES_FALLBACK_MAX_TOKENS);
 });
 
-Deno.test("translateResponsesToMessages uses fallbackMaxOutputTokens over the gateway const when the source omitted max_output_tokens", async () => {
+test("translateResponsesToMessages uses fallbackMaxOutputTokens over the gateway const when the source omitted max_output_tokens", async () => {
   const result = await translateResponsesToMessages({
     model: "claude-test",
     input: [{ type: "message", role: "user", content: "hi" }],
@@ -88,7 +89,7 @@ Deno.test("translateResponsesToMessages uses fallbackMaxOutputTokens over the ga
   assertEquals(result.max_tokens, 4096);
 });
 
-Deno.test("translateResponsesToMessages packs reasoning id into the Anthropic signature", async () => {
+test("translateResponsesToMessages packs reasoning id into the Anthropic signature", async () => {
   const result = await translateResponsesToMessages({
     model: "claude-test",
     input: [{
@@ -121,7 +122,7 @@ Deno.test("translateResponsesToMessages packs reasoning id into the Anthropic si
   });
 });
 
-Deno.test("translateResponsesToMessagesResponse omits signature for text-only reasoning", () => {
+test("translateResponsesToMessagesResponse omits signature for text-only reasoning", () => {
   const result = translateResponsesToMessagesResponse({
     id: "resp_123",
     object: "response",
@@ -145,7 +146,7 @@ Deno.test("translateResponsesToMessagesResponse omits signature for text-only re
   assertFalse("signature" in block);
 });
 
-Deno.test("translateResponsesToMessages omits generic metadata instead of coercing it to metadata.user_id", async () => {
+test("translateResponsesToMessages omits generic metadata instead of coercing it to metadata.user_id", async () => {
   const result = await translateResponsesToMessages({
     model: "claude-test",
     input: [{ type: "message", role: "user", content: "hi" }],
@@ -164,7 +165,7 @@ Deno.test("translateResponsesToMessages omits generic metadata instead of coerci
   assertFalse("metadata" in result);
 });
 
-Deno.test("translateResponsesToMessages resolves remote input images through the shared loader", async () => {
+test("translateResponsesToMessages resolves remote input images through the shared loader", async () => {
   const result = await translateResponsesToMessages(
     {
       model: "claude-test",
@@ -211,7 +212,7 @@ Deno.test("translateResponsesToMessages resolves remote input images through the
   }]);
 });
 
-Deno.test("translateResponsesToMessagesResponse packs reasoning id into opaque-only redacted_thinking data", () => {
+test("translateResponsesToMessagesResponse packs reasoning id into opaque-only redacted_thinking data", () => {
   const result = translateResponsesToMessagesResponse({
     id: "resp_123",
     object: "response",
@@ -237,7 +238,7 @@ Deno.test("translateResponsesToMessagesResponse packs reasoning id into opaque-o
   }]);
 });
 
-Deno.test("translateResponsesToMessagesResponse drops reasoning with neither summary nor encrypted_content", () => {
+test("translateResponsesToMessagesResponse drops reasoning with neither summary nor encrypted_content", () => {
   const result = translateResponsesToMessagesResponse({
     id: "resp_drop",
     object: "response",
@@ -258,7 +259,7 @@ Deno.test("translateResponsesToMessagesResponse drops reasoning with neither sum
   assertEquals(result.content, [{ type: "text", text: "hello" }]);
 });
 
-Deno.test("translateResponsesToMessagesResponse drops reasoning with explicit undefined encrypted_content", () => {
+test("translateResponsesToMessagesResponse drops reasoning with explicit undefined encrypted_content", () => {
   const result = translateResponsesToMessagesResponse({
     id: "resp_undef",
     object: "response",
@@ -277,7 +278,7 @@ Deno.test("translateResponsesToMessagesResponse drops reasoning with explicit un
   assertEquals(result.content, []);
 });
 
-Deno.test("translateResponsesToMessagesResponse treats whitespace-only summary as opaque-only reasoning and packs id", () => {
+test("translateResponsesToMessagesResponse treats whitespace-only summary as opaque-only reasoning and packs id", () => {
   const result = translateResponsesToMessagesResponse({
     id: "resp_ws",
     object: "response",
@@ -299,7 +300,7 @@ Deno.test("translateResponsesToMessagesResponse treats whitespace-only summary a
   }]);
 });
 
-Deno.test("translateResponsesToMessages drops opaque-only reasoning input with explicit undefined encrypted_content", async () => {
+test("translateResponsesToMessages drops opaque-only reasoning input with explicit undefined encrypted_content", async () => {
   const result = await translateResponsesToMessages({
     model: "gpt-test",
     input: [

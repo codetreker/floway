@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import {
   copilotModels,
   jsonResponse,
@@ -18,7 +19,7 @@ const SECOND_ACCOUNT = {
   },
 };
 
-Deno.test("/v1/models returns merged model list from Copilot and custom upstreams", async () => {
+test("/v1/models returns merged model list from Copilot and custom upstreams", async () => {
   const { repo, apiKey } = await setupAppTest();
 
   await repo.upstreamConfigs.save({
@@ -158,7 +159,7 @@ Deno.test("/v1/models returns merged model list from Copilot and custom upstream
   });
 });
 
-Deno.test("/models returns Anthropic-shaped model list", async () => {
+test("/models returns Anthropic-shaped model list", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -208,7 +209,7 @@ Deno.test("/models returns Anthropic-shaped model list", async () => {
   });
 });
 
-Deno.test("/v1/models hides upstream identity when a provider returns an invalid model list", async () => {
+test("/v1/models hides upstream identity when a provider returns an invalid model list", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   await repo.upstreamConfigs.save({
@@ -240,7 +241,7 @@ Deno.test("/v1/models hides upstream identity when a provider returns an invalid
   });
 });
 
-Deno.test("public model list endpoints hide upstream HTTP error bodies and headers", async () => {
+test("public model list endpoints hide upstream HTTP error bodies and headers", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   await repo.upstreamConfigs.save({
@@ -284,7 +285,7 @@ Deno.test("public model list endpoints hide upstream HTTP error bodies and heade
   });
 });
 
-Deno.test("public model list endpoints hide thrown upstream request errors", async () => {
+test("public model list endpoints hide thrown upstream request errors", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   await repo.upstreamConfigs.save({
@@ -323,7 +324,7 @@ Deno.test("public model list endpoints hide thrown upstream request errors", asy
   });
 });
 
-Deno.test("public model list endpoints hide malformed upstream response bodies", async () => {
+test("public model list endpoints hide malformed upstream response bodies", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   await repo.upstreamConfigs.save({
@@ -366,7 +367,7 @@ Deno.test("public model list endpoints hide malformed upstream response bodies",
   });
 });
 
-Deno.test("/v1/models reports an upstream configuration error when no provider is configured", async () => {
+test("/v1/models reports an upstream configuration error when no provider is configured", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.github.deleteAllAccounts();
 
@@ -382,7 +383,7 @@ Deno.test("/v1/models reports an upstream configuration error when no provider i
   );
 });
 
-Deno.test("/v1/models returns the ordered union of every connected GitHub account", async () => {
+test("/v1/models returns the ordered union of every connected GitHub account", async () => {
   const { repo, apiKey, githubAccount } = await setupAppTest();
   await repo.github.saveAccount(SECOND_ACCOUNT.user.id, SECOND_ACCOUNT);
 
@@ -449,7 +450,7 @@ Deno.test("/v1/models returns the ordered union of every connected GitHub accoun
   });
 });
 
-Deno.test("/v1/models returns the last real error when every account model load fails", async () => {
+test("/v1/models returns the last real error when every account model load fails", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {

@@ -1,4 +1,5 @@
-import { assertAlmostEquals, assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertAlmostEquals, assertEquals } from "../../test-assert.ts";
 import { aggregateUsageForDisplay } from "./aggregate.ts";
 import type { UsageRecord } from "../../repo/types.ts";
 
@@ -16,7 +17,7 @@ const baseRecord = (overrides: Partial<UsageRecord>): UsageRecord => ({
   ...overrides,
 });
 
-Deno.test("aggregateUsageForDisplay groups provider model keys by public model", () => {
+test("aggregateUsageForDisplay groups provider model keys by public model", () => {
   const records: UsageRecord[] = [
     baseRecord({ requests: 2, inputTokens: 100 }),
     baseRecord({
@@ -40,7 +41,7 @@ Deno.test("aggregateUsageForDisplay groups provider model keys by public model",
   assertEquals("modelKey" in out[0], false);
 });
 
-Deno.test("aggregateUsageForDisplay keeps cost accurate when variants share pricing", () => {
+test("aggregateUsageForDisplay keeps cost accurate when variants share pricing", () => {
   const records: UsageRecord[] = [
     baseRecord({ modelKey: "claude-opus-4.7-xhigh", inputTokens: 1_000_000 }),
   ];
@@ -49,7 +50,7 @@ Deno.test("aggregateUsageForDisplay keeps cost accurate when variants share pric
   assertAlmostEquals(out[0].cost, 5 + 50 * 25 / 1e6, 1e-9);
 });
 
-Deno.test("aggregateUsageForDisplay sums cost across grouped raw records", () => {
+test("aggregateUsageForDisplay sums cost across grouped raw records", () => {
   const records: UsageRecord[] = [
     baseRecord({ model: "gpt-5.4", inputTokens: 1_000_000, outputTokens: 0 }),
     baseRecord({ model: "gpt-5.4", inputTokens: 1_000_000, outputTokens: 0 }),
@@ -60,7 +61,7 @@ Deno.test("aggregateUsageForDisplay sums cost across grouped raw records", () =>
   assertAlmostEquals(out[0].cost, 5, 1e-9);
 });
 
-Deno.test("aggregateUsageForDisplay leaves storage-bound shape on the input untouched", () => {
+test("aggregateUsageForDisplay leaves storage-bound shape on the input untouched", () => {
   const original: UsageRecord = baseRecord({ inputTokens: 42 });
   aggregateUsageForDisplay([original]);
   assertEquals(original.model, "claude-opus-4-7");

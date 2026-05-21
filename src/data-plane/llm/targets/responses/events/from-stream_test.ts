@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import { sseFrame } from "../../../shared/stream/types.ts";
 import { responsesStreamFramesToEvents } from "./from-stream.ts";
 
@@ -8,7 +9,7 @@ const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   return collected;
 };
 
-Deno.test("responsesStreamFramesToEvents parses Responses SSE frames into protocol events", async () => {
+test("responsesStreamFramesToEvents parses Responses SSE frames into protocol events", async () => {
   const frames = await collect(
     responsesStreamFramesToEvents((async function* () {
       yield sseFrame(
@@ -47,7 +48,7 @@ Deno.test("responsesStreamFramesToEvents parses Responses SSE frames into protoc
   });
 });
 
-Deno.test("responsesStreamFramesToEvents rejects malformed Responses SSE JSON", async () => {
+test("responsesStreamFramesToEvents rejects malformed Responses SSE JSON", async () => {
   await assertRejects(
     async () => {
       await collect(responsesStreamFramesToEvents((async function* () {

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { type Interceptor, runInterceptors } from "./interceptors.ts";
 import {
   eventResult,
@@ -20,7 +21,7 @@ const testTelemetryModelIdentity = {
 
 type TestResult = StreamExecuteResult<string>;
 
-Deno.test("runInterceptors lets an interceptor patch context before run and patch result after run", async () => {
+test("runInterceptors lets an interceptor patch context before run and patch result after run", async () => {
   const ctx = { payload: { value: "original" } };
 
   const interceptor: Interceptor<typeof ctx, TestResult> = async (
@@ -58,7 +59,7 @@ Deno.test("runInterceptors lets an interceptor patch context before run and patc
   ]);
 });
 
-Deno.test("runInterceptors composes interceptors in nested order", async () => {
+test("runInterceptors composes interceptors in nested order", async () => {
   const calls: string[] = [];
   const ctx = { payload: { value: "ok" } };
 
@@ -95,7 +96,7 @@ Deno.test("runInterceptors composes interceptors in nested order", async () => {
   ]);
 });
 
-Deno.test("runInterceptors lets an interceptor inspect an upstream error and retry", async () => {
+test("runInterceptors lets an interceptor inspect an upstream error and retry", async () => {
   const ctx = { payload: { value: "broken" } };
   let attempts = 0;
 

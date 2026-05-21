@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import { translateMessagesToChatCompletions } from "./request.ts";
 
-Deno.test("translateMessagesToChatCompletions maps thinking.disabled to reasoning_effort none", () => {
+test("translateMessagesToChatCompletions maps thinking.disabled to reasoning_effort none", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -12,7 +13,7 @@ Deno.test("translateMessagesToChatCompletions maps thinking.disabled to reasonin
   assertEquals(result.reasoning_effort, "none");
 });
 
-Deno.test("translateMessagesToChatCompletions prefers output_config.effort over thinking.disabled", () => {
+test("translateMessagesToChatCompletions prefers output_config.effort over thinking.disabled", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -24,7 +25,7 @@ Deno.test("translateMessagesToChatCompletions prefers output_config.effort over 
   assertEquals(result.reasoning_effort, "high");
 });
 
-Deno.test("translateMessagesToChatCompletions keeps tool_result and user text as separate chat messages", () => {
+test("translateMessagesToChatCompletions keeps tool_result and user text as separate chat messages", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -43,7 +44,7 @@ Deno.test("translateMessagesToChatCompletions keeps tool_result and user text as
   ]);
 });
 
-Deno.test("translateMessagesToChatCompletions drops filtered-native tool_choice and rewrites assistant native web-search history as tool-call history", () => {
+test("translateMessagesToChatCompletions drops filtered-native tool_choice and rewrites assistant native web-search history as tool-call history", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -96,7 +97,7 @@ Deno.test("translateMessagesToChatCompletions drops filtered-native tool_choice 
   ]);
 });
 
-Deno.test("translateMessagesToChatCompletions flattens text-block tool_result content but serializes search-result arrays", () => {
+test("translateMessagesToChatCompletions flattens text-block tool_result content but serializes search-result arrays", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -133,7 +134,7 @@ Deno.test("translateMessagesToChatCompletions flattens text-block tool_result co
   ]);
 });
 
-Deno.test("translateMessagesToChatCompletions preserves mixed user/tool_result chronology", () => {
+test("translateMessagesToChatCompletions preserves mixed user/tool_result chronology", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -156,7 +157,7 @@ Deno.test("translateMessagesToChatCompletions preserves mixed user/tool_result c
   ]);
 });
 
-Deno.test("translateMessagesToChatCompletions preserves redacted_thinking as reasoning_opaque", () => {
+test("translateMessagesToChatCompletions preserves redacted_thinking as reasoning_opaque", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -174,7 +175,7 @@ Deno.test("translateMessagesToChatCompletions preserves redacted_thinking as rea
   }]);
 });
 
-Deno.test("translateMessagesToChatCompletions projects only the first scalar reasoning group", () => {
+test("translateMessagesToChatCompletions projects only the first scalar reasoning group", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,
@@ -196,7 +197,7 @@ Deno.test("translateMessagesToChatCompletions projects only the first scalar rea
   });
 });
 
-Deno.test("translateMessagesToChatCompletions does not pair readable thinking with later redacted opaque data", () => {
+test("translateMessagesToChatCompletions does not pair readable thinking with later redacted opaque data", () => {
   const result = translateMessagesToChatCompletions({
     model: "gpt-test",
     max_tokens: 256,

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../test-assert.ts";
 import { Hono } from "hono";
 import { authMiddleware } from "./auth.ts";
 import { setupAppTest } from "../test-helpers.ts";
@@ -10,7 +11,7 @@ const authTestApp = () => {
   return app;
 };
 
-Deno.test("auth middleware accepts Gemini x-goog-api-key header", async () => {
+test("auth middleware accepts Gemini x-goog-api-key header", async () => {
   const { apiKey } = await setupAppTest();
   const app = authTestApp();
 
@@ -26,7 +27,7 @@ Deno.test("auth middleware accepts Gemini x-goog-api-key header", async () => {
   assertEquals(await response.text(), "ok");
 });
 
-Deno.test("admin playground access allows Gemini model actions only with playground header", async () => {
+test("admin playground access allows Gemini model actions only with playground header", async () => {
   const { adminKey } = await setupAppTest();
   const app = authTestApp();
 
@@ -53,7 +54,7 @@ Deno.test("admin playground access allows Gemini model actions only with playgro
   assertEquals(await withPlayground.text(), "ok");
 });
 
-Deno.test("admin playground access does not allow non-Gemini v1beta routes", async () => {
+test("admin playground access does not allow non-Gemini v1beta routes", async () => {
   const { adminKey } = await setupAppTest();
   const app = authTestApp();
 

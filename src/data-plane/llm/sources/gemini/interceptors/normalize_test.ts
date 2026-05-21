@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type { GeminiGenerateContentRequest } from "../../../../shared/protocol/gemini.ts";
 import type { GeminiExchangeContext } from "../../../interceptors.ts";
 import { stripSafetySettings } from "./strip-safety-settings.ts";
@@ -43,7 +44,7 @@ const normalize = async (
   await runStripSafetySettings(payload);
 };
 
-Deno.test("gemini source interceptors strip unsupported part fields and preserve supported fields", async () => {
+test("gemini source interceptors strip unsupported part fields and preserve supported fields", async () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [{
       role: "user",
@@ -52,7 +53,7 @@ Deno.test("gemini source interceptors strip unsupported part fields and preserve
         thought: true,
         thoughtSignature: "thought-signature",
         inlineData: { mimeType: "image/png", data: "aW1hZ2U=" },
-        functionCall: { id: "call-1", name: "lookup", args: { query: "deno" } },
+        functionCall: { id: "call-1", name: "lookup", args: { query: "docs" } },
         functionResponse: {
           id: "call-1",
           name: "lookup",
@@ -81,7 +82,7 @@ Deno.test("gemini source interceptors strip unsupported part fields and preserve
         thought: true,
         thoughtSignature: "thought-signature",
         inlineData: { mimeType: "image/png", data: "aW1hZ2U=" },
-        functionCall: { id: "call-1", name: "lookup", args: { query: "deno" } },
+        functionCall: { id: "call-1", name: "lookup", args: { query: "docs" } },
         functionResponse: {
           id: "call-1",
           name: "lookup",
@@ -95,7 +96,7 @@ Deno.test("gemini source interceptors strip unsupported part fields and preserve
   });
 });
 
-Deno.test("gemini source interceptors remove parts that only contain unsupported file or code fields", async () => {
+test("gemini source interceptors remove parts that only contain unsupported file or code fields", async () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [{
       role: "user",
@@ -130,7 +131,7 @@ Deno.test("gemini source interceptors remove parts that only contain unsupported
   });
 });
 
-Deno.test("gemini source interceptors strip unsupported tool capabilities and remove empty tool groups", async () => {
+test("gemini source interceptors strip unsupported tool capabilities and remove empty tool groups", async () => {
   const payload: GeminiGenerateContentRequest = {
     tools: [{
       functionDeclarations: [{
@@ -172,7 +173,7 @@ Deno.test("gemini source interceptors strip unsupported tool capabilities and re
   });
 });
 
-Deno.test("gemini source interceptors remove safety settings without inventing missing defaults", async () => {
+test("gemini source interceptors remove safety settings without inventing missing defaults", async () => {
   const payload: GeminiGenerateContentRequest = {
     cachedContent: "cachedContents/example",
     safetySettings: [{

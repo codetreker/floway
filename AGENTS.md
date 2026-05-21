@@ -18,8 +18,14 @@ Messages, OpenAI Responses, OpenAI Chat Completions, Embeddings, and Google
 Gemini-compatible APIs over GitHub Copilot accounts and optional custom
 OpenAI-compatible upstreams.
 
-Stack: Hono + Web APIs, repository-backed persistence (D1 on Cloudflare Workers,
-Deno KV on Deno runtime, in-memory for tests), TypeScript, and `deno test`.
+Stack: Hono + Web APIs, repository-backed persistence, D1 on Cloudflare Workers,
+in-memory repositories for tests, TypeScript, pnpm, and Vitest.
+
+The production runtime contract is Workers-compatible: a fetch entrypoint,
+Workers bindings, Web APIs, and a D1-compatible SQL binding. Keep the narrow
+`src/runtime/` compatibility layer for future runtimes that can provide the same
+semantics. Do not add a separate Node.js HTTP server or Node+SQLite production
+binding unless that becomes an explicit product goal.
 
 ## Boundaries
 
@@ -37,7 +43,8 @@ Deno KV on Deno runtime, in-memory for tests), TypeScript, and `deno test`.
 - `src/data-plane/providers/openai/`: custom OpenAI-compatible provider
   behavior.
 - `src/repo/`: persistence interfaces and implementations.
-- `src/runtime/`: runtime integration helpers.
+- `src/runtime/`: runtime integration helpers for environment access and
+  background scheduling.
 - `src/shared/`: project-wide helpers that are not owned by one plane.
 - `src/shared/upstream/`: low-level HTTP adapters. These know how to call an
   upstream, but they do not own LLM planning or provider selection.
@@ -94,9 +101,9 @@ interceptor. Messages via Responses or Chat Completions always uses the gateway
 shim when native web-search tools are present, because those targets cannot run
 Anthropic server tools. Native Messages targets receive native web-search tools
 directly by default; Copilot providers enable the shim directly, while custom
-OpenAI-compatible providers enable it only through the
-`messages-web-search-shim` upstream fix flag. Do not rewrite the shim as part of
-unrelated data-plane flow work.
+OpenAI-compatible providers enable it only through the `messages-web-search-shim`
+upstream fix flag. Do not rewrite the shim as part of unrelated data-plane flow
+work.
 
 Backoff is intentionally disabled for now. Control-plane status returns empty
 temporary-unavailability data until a provider-level backoff design lands.
@@ -173,8 +180,9 @@ Workarounds belong at the owning boundary:
 - target upstream request fixes, upstream retries, target event fixes, provider
   call normalization, and target telemetry stay under
   `src/data-plane/llm/targets/<target>/` or shared target helpers.
-- provider-specific interceptor registrations live on provider records; concrete
-  interceptor implementations live at the source or target boundary they patch.
+- provider-specific interceptor registrations live on provider records;
+  concrete interceptor implementations live at the source or target boundary
+  they patch.
 - shared translation primitives belong in `src/data-plane/llm/translate/shared/`
   only when multiple pair directions need the same protocol rule.
 
@@ -191,8 +199,9 @@ Target preferences:
 Claude compatibility aliases and Copilot raw variant selection live in the
 provider layer. Until there is a general model-alias feature, Responses rewrites
 `codex-auto-review` to `gpt-5.4` with reasoning effort `low` at the Responses
-source entry, before model resolution and usage/performance metadata. Historical
-accounting rows are converted to the public model id only in migrations.
+source entry, before model resolution and usage/performance metadata.
+Historical accounting rows are converted to the public model id only in
+migrations.
 
 ## Contracts
 
@@ -225,13 +234,15 @@ stored API key. Mutating key APIs and GitHub account management are admin-only;
 Primary commands:
 
 ```bash
-deno test
-npx wrangler dev
-npx wrangler deploy
-npx wrangler d1 migrations apply copilot-db
+pnpm run test
+pnpm run typecheck
+pnpm run dev
+pnpm run deploy
+pnpm run db:migrate
 ```
 
-Run Wrangler through `npx wrangler`. When deploying, use `npx wrangler deploy`
+Wrangler commands should go through the local dependency with `pnpm wrangler` or
+package scripts. When deploying, use `pnpm run deploy` or `pnpm wrangler deploy`
 directly; do not pass `--dry-run`.
 
 For manual data-plane validation, prefer `ADMIN_KEY` with the existing

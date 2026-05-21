@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { Hono } from "hono";
 import { DEFAULT_SEARCH_CONFIG } from "../../data-plane/tools/web-search/search-config.ts";
 import { initRepo } from "../../repo/index.ts";
@@ -164,7 +165,6 @@ async function doExport(app: Hono, includePerformance = false) {
   return await resp.json();
 }
 
-// deno-lint-ignore no-explicit-any
 async function doImport(app: Hono, mode: string, data: any) {
   const resp = await app.request("/import", {
     method: "POST",
@@ -176,7 +176,7 @@ async function doImport(app: Hono, mode: string, data: any) {
 
 // ---- Tests: export structure ----
 
-Deno.test("export — empty database returns correct structure", async () => {
+test("export — empty database returns correct structure", async () => {
   const { app } = setup();
   const result = await doExport(app);
 
@@ -195,7 +195,7 @@ Deno.test("export — empty database returns correct structure", async () => {
   assertEquals(result.data.searchConfig, DEFAULT_SEARCH_CONFIG);
 });
 
-Deno.test("export — contains stored data without performance by default", async () => {
+test("export — contains stored data without performance by default", async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -225,7 +225,7 @@ Deno.test("export — contains stored data without performance by default", asyn
   assertEquals(result.data.searchConfig.provider, "tavily");
 });
 
-Deno.test("export — includes performance only when requested", async () => {
+test("export — includes performance only when requested", async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
@@ -240,7 +240,7 @@ Deno.test("export — includes performance only when requested", async () => {
   assertEquals(fullExport.data.performance.length, 2);
 });
 
-Deno.test("export — apiKeys contain all fields", async () => {
+test("export — apiKeys contain all fields", async () => {
   const { app, repo } = setup();
   await repo.apiKeys.save(KEY_A);
 
@@ -254,7 +254,7 @@ Deno.test("export — apiKeys contain all fields", async () => {
   assertEquals(key.lastUsedAt, KEY_A.lastUsedAt);
 });
 
-Deno.test("export — apiKey without lastUsedAt omits or nulls it", async () => {
+test("export — apiKey without lastUsedAt omits or nulls it", async () => {
   const { app, repo } = setup();
   await repo.apiKeys.save(KEY_B); // KEY_B has no lastUsedAt
 
@@ -266,7 +266,7 @@ Deno.test("export — apiKey without lastUsedAt omits or nulls it", async () => 
   assertEquals(key.lastUsedAt == null, true);
 });
 
-Deno.test("export — githubAccounts contain all fields", async () => {
+test("export — githubAccounts contain all fields", async () => {
   const { app, repo } = setup();
   await repo.github.saveAccount(ACCOUNT_X.user.id, ACCOUNT_X);
 
@@ -281,7 +281,7 @@ Deno.test("export — githubAccounts contain all fields", async () => {
   assertEquals(account.user.avatar_url, ACCOUNT_X.user.avatar_url);
 });
 
-Deno.test("export — githubAccount with null name", async () => {
+test("export — githubAccount with null name", async () => {
   const { app, repo } = setup();
   await repo.github.saveAccount(ACCOUNT_Y.user.id, ACCOUNT_Y);
 
@@ -289,7 +289,7 @@ Deno.test("export — githubAccount with null name", async () => {
   assertEquals(result.data.githubAccounts[0].user.name, null);
 });
 
-Deno.test("export — usage records contain all fields", async () => {
+test("export — usage records contain all fields", async () => {
   const { app, repo } = setup();
   await repo.usage.set(USAGE_1);
 
@@ -306,7 +306,7 @@ Deno.test("export — usage records contain all fields", async () => {
   assertEquals(u.cacheCreationTokens, USAGE_1.cacheCreationTokens);
 });
 
-Deno.test("export — searchUsage records contain all fields", async () => {
+test("export — searchUsage records contain all fields", async () => {
   const { app, repo } = setup();
   await repo.searchUsage.set(SEARCH_USAGE_1);
 
@@ -319,7 +319,7 @@ Deno.test("export — searchUsage records contain all fields", async () => {
   assertEquals(u.requests, SEARCH_USAGE_1.requests);
 });
 
-Deno.test("export — performance records contain raw dimensions and buckets", async () => {
+test("export — performance records contain raw dimensions and buckets", async () => {
   const { app, repo } = setup();
   await repo.performance.set(PERFORMANCE_1);
 
@@ -329,7 +329,7 @@ Deno.test("export — performance records contain raw dimensions and buckets", a
 
 // ---- Tests: round-trip (import → export) ----
 
-Deno.test("round-trip — replace import then export yields equivalent data", async () => {
+test("round-trip — replace import then export yields equivalent data", async () => {
   const { app } = setup();
 
   const original = {
@@ -394,7 +394,7 @@ Deno.test("round-trip — replace import then export yields equivalent data", as
   assertEquals(exported.data.performance, expected.performance);
 });
 
-Deno.test("round-trip — merge import then export contains both old and new data", async () => {
+test("round-trip — merge import then export contains both old and new data", async () => {
   const { app, repo } = setup();
 
   // Pre-existing data
@@ -423,7 +423,7 @@ Deno.test("round-trip — merge import then export contains both old and new dat
   assertEquals(exported.data.searchUsage.length, 2);
 });
 
-Deno.test("import replace — clears existing searchUsage before importing provided records", async () => {
+test("import replace — clears existing searchUsage before importing provided records", async () => {
   const { app, repo } = setup();
 
   await repo.searchUsage.set(SEARCH_USAGE_1);
@@ -439,7 +439,7 @@ Deno.test("import replace — clears existing searchUsage before importing provi
   assertEquals(exported.data.searchUsage, [SEARCH_USAGE_2]);
 });
 
-Deno.test("import replace — clears existing performance before importing provided records", async () => {
+test("import replace — clears existing performance before importing provided records", async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
@@ -455,7 +455,7 @@ Deno.test("import replace — clears existing performance before importing provi
   assertEquals(exported.data.performance, [PERFORMANCE_2]);
 });
 
-Deno.test("import replace — preserves existing performance when payload omits performance", async () => {
+test("import replace — preserves existing performance when payload omits performance", async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
@@ -471,7 +471,7 @@ Deno.test("import replace — preserves existing performance when payload omits 
   assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
-Deno.test("import replace — preserves existing performance for legacy empty payloads without intent", async () => {
+test("import replace — preserves existing performance for legacy empty payloads without intent", async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
@@ -487,7 +487,7 @@ Deno.test("import replace — preserves existing performance for legacy empty pa
   assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
-Deno.test("import replace — clears existing performance when explicitly included empty", async () => {
+test("import replace — clears existing performance when explicitly included empty", async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
@@ -504,7 +504,7 @@ Deno.test("import replace — clears existing performance when explicitly includ
   assertEquals(exported.data.performance, []);
 });
 
-Deno.test("import replace — accepts Gemini performance records", async () => {
+test("import replace — accepts Gemini performance records", async () => {
   const { app } = setup();
 
   const { status, body } = await doImport(app, "replace", {
@@ -518,7 +518,7 @@ Deno.test("import replace — accepts Gemini performance records", async () => {
   assertEquals(exported.data.performance, [PERFORMANCE_GEMINI]);
 });
 
-Deno.test("import replace — rejects invalid searchUsage before clearing existing data", async () => {
+test("import replace — rejects invalid searchUsage before clearing existing data", async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -550,7 +550,7 @@ Deno.test("import replace — rejects invalid searchUsage before clearing existi
   assertEquals(exported.data.searchUsage, [SEARCH_USAGE_1]);
 });
 
-Deno.test("import replace — rejects invalid performance before clearing existing data", async () => {
+test("import replace — rejects invalid performance before clearing existing data", async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -577,7 +577,7 @@ Deno.test("import replace — rejects invalid performance before clearing existi
   assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
-Deno.test("export/import include searchConfig and replace it as a singleton when present", async () => {
+test("export/import include searchConfig and replace it as a singleton when present", async () => {
   const { app, repo } = setup();
 
   await repo.searchConfig.save({
@@ -608,7 +608,7 @@ Deno.test("export/import include searchConfig and replace it as a singleton when
   });
 });
 
-Deno.test("import replace resets searchConfig to default when the payload omits it", async () => {
+test("import replace resets searchConfig to default when the payload omits it", async () => {
   const { app, repo } = setup();
 
   await repo.searchConfig.save({
@@ -629,7 +629,7 @@ Deno.test("import replace resets searchConfig to default when the payload omits 
   assertEquals(exported.data.searchConfig, DEFAULT_SEARCH_CONFIG);
 });
 
-Deno.test("round-trip — double import with replace is idempotent", async () => {
+test("round-trip — double import with replace is idempotent", async () => {
   const { app } = setup();
 
   const data = {
@@ -647,8 +647,8 @@ Deno.test("round-trip — double import with replace is idempotent", async () =>
   assertEquals(exported.data.usage.length, 1);
 });
 
-Deno.test("round-trip — export from A, import into B, export from B matches A", async () => {
-  // Simulate cross-platform migration: Deno → CF
+test("round-trip — export from A, import into B, export from B matches A", async () => {
+  // Simulate moving data between two deployments.
   const repoA = new InMemoryRepo();
   initRepo(repoA);
   const appA = new Hono();
@@ -717,7 +717,7 @@ Deno.test("round-trip — export from A, import into B, export from B matches A"
 
 // ---- Tests: import modes ----
 
-Deno.test("import replace — clears existing data", async () => {
+test("import replace — clears existing data", async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -742,7 +742,7 @@ Deno.test("import replace — clears existing data", async () => {
   assertEquals(hasOwn(exported.data, "performance"), false);
 });
 
-Deno.test("import merge — upserts existing records by key", async () => {
+test("import merge — upserts existing records by key", async () => {
   const { app, repo } = setup();
 
   // Pre-existing KEY_A with old name
@@ -759,7 +759,7 @@ Deno.test("import merge — upserts existing records by key", async () => {
   assertEquals(updatedA.name, "Alice"); // updated to imported value
 });
 
-Deno.test("import merge — usage set overwrites matching records", async () => {
+test("import merge — usage set overwrites matching records", async () => {
   const { app, repo } = setup();
 
   // Existing usage
@@ -781,14 +781,14 @@ Deno.test("import merge — usage set overwrites matching records", async () => 
 
 // ---- Tests: validation ----
 
-Deno.test("import — rejects invalid mode", async () => {
+test("import — rejects invalid mode", async () => {
   const { app } = setup();
   const { status, body } = await doImport(app, "invalid", { apiKeys: [] });
   assertEquals(status, 400);
   assertEquals(body.error, "mode must be 'merge' or 'replace'");
 });
 
-Deno.test("import — rejects missing data", async () => {
+test("import — rejects missing data", async () => {
   const { app } = setup();
   const resp = await app.request("/import", {
     method: "POST",
@@ -800,7 +800,7 @@ Deno.test("import — rejects missing data", async () => {
   assertEquals(body.error, "data is required");
 });
 
-Deno.test("import — handles missing optional arrays gracefully", async () => {
+test("import — handles missing optional arrays gracefully", async () => {
   const { app } = setup();
   // data object with no arrays
   const { status, body } = await doImport(app, "replace", {});

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type {
   ResponsesPayload,
   ResponsesResult,
@@ -206,7 +207,7 @@ const upstreamServerError = (message: string): ResponsesExchangeResult => ({
   ),
 });
 
-Deno.test("withCyberPolicyRetried retries fatal upstream cyber policy errors before returning success", async () => {
+test("withCyberPolicyRetried retries fatal upstream cyber policy errors before returning success", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -224,7 +225,7 @@ Deno.test("withCyberPolicyRetried retries fatal upstream cyber policy errors bef
   assertEquals(result.type, "events");
 });
 
-Deno.test("withCyberPolicyRetried retries first Responses protocol cyber policy failures before returning success", async () => {
+test("withCyberPolicyRetried retries first Responses protocol cyber policy failures before returning success", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -249,7 +250,7 @@ Deno.test("withCyberPolicyRetried retries first Responses protocol cyber policy 
   assertEquals(frames, [eventFrame(completedEvent())]);
 });
 
-Deno.test("withCyberPolicyRetried buffers converted fallback prologue frames before retrying terminal cyber policy failures", async () => {
+test("withCyberPolicyRetried buffers converted fallback prologue frames before retrying terminal cyber policy failures", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -283,7 +284,7 @@ Deno.test("withCyberPolicyRetried buffers converted fallback prologue frames bef
   assertEquals(frames, [eventFrame(completedEvent())]);
 });
 
-Deno.test("withCyberPolicyRetried attributes streaming retries to the final provider call", async () => {
+test("withCyberPolicyRetried attributes streaming retries to the final provider call", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -316,7 +317,7 @@ Deno.test("withCyberPolicyRetried attributes streaming retries to the final prov
   assertEquals(result.performance?.modelKey, "final-model-key");
 });
 
-Deno.test("withCyberPolicyRetried returns successful streams without draining them", async () => {
+test("withCyberPolicyRetried returns successful streams without draining them", async () => {
   const payload = makePayload();
   let release!: () => void;
   let markStreamDrained!: () => void;
@@ -355,7 +356,7 @@ Deno.test("withCyberPolicyRetried returns successful streams without draining th
   assertEquals(frames.length, 2);
 });
 
-Deno.test("withCyberPolicyRetried returns streaming results before the first upstream frame arrives", async () => {
+test("withCyberPolicyRetried returns streaming results before the first upstream frame arrives", async () => {
   const payload = makePayload();
   let releaseFirstFrame!: () => void;
   const firstFrameReady = new Promise<void>((resolve) => {
@@ -382,7 +383,7 @@ Deno.test("withCyberPolicyRetried returns streaming results before the first ups
   assertEquals(result.type, "events");
 });
 
-Deno.test("withCyberPolicyRetried does not start another streaming retry after downstream abort", async () => {
+test("withCyberPolicyRetried does not start another streaming retry after downstream abort", async () => {
   const payload = makePayload();
   const downstreamAbortController = new AbortController();
   let attempts = 0;
@@ -416,7 +417,7 @@ Deno.test("withCyberPolicyRetried does not start another streaming retry after d
   assertEquals(frames, [cyberPolicyFrame]);
 });
 
-Deno.test("withCyberPolicyRetried streams the final HTTP cyber policy failure after a streaming policy failure", async () => {
+test("withCyberPolicyRetried streams the final HTTP cyber policy failure after a streaming policy failure", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -456,7 +457,7 @@ Deno.test("withCyberPolicyRetried streams the final HTTP cyber policy failure af
   });
 });
 
-Deno.test("withCyberPolicyRetried streams a later HTTP upstream failure after a streaming policy failure", async () => {
+test("withCyberPolicyRetried streams a later HTTP upstream failure after a streaming policy failure", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -494,7 +495,7 @@ Deno.test("withCyberPolicyRetried streams a later HTTP upstream failure after a 
   });
 });
 
-Deno.test("withCyberPolicyRetried preserves debug fields for later internal failures after a streaming policy failure", async () => {
+test("withCyberPolicyRetried preserves debug fields for later internal failures after a streaming policy failure", async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -548,7 +549,7 @@ Deno.test("withCyberPolicyRetried preserves debug fields for later internal fail
   });
 });
 
-Deno.test("withCyberPolicyRetried returns the final cyber policy failure after exhausting retries", async () => {
+test("withCyberPolicyRetried returns the final cyber policy failure after exhausting retries", async () => {
   const payload = makePayload();
   let attempts = 0;
 

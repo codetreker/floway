@@ -65,7 +65,7 @@ export const fetchGitHubUser = async (githubToken: string) => {
     headers: {
       authorization: `token ${githubToken}`,
       accept: "application/json",
-      "user-agent": "copilot-deno",
+      "user-agent": "copilot-gateway",
     },
   });
 

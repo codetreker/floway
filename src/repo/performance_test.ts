@@ -1,7 +1,7 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../test-assert.ts";
 import { latencyBucketForMs } from "../shared/performance-histogram.ts";
 import { type D1Database, D1Repo } from "./d1.ts";
-import { DenoKvRepo } from "./deno.ts";
 import { InMemoryRepo } from "./memory.ts";
 import type { PerformanceRepo } from "./types.ts";
 
@@ -111,169 +111,8 @@ async function exercisePerformanceRepo(repo: PerformanceRepo) {
   );
 }
 
-Deno.test("memory performance repo records, queries, and clears telemetry", async () => {
+test("memory performance repo records, queries, and clears telemetry", async () => {
   await exercisePerformanceRepo(new InMemoryRepo().performance);
-});
-
-Deno.test("Deno KV performance repo records, queries, and clears telemetry", async () => {
-  const kv = await Deno.openKv();
-  try {
-    await exercisePerformanceRepo(new DenoKvRepo(kv).performance);
-  } finally {
-    for await (const entry of kv.list({ prefix: ["performance"] })) {
-      await kv.delete(entry.key);
-    }
-    kv.close();
-  }
-});
-
-Deno.test("Deno KV migrates legacy telemetry model identity keys before reading", async () => {
-  const kv = await Deno.openKv();
-  try {
-    for (
-      const prefix of [
-        ["usage"],
-        ["performance"],
-        ["account_model_backoffs"],
-        ["migrations"],
-      ]
-    ) {
-      for await (const entry of kv.list({ prefix })) await kv.delete(entry.key);
-    }
-
-    await kv.set(
-      ["usage", "key_a", "claude-opus-4.7-xhigh", "2026-04-30T10", "r"],
-      new Deno.KvU64(2n),
-    );
-    await kv.set(
-      ["usage", "key_a", "claude-opus-4.7-xhigh", "2026-04-30T10", "i"],
-      new Deno.KvU64(100n),
-    );
-    await kv.set(
-      ["usage", "key_b", "codex-auto-review", "2026-04-30T11", "r"],
-      new Deno.KvU64(1n),
-    );
-    await kv.set(
-      [
-        "performance",
-        "summary",
-        "2026-04-30T10",
-        "request_total",
-        "key_a",
-        "claude-opus-4.7-xhigh",
-        "messages",
-        "responses",
-        "1",
-        "unknown",
-        "requests",
-      ],
-      new Deno.KvU64(1n),
-    );
-    await kv.set(
-      [
-        "performance",
-        "bucket",
-        "2026-04-30T10",
-        "request_total",
-        "key_a",
-        "claude-opus-4.7-xhigh",
-        "messages",
-        "responses",
-        "1",
-        "unknown",
-        100,
-        142,
-      ],
-      new Deno.KvU64(1n),
-    );
-    await kv.set(
-      ["account_model_backoffs", 1, "claude-opus-4.7-xhigh"],
-      { accountId: 1 },
-    );
-
-    const repo = new DenoKvRepo(kv);
-    const migratedUsage = await repo.usage.listAll();
-    assertEquals(migratedUsage.find((r) => r.keyId === "key_a"), {
-      keyId: "key_a",
-      model: "claude-opus-4-7",
-      upstream: null,
-      modelKey: "claude-opus-4.7-xhigh",
-      hour: "2026-04-30T10",
-      requests: 2,
-      inputTokens: 100,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-    });
-    assertEquals(migratedUsage.find((r) => r.keyId === "key_b"), {
-      keyId: "key_b",
-      model: "gpt-5.4",
-      upstream: null,
-      modelKey: "codex-auto-review",
-      hour: "2026-04-30T11",
-      requests: 1,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-    });
-    await kv.set(
-      ["usage", "key_c", "claude-sonnet-4.5", "2026-04-30T12", "r"],
-      new Deno.KvU64(1n),
-    );
-    assertEquals(
-      (await repo.usage.query({
-        start: "2026-04-30T12",
-        end: "2026-04-30T13",
-      })).find((r) => r.keyId === "key_c"),
-      {
-        keyId: "key_c",
-        model: "claude-sonnet-4-5",
-        upstream: null,
-        modelKey: "claude-sonnet-4.5",
-        hour: "2026-04-30T12",
-        requests: 1,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheCreationTokens: 0,
-      },
-    );
-    assertEquals(await repo.performance.listAll(), [{
-      hour: "2026-04-30T10",
-      metricScope: "request_total",
-      keyId: "key_a",
-      model: "claude-opus-4-7",
-      upstream: null,
-      modelKey: "claude-opus-4.7-xhigh",
-      sourceApi: "messages",
-      targetApi: "responses",
-      stream: true,
-      runtimeLocation: "unknown",
-      requests: 1,
-      errors: 0,
-      totalMsSum: 0,
-      buckets: [{ lowerMs: 100, upperMs: 142, count: 1 }],
-    }]);
-    const backoff = await kv.get([
-      "account_model_backoffs",
-      1,
-      "claude-opus-4.7-xhigh",
-    ]);
-    assertEquals(backoff.value, null);
-  } finally {
-    for (
-      const prefix of [
-        ["usage"],
-        ["performance"],
-        ["account_model_backoffs"],
-        ["migrations"],
-      ]
-    ) {
-      for await (const entry of kv.list({ prefix })) await kv.delete(entry.key);
-    }
-    kv.close();
-  }
 });
 
 class FakePerformanceD1PreparedStatement {
@@ -630,7 +469,7 @@ function compareFakePerformanceRows(
     a.runtime_location.localeCompare(b.runtime_location);
 }
 
-Deno.test("D1 performance repo records, queries, and clears telemetry", async () => {
+test("D1 performance repo records, queries, and clears telemetry", async () => {
   await exercisePerformanceRepo(
     new D1Repo(new FakePerformanceD1Database()).performance,
   );

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import type { ModelCapabilities } from "../../../providers/capabilities.ts";
 import { planGeminiRequest } from "./plan.ts";
 
@@ -13,13 +14,13 @@ const capabilities = (
   ...overrides,
 });
 
-Deno.test("planGeminiRequest rejects capability misses instead of legacy fallback", () => {
+test("planGeminiRequest rejects capability misses instead of legacy fallback", () => {
   const plan = planGeminiRequest(capabilities());
 
   assertEquals(plan, null);
 });
 
-Deno.test("planGeminiRequest follows Chat Completions native preference", () => {
+test("planGeminiRequest follows Chat Completions native preference", () => {
   const plan = planGeminiRequest(
     capabilities({
       supportedEndpoints: ["messages", "chat_completions"],
@@ -31,7 +32,7 @@ Deno.test("planGeminiRequest follows Chat Completions native preference", () => 
   assertEquals(plan?.target, "chat-completions");
 });
 
-Deno.test("planGeminiRequest does not invent legacy fallback without provider endpoints", () => {
+test("planGeminiRequest does not invent legacy fallback without provider endpoints", () => {
   const plan = planGeminiRequest(capabilities());
 
   assertEquals(plan, null);

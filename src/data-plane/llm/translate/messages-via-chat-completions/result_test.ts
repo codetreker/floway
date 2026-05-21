@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import { mapChatCompletionsUsageToMessagesUsage } from "./result.ts";
 
-Deno.test("mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to cache_read_input_tokens", () => {
+test("mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to cache_read_input_tokens", () => {
   const usage = mapChatCompletionsUsageToMessagesUsage({
     prompt_tokens: 100,
     completion_tokens: 20,
@@ -12,7 +13,7 @@ Deno.test("mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to c
   assertEquals(usage.cache_read_input_tokens, 60);
 });
 
-Deno.test("mapChatCompletionsUsageToMessagesUsage omits cache_read_input_tokens when no cache field", () => {
+test("mapChatCompletionsUsageToMessagesUsage omits cache_read_input_tokens when no cache field", () => {
   const usage = mapChatCompletionsUsageToMessagesUsage({
     prompt_tokens: 100,
     completion_tokens: 20,

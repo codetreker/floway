@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import type { GeminiGenerateContentRequest } from "../../../shared/protocol/gemini.ts";
 import { MESSAGES_FALLBACK_MAX_TOKENS } from "../../../shared/protocol/messages.ts";
 import type { ModelCapabilities } from "../../../providers/capabilities.ts";
@@ -17,7 +18,7 @@ const withMaxOutputTokens = (maxOutputTokens: number): ModelCapabilities => ({
   maxOutputTokens,
 });
 
-Deno.test("buildTargetRequest maps system, default max tokens, and multimodal user content", () => {
+test("buildTargetRequest maps system, default max tokens, and multimodal user content", () => {
   const payload: GeminiGenerateContentRequest = {
     systemInstruction: {
       parts: [{ text: "Be precise." }, { text: "Use markdown." }],
@@ -56,7 +57,7 @@ Deno.test("buildTargetRequest maps system, default max tokens, and multimodal us
   );
 });
 
-Deno.test("buildTargetRequest prefers capabilities.maxOutputTokens over the gateway default when payload omits maxOutputTokens", () => {
+test("buildTargetRequest prefers capabilities.maxOutputTokens over the gateway default when payload omits maxOutputTokens", () => {
   const request = buildTargetRequest(
     {},
     "claude-test",
@@ -66,7 +67,7 @@ Deno.test("buildTargetRequest prefers capabilities.maxOutputTokens over the gate
   assertEquals(request.max_tokens, 6144);
 });
 
-Deno.test("buildTargetRequest maps generation config and thinking controls", () => {
+test("buildTargetRequest maps generation config and thinking controls", () => {
   const payload: GeminiGenerateContentRequest = {
     generationConfig: {
       maxOutputTokens: 512,
@@ -108,7 +109,7 @@ Deno.test("buildTargetRequest maps generation config and thinking controls", () 
   );
 });
 
-Deno.test("buildTargetRequest maps assistant thinking signatures and tool calls", () => {
+test("buildTargetRequest maps assistant thinking signatures and tool calls", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [{
       role: "model",
@@ -116,7 +117,7 @@ Deno.test("buildTargetRequest maps assistant thinking signatures and tool calls"
         { text: "private trace", thought: true },
         {
           thoughtSignature: "sig_1",
-          functionCall: { id: "call_1", name: "lookup", args: { q: "deno" } },
+          functionCall: { id: "call_1", name: "lookup", args: { q: "docs" } },
         },
       ],
     }, {
@@ -139,7 +140,7 @@ Deno.test("buildTargetRequest maps assistant thinking signatures and tool calls"
             type: "tool_use",
             id: "call_1",
             name: "lookup",
-            input: { q: "deno" },
+            input: { q: "docs" },
           },
         ],
       },
@@ -159,7 +160,7 @@ Deno.test("buildTargetRequest maps assistant thinking signatures and tool calls"
   );
 });
 
-Deno.test("buildTargetRequest correlates omitted function response ids in call order", () => {
+test("buildTargetRequest correlates omitted function response ids in call order", () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [{
       role: "model",
@@ -220,7 +221,7 @@ Deno.test("buildTargetRequest correlates omitted function response ids in call o
   );
 });
 
-Deno.test("buildTargetRequest maps tool declarations and tool choice modes", () => {
+test("buildTargetRequest maps tool declarations and tool choice modes", () => {
   const payload: GeminiGenerateContentRequest = {
     tools: [{
       functionDeclarations: [{
@@ -300,7 +301,7 @@ Deno.test("buildTargetRequest maps tool declarations and tool choice modes", () 
   );
 });
 
-Deno.test("buildTargetRequest filters tools to multiple allowed names for ANY mode", () => {
+test("buildTargetRequest filters tools to multiple allowed names for ANY mode", () => {
   const payload: GeminiGenerateContentRequest = {
     tools: [{
       functionDeclarations: [
@@ -338,7 +339,7 @@ Deno.test("buildTargetRequest filters tools to multiple allowed names for ANY mo
   );
 });
 
-Deno.test("buildTargetRequest maps dynamic thinking budget to adaptive thinking", () => {
+test("buildTargetRequest maps dynamic thinking budget to adaptive thinking", () => {
   assertEquals(
     buildTargetRequest(
       { generationConfig: { thinkingConfig: { thinkingBudget: -1 } } },

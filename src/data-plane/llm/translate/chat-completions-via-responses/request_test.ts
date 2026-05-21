@@ -1,4 +1,5 @@
-import { assertEquals, assertFalse, assertThrows } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertFalse, assertThrows } from "../../../../test-assert.ts";
 import { translateChatCompletionsToResponses } from "./request.ts";
 import { translateChatCompletionToResponsesResult } from "../responses-via-chat-completions/result.ts";
 import {
@@ -57,7 +58,7 @@ const assertEveryAddedOutputItemIsDone = (
   assertEquals(done, added);
 };
 
-Deno.test("translateChatCompletionsToResponses uses rs-prefixed ids for reasoning input items", () => {
+test("translateChatCompletionsToResponses uses rs-prefixed ids for reasoning input items", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{
@@ -74,7 +75,7 @@ Deno.test("translateChatCompletionsToResponses uses rs-prefixed ids for reasonin
   assertEquals(reasoning.id, "rs_0");
 });
 
-Deno.test("translateChatCompletionsToResponses preserves text-only scalar reasoning", () => {
+test("translateChatCompletionsToResponses preserves text-only scalar reasoning", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{
@@ -92,7 +93,7 @@ Deno.test("translateChatCompletionsToResponses preserves text-only scalar reason
   });
 });
 
-Deno.test("translateChatCompletionsToResponses prefers reasoning_items over scalar reasoning", () => {
+test("translateChatCompletionsToResponses prefers reasoning_items over scalar reasoning", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{
@@ -133,7 +134,7 @@ Deno.test("translateChatCompletionsToResponses prefers reasoning_items over scal
   ]);
 });
 
-Deno.test("translateChatCompletionsToResponses rejects tool messages without tool_call_id", () => {
+test("translateChatCompletionsToResponses rejects tool messages without tool_call_id", () => {
   assertThrows(
     () =>
       translateChatCompletionsToResponses({
@@ -145,7 +146,7 @@ Deno.test("translateChatCompletionsToResponses rejects tool messages without too
   );
 });
 
-Deno.test("translateChatCompletionToResponsesResult maps reasoning text content tool calls and length finish reason", () => {
+test("translateChatCompletionToResponsesResult maps reasoning text content tool calls and length finish reason", () => {
   const result = translateChatCompletionToResponsesResult({
     id: "chatcmpl_123",
     object: "chat.completion",
@@ -206,7 +207,7 @@ Deno.test("translateChatCompletionToResponsesResult maps reasoning text content 
   });
 });
 
-Deno.test("translateChatCompletionToResponsesResult prefers reasoning_items over scalar reasoning", () => {
+test("translateChatCompletionToResponsesResult prefers reasoning_items over scalar reasoning", () => {
   const result = translateChatCompletionToResponsesResult({
     id: "chatcmpl_123",
     object: "chat.completion",
@@ -238,7 +239,7 @@ Deno.test("translateChatCompletionToResponsesResult prefers reasoning_items over
   });
 });
 
-Deno.test("translateChatCompletionsToResponses preserves translated OpenAI request fields", () => {
+test("translateChatCompletionsToResponses preserves translated OpenAI request fields", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{ role: "user", content: "hello" }],
@@ -263,7 +264,7 @@ Deno.test("translateChatCompletionsToResponses preserves translated OpenAI reque
   assertEquals(result.include, ["reasoning.encrypted_content"]);
 });
 
-Deno.test("translateChatCompletionsToResponses omits store when Chat omits store", () => {
+test("translateChatCompletionsToResponses omits store when Chat omits store", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{ role: "user", content: "hello" }],
@@ -272,7 +273,7 @@ Deno.test("translateChatCompletionsToResponses omits store when Chat omits store
   assertFalse("store" in result);
 });
 
-Deno.test("translateChatCompletionsToResponses preserves explicit null prompt cache and safety fields", () => {
+test("translateChatCompletionsToResponses preserves explicit null prompt cache and safety fields", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{ role: "user", content: "hello" }],
@@ -286,7 +287,7 @@ Deno.test("translateChatCompletionsToResponses preserves explicit null prompt ca
   assertEquals(result.safety_identifier, null);
 });
 
-Deno.test("translateChatCompletionsToResponses hoists only the initial contiguous system prefix", () => {
+test("translateChatCompletionsToResponses hoists only the initial contiguous system prefix", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [
@@ -312,7 +313,7 @@ Deno.test("translateChatCompletionsToResponses hoists only the initial contiguou
   ]);
 });
 
-Deno.test("translateChatCompletionsToResponses preserves explicit tool strict and defaults omission to false", () => {
+test("translateChatCompletionsToResponses preserves explicit tool strict and defaults omission to false", () => {
   const result = translateChatCompletionsToResponses({
     model: "gpt-test",
     messages: [{ role: "user", content: "hello" }],
@@ -351,7 +352,7 @@ Deno.test("translateChatCompletionsToResponses preserves explicit tool strict an
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents keeps late opaque with prior scalar reasoning text", () => {
+test("translateChatCompletionsChunkToResponsesEvents keeps late opaque with prior scalar reasoning text", () => {
   const state = createChatCompletionsToResponsesStreamState();
   const events = [
     ...translateChatCompletionsChunkToResponsesEvents(
@@ -385,7 +386,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents keeps late opaque with
   });
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents prefers reasoning_items over scalar reasoning in streaming composition", () => {
+test("translateChatCompletionsChunkToResponsesEvents prefers reasoning_items over scalar reasoning in streaming composition", () => {
   const state = createChatCompletionsToResponsesStreamState();
   const events = [
     ...translateChatCompletionsChunkToResponsesEvents(
@@ -446,7 +447,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents prefers reasoning_item
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents keeps terminal output ordered by output_index", () => {
+test("translateChatCompletionsChunkToResponsesEvents keeps terminal output ordered by output_index", () => {
   const state = createChatCompletionsToResponsesStreamState();
   const events = [
     ...translateChatCompletionsChunkToResponsesEvents(
@@ -499,7 +500,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents keeps terminal output 
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents discards scalar reasoning when carrier arrives after opaque", () => {
+test("translateChatCompletionsChunkToResponsesEvents discards scalar reasoning when carrier arrives after opaque", () => {
   const state = createChatCompletionsToResponsesStreamState();
   const events = [
     ...translateChatCompletionsChunkToResponsesEvents(
@@ -564,7 +565,7 @@ Deno.test("translateChatCompletionsChunkToResponsesEvents discards scalar reason
   ]);
 });
 
-Deno.test("translateChatCompletionsChunkToResponsesEvents ignores empty tool_calls arrays", () => {
+test("translateChatCompletionsChunkToResponsesEvents ignores empty tool_calls arrays", () => {
   const state = createChatCompletionsToResponsesStreamState();
   // Before the fix, empty tool_calls [] was truthy and entered the
   // tool-calls branch, prematurely closing the text item. After the fix

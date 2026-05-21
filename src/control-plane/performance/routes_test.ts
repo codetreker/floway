@@ -1,8 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { latencyBucketForMs } from "../../shared/performance-histogram.ts";
 import { requestApp, setupAppTest } from "../../test-helpers.ts";
 
-Deno.test("/api/performance returns backend-aggregated base-model percentiles", async () => {
+test("/api/performance returns backend-aggregated base-model percentiles", async () => {
   const { repo, apiKey } = await setupAppTest();
   const sample = {
     hour: "2026-04-30T10",
@@ -53,7 +54,7 @@ Deno.test("/api/performance returns backend-aggregated base-model percentiles", 
   }]);
 });
 
-Deno.test("/api/performance can include key metadata", async () => {
+test("/api/performance can include key metadata", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.performance.recordLatency({
     hour: "2026-04-30T10",
@@ -83,7 +84,7 @@ Deno.test("/api/performance can include key metadata", async () => {
   }]);
 });
 
-Deno.test("/api/performance/overview returns dashboard aggregates from one repo query", async () => {
+test("/api/performance/overview returns dashboard aggregates from one repo query", async () => {
   const { repo, apiKey } = await setupAppTest();
   let queryCount = 0;
   const originalQuery = repo.performance.query.bind(repo.performance);
@@ -121,7 +122,7 @@ Deno.test("/api/performance/overview returns dashboard aggregates from one repo 
   assertEquals(body.runtimeRows[0].group, "SJC");
 });
 
-Deno.test("/api/performance rejects out-of-range timezone offsets", async () => {
+test("/api/performance rejects out-of-range timezone offsets", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp(

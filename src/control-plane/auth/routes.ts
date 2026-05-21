@@ -120,7 +120,7 @@ export const authMe = async (c: Context) => {
         headers: {
           authorization: `token ${account.token}`,
           accept: "application/json",
-          "user-agent": "copilot-deno",
+          "user-agent": "copilot-gateway",
         },
       });
       if (!userResp.ok) return account;

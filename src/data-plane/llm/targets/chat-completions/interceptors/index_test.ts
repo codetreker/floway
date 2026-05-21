@@ -1,12 +1,13 @@
+import { test } from "vitest";
 // Order assertion for the Chat Completions target assembler.
 
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "../../../../../test-assert.ts";
 import { withUsageStreamOptionsIncluded } from "./include-usage-stream-options.ts";
 import { withDeepseekReasoningDialect } from "./normalize-reasoning-dialect.ts";
 import { withUsageNormalized } from "./normalize-usage.ts";
 import { interceptorsForChatCompletions } from "./index.ts";
 
-Deno.test("interceptorsForChatCompletions without provider interceptors: base only", () => {
+test("interceptorsForChatCompletions without provider interceptors: base only", () => {
   const provider = {
     enabledFixes: new Set<string>(),
   };
@@ -16,7 +17,7 @@ Deno.test("interceptorsForChatCompletions without provider interceptors: base on
   );
 });
 
-Deno.test("interceptorsForChatCompletions with deepseek dialect enabled", () => {
+test("interceptorsForChatCompletions with deepseek dialect enabled", () => {
   const provider = {
     enabledFixes: new Set(["deepseek-reasoning-dialect"]),
   };
@@ -30,7 +31,7 @@ Deno.test("interceptorsForChatCompletions with deepseek dialect enabled", () => 
   );
 });
 
-Deno.test("interceptorsForChatCompletions without enabledFixes: base only", () => {
+test("interceptorsForChatCompletions without enabledFixes: base only", () => {
   const provider = {
     enabledFixes: new Set<string>(),
   };

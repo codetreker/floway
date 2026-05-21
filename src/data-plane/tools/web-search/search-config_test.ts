@@ -1,6 +1,6 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import { type D1Database, D1Repo } from "../../../repo/d1.ts";
-import { DenoKvRepo } from "../../../repo/deno.ts";
 import { initRepo } from "../../../repo/index.ts";
 import { InMemoryRepo } from "../../../repo/memory.ts";
 import {
@@ -62,7 +62,7 @@ class FakeD1Database implements D1Database {
   }
 }
 
-Deno.test("search config repo defaults to disabled and round-trips provider keys", async () => {
+test("search config repo defaults to disabled and round-trips provider keys", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -82,7 +82,7 @@ Deno.test("search config repo defaults to disabled and round-trips provider keys
   assertEquals(FIXED_SEARCH_CONFIG_TEST_QUERY, "React documentation");
 });
 
-Deno.test("loadSearchConfig normalizes raw stored objects above the repo boundary", async () => {
+test("loadSearchConfig normalizes raw stored objects above the repo boundary", async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
@@ -99,7 +99,7 @@ Deno.test("loadSearchConfig normalizes raw stored objects above the repo boundar
   });
 });
 
-Deno.test("loadSearchConfig falls back to defaults for malformed D1 stored data", async () => {
+test("loadSearchConfig falls back to defaults for malformed D1 stored data", async () => {
   const db = new FakeD1Database();
   db.config.set("search_config", "not-json");
   initRepo(new D1Repo(db));
@@ -107,7 +107,7 @@ Deno.test("loadSearchConfig falls back to defaults for malformed D1 stored data"
   assertEquals(await loadSearchConfig(), DEFAULT_SEARCH_CONFIG);
 });
 
-Deno.test("saveSearchConfig stores normalized D1 JSON", async () => {
+test("saveSearchConfig stores normalized D1 JSON", async () => {
   const db = new FakeD1Database();
   initRepo(new D1Repo(db));
 
@@ -124,34 +124,3 @@ Deno.test("saveSearchConfig stores normalized D1 JSON", async () => {
   });
   assertEquals(db.config.get("search_config"), JSON.stringify(saved));
 });
-
-Deno.test(
-  "Deno KV search config round-trips normalized values and falls back for malformed raw values",
-  async () => {
-    const kv = await Deno.openKv();
-
-    try {
-      await kv.delete(["config", "search_config"]);
-      initRepo(new DenoKvRepo(kv));
-
-      await saveSearchConfig({
-        provider: "tavily",
-        tavily: { apiKey: "  tvly-kv  " },
-        microsoftGrounding: { apiKey: "  ms-kv  " },
-      });
-
-      assertEquals(await loadSearchConfig(), {
-        provider: "tavily",
-        tavily: { apiKey: "tvly-kv" },
-        microsoftGrounding: { apiKey: "ms-kv" },
-      });
-
-      await kv.set(["config", "search_config"], "not-an-object");
-
-      assertEquals(await loadSearchConfig(), DEFAULT_SEARCH_CONFIG);
-    } finally {
-      await kv.delete(["config", "search_config"]);
-      kv.close();
-    }
-  },
-);

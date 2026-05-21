@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../test-assert.ts";
 import type {
   ResponsesResult,
   ResponseStreamEvent,
@@ -103,7 +104,7 @@ const collect = async <T>(frames: AsyncIterable<T>): Promise<T[]> => {
   return collected;
 };
 
-Deno.test("translateToSourceEvents emits exactly one [DONE] for structured responses stream", async () => {
+test("translateToSourceEvents emits exactly one [DONE] for structured responses stream", async () => {
   const doneCount = await countDoneSentinels([
     toProtocolFrame({
       type: "response.created",
@@ -125,7 +126,7 @@ Deno.test("translateToSourceEvents emits exactly one [DONE] for structured respo
   assertEquals(doneCount, 1);
 });
 
-Deno.test("translateToSourceEvents emits exactly one [DONE] for fallback completion stream", async () => {
+test("translateToSourceEvents emits exactly one [DONE] for fallback completion stream", async () => {
   const doneCount = await countDoneSentinels([
     toProtocolFrame({
       type: "response.output_text.done",
@@ -143,7 +144,7 @@ Deno.test("translateToSourceEvents emits exactly one [DONE] for fallback complet
   assertEquals(doneCount, 1);
 });
 
-Deno.test("translateToSourceEvents avoids assistant-start duplication for created+completed fallback", async () => {
+test("translateToSourceEvents avoids assistant-start duplication for created+completed fallback", async () => {
   const { assistantStartCount, doneCount } =
     await countAssistantStartChunksAndDone([
       toProtocolFrame({
@@ -160,7 +161,7 @@ Deno.test("translateToSourceEvents avoids assistant-start duplication for create
   assertEquals(doneCount, 1);
 });
 
-Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", async () => {
+test("translateToSourceEvents preserves refusal text from JSON fallback", async () => {
   async function* stream() {
     yield* responsesResultToEvents({
       id: "resp_refusal",
@@ -191,7 +192,7 @@ Deno.test("translateToSourceEvents preserves refusal text from JSON fallback", a
   assertEquals(text.join(""), "No.");
 });
 
-Deno.test("translateToSourceEvents preserves deferred reasoning and stream usage", async () => {
+test("translateToSourceEvents preserves deferred reasoning and stream usage", async () => {
   async function* stream() {
     yield* [
       toProtocolFrame({
@@ -275,7 +276,7 @@ Deno.test("translateToSourceEvents preserves deferred reasoning and stream usage
   assertEquals(frames.at(-1)?.type, "done");
 });
 
-Deno.test("translateToSourceEvents stops after Responses terminal completion", async () => {
+test("translateToSourceEvents stops after Responses terminal completion", async () => {
   const doneCount = await countDoneSentinels([
     toProtocolFrame({
       type: "response.completed",
@@ -291,7 +292,7 @@ Deno.test("translateToSourceEvents stops after Responses terminal completion", a
   assertEquals(doneCount, 1);
 });
 
-Deno.test("translateToSourceEvents translates Responses error events to Chat errors", async () => {
+test("translateToSourceEvents translates Responses error events to Chat errors", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "error",
@@ -312,7 +313,7 @@ Deno.test("translateToSourceEvents translates Responses error events to Chat err
   });
 });
 
-Deno.test("translateToSourceEvents translates Responses failed terminal events to Chat errors", async () => {
+test("translateToSourceEvents translates Responses failed terminal events to Chat errors", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "response.failed",
@@ -341,7 +342,7 @@ Deno.test("translateToSourceEvents translates Responses failed terminal events t
   });
 });
 
-Deno.test("translateToSourceEvents rejects truncated Responses streams without terminal events", async () => {
+test("translateToSourceEvents rejects truncated Responses streams without terminal events", async () => {
   async function* stream() {
     yield toProtocolFrame({
       type: "response.output_text.delta",

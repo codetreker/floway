@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../../test-assert.ts";
 import type {
   ChatCompletionChunk,
   ChatCompletionResponse,
@@ -66,7 +67,7 @@ const collectFrames = async (
   return out;
 };
 
-Deno.test("withDeepseekReasoningDialect renames outbound reasoning_text on a deepseek upstream", async () => {
+test("withDeepseekReasoningDialect renames outbound reasoning_text on a deepseek upstream", async () => {
   const ctx = exchangeCtx();
 
   let observed: ChatCompletionsPayload | null = null;
@@ -89,7 +90,7 @@ Deno.test("withDeepseekReasoningDialect renames outbound reasoning_text on a dee
   assertEquals((assistant.tool_calls as unknown[]).length, 1);
 });
 
-Deno.test("withDeepseekReasoningDialect synthesizes reasoning_content from reasoning_items when reasoning_text is absent", async () => {
+test("withDeepseekReasoningDialect synthesizes reasoning_content from reasoning_items when reasoning_text is absent", async () => {
   const ctx = exchangeCtx({
     model: "deepseek-reasoner",
     messages: [
@@ -134,7 +135,7 @@ Deno.test("withDeepseekReasoningDialect synthesizes reasoning_content from reaso
   assertEquals(assistant.reasoning_items, undefined);
 });
 
-Deno.test("withDeepseekReasoningDialect strips reasoning_items even when no summaries are available", async () => {
+test("withDeepseekReasoningDialect strips reasoning_items even when no summaries are available", async () => {
   const ctx = exchangeCtx({
     model: "deepseek-reasoner",
     messages: [
@@ -169,7 +170,7 @@ Deno.test("withDeepseekReasoningDialect strips reasoning_items even when no summ
   assertEquals(assistant.content, "answer");
 });
 
-Deno.test("withDeepseekReasoningDialect renames inbound protocol reasoning_content deltas", async () => {
+test("withDeepseekReasoningDialect renames inbound protocol reasoning_content deltas", async () => {
   const ctx = exchangeCtx();
   const upstreamChunk: ChatCompletionChunk = {
     id: "chunk_1",
@@ -203,7 +204,7 @@ Deno.test("withDeepseekReasoningDialect renames inbound protocol reasoning_conte
   assertEquals(delta.reasoning_content, undefined);
 });
 
-Deno.test("withDeepseekReasoningDialect preserves reasoning_content from non-stream JSON responses", async () => {
+test("withDeepseekReasoningDialect preserves reasoning_content from non-stream JSON responses", async () => {
   const ctx = exchangeCtx();
   const upstreamResponse: ChatCompletionResponse = {
     id: "chatcmpl_deepseek_json",
@@ -247,7 +248,7 @@ Deno.test("withDeepseekReasoningDialect preserves reasoning_content from non-str
   );
 });
 
-Deno.test("withDeepseekReasoningDialect leaves protocol done frames untouched", async () => {
+test("withDeepseekReasoningDialect leaves protocol done frames untouched", async () => {
   const ctx = exchangeCtx();
   const done = doneFrame();
 

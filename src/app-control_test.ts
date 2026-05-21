@@ -1,4 +1,5 @@
-import { assertEquals, assertExists } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertExists } from "./test-assert.ts";
 import { DEFAULT_SEARCH_CONFIG } from "./data-plane/tools/web-search/search-config.ts";
 import {
   copilotModels,
@@ -8,7 +9,7 @@ import {
   withMockedFetch,
 } from "./test-helpers.ts";
 
-Deno.test("admin key is limited to control plane routes", async () => {
+test("admin key is limited to control plane routes", async () => {
   const { adminKey } = await setupAppTest();
 
   const exportResponse = await requestApp("/api/export", {
@@ -25,7 +26,7 @@ Deno.test("admin key is limited to control plane routes", async () => {
   });
 });
 
-Deno.test("admin key can access playground-approved data plane routes with x-models-playground", async () => {
+test("admin key can access playground-approved data plane routes with x-models-playground", async () => {
   const { adminKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -61,7 +62,7 @@ Deno.test("admin key can access playground-approved data plane routes with x-mod
   });
 });
 
-Deno.test("admin key can access playground embeddings with x-models-playground", async () => {
+test("admin key can access playground embeddings with x-models-playground", async () => {
   const { adminKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -119,7 +120,7 @@ Deno.test("admin key can access playground embeddings with x-models-playground",
   });
 });
 
-Deno.test("uncaught internal errors include debug details in the HTTP body", async () => {
+test("uncaught internal errors include debug details in the HTTP body", async () => {
   const { repo, apiKey } = await setupAppTest();
   repo.apiKeys.findByRawKey = () =>
     Promise.reject(new Error("api key lookup failed"));
@@ -139,7 +140,7 @@ Deno.test("uncaught internal errors include debug details in the HTTP body", asy
   assertExists(body.error.stack);
 });
 
-Deno.test("API key users only see their own key in /api/keys", async () => {
+test("API key users only see their own key in /api/keys", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: "key_other",
@@ -159,7 +160,7 @@ Deno.test("API key users only see their own key in /api/keys", async () => {
   assertEquals(body[0].key, apiKey.key);
 });
 
-Deno.test("API key users cannot call admin-only key mutation routes", async () => {
+test("API key users cannot call admin-only key mutation routes", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp(`/api/keys/${apiKey.id}/rotate`, {
@@ -171,7 +172,7 @@ Deno.test("API key users cannot call admin-only key mutation routes", async () =
   assertEquals(await response.json(), { error: "Dashboard key required" });
 });
 
-Deno.test("API key users cannot mutate /api/search-config routes", async () => {
+test("API key users cannot mutate /api/search-config routes", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/api/search-config", {
@@ -187,7 +188,7 @@ Deno.test("API key users cannot mutate /api/search-config routes", async () => {
   assertEquals(await response.json(), { error: "Dashboard key required" });
 });
 
-Deno.test("/api/token-usage is visible to any authenticated user and includes all keys", async () => {
+test("/api/token-usage is visible to any authenticated user and includes all keys", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: "key_other",
@@ -248,7 +249,7 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
   assertEquals(otherRecord.cacheCreationTokens, 2);
 });
 
-Deno.test("/api/token-usage can include all key metadata for stable dashboard color slots", async () => {
+test("/api/token-usage can include all key metadata for stable dashboard color slots", async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: "key_other",
@@ -303,7 +304,7 @@ Deno.test("/api/token-usage can include all key metadata for stable dashboard co
   ]);
 });
 
-Deno.test("/api/token-usage merges Claude variants into backend base model records", async () => {
+test("/api/token-usage merges Claude variants into backend base model records", async () => {
   const { repo, apiKey } = await setupAppTest();
   const shared = {
     keyId: apiKey.id,

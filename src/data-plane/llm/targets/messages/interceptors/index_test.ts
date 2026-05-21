@@ -1,8 +1,9 @@
+import { test } from "vitest";
 // Order assertion for the Messages target assembler: base ++ provider ++
 // optional. The protocol interceptor runner executes whatever order the
 // assembler returns, so this guards interceptor ordering across refactors.
 
-import { assertEquals } from "@std/assert";
+import { assertEquals } from "../../../../../test-assert.ts";
 import { messagesCopilotInterceptors } from "../../../../providers/copilot/interceptors/messages/index.ts";
 import { withReasoningDisabledOnForcedToolChoice } from "./disable-reasoning-on-forced-tool-choice.ts";
 import {
@@ -10,7 +11,7 @@ import {
   messagesOptionalInterceptors,
 } from "./index.ts";
 
-Deno.test("interceptorsForMessages on provider with Copilot interceptors: provider interceptors only", () => {
+test("interceptorsForMessages on provider with Copilot interceptors: provider interceptors only", () => {
   const provider = {
     enabledFixes: new Set<string>(),
     targetInterceptors: { messages: messagesCopilotInterceptors },
@@ -20,7 +21,7 @@ Deno.test("interceptorsForMessages on provider with Copilot interceptors: provid
   assertEquals(assembled, [...messagesCopilotInterceptors]);
 });
 
-Deno.test("interceptorsForMessages on provider without provider interceptors or opt-ins: empty assembly", () => {
+test("interceptorsForMessages on provider without provider interceptors or opt-ins: empty assembly", () => {
   const provider = {
     enabledFixes: new Set<string>(),
   };
@@ -36,7 +37,7 @@ Deno.test("interceptorsForMessages on provider without provider interceptors or 
   }
 });
 
-Deno.test("interceptorsForMessages picks up disable-reasoning-on-forced-tool-choice when opted in", () => {
+test("interceptorsForMessages picks up disable-reasoning-on-forced-tool-choice when opted in", () => {
   const provider = {
     enabledFixes: new Set(["disable-reasoning-on-forced-tool-choice"]),
   };
@@ -46,7 +47,7 @@ Deno.test("interceptorsForMessages picks up disable-reasoning-on-forced-tool-cho
   );
 });
 
-Deno.test("messagesOptionalInterceptors registers disable-reasoning-on-forced-tool-choice", () => {
+test("messagesOptionalInterceptors registers disable-reasoning-on-forced-tool-choice", () => {
   const descriptor = messagesOptionalInterceptors.find(
     (d) => d.fixId === "disable-reasoning-on-forced-tool-choice",
   );

@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type { MessagesResponse } from "../../../../shared/protocol/messages.ts";
 import { jsonFrame, sseFrame } from "../../../shared/stream/types.ts";
 import { messagesStreamFramesToEvents } from "./from-stream.ts";
@@ -9,7 +10,7 @@ const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   return collected;
 };
 
-Deno.test("messagesStreamFramesToEvents parses Messages SSE frames into protocol events", async () => {
+test("messagesStreamFramesToEvents parses Messages SSE frames into protocol events", async () => {
   const frames = await collect(
     messagesStreamFramesToEvents((async function* () {
       yield sseFrame("", "ping");
@@ -52,7 +53,7 @@ Deno.test("messagesStreamFramesToEvents parses Messages SSE frames into protocol
   });
 });
 
-Deno.test("messagesStreamFramesToEvents rejects malformed Messages SSE JSON", async () => {
+test("messagesStreamFramesToEvents rejects malformed Messages SSE JSON", async () => {
   await assertRejects(
     async () => {
       await collect(messagesStreamFramesToEvents((async function* () {
@@ -64,7 +65,7 @@ Deno.test("messagesStreamFramesToEvents rejects malformed Messages SSE JSON", as
   );
 });
 
-Deno.test("messagesStreamFramesToEvents projects JSON Messages citations as protocol url fields", async () => {
+test("messagesStreamFramesToEvents projects JSON Messages citations as protocol url fields", async () => {
   const frames = await collect(
     messagesStreamFramesToEvents((async function* () {
       const response: MessagesResponse = {

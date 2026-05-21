@@ -1,7 +1,8 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import { messagesResultToEvents } from "./messages.ts";
 
-Deno.test("messagesResultToEvents projects terminal JSON into Messages stream events", () => {
+test("messagesResultToEvents projects terminal JSON into Messages stream events", () => {
   const frames = Array.from(messagesResultToEvents({
     id: "msg_1",
     type: "message",
@@ -31,7 +32,7 @@ Deno.test("messagesResultToEvents projects terminal JSON into Messages stream ev
   ]);
 });
 
-Deno.test("messagesResultToEvents preserves protocol citation url fields", () => {
+test("messagesResultToEvents preserves protocol citation url fields", () => {
   const frames = Array.from(messagesResultToEvents({
     id: "msg_citation",
     type: "message",
@@ -75,7 +76,7 @@ Deno.test("messagesResultToEvents preserves protocol citation url fields", () =>
   );
 });
 
-Deno.test("messagesResultToEvents omits signature deltas for text-only thinking blocks", () => {
+test("messagesResultToEvents omits signature deltas for text-only thinking blocks", () => {
   const frames = Array.from(messagesResultToEvents({
     id: "msg_text_only_thinking",
     type: "message",

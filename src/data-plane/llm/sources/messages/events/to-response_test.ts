@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../../test-assert.ts";
 import type {
   MessagesResponse,
   MessagesStreamEventData,
@@ -7,7 +8,7 @@ import { eventFrame } from "../../../shared/stream/types.ts";
 import { messagesResultToEvents } from "../../../shared/protocol/messages.ts";
 import { collectMessagesProtocolEventsToResponse } from "./to-response.ts";
 
-Deno.test("collectMessagesProtocolEventsToResponse reassembles synthetic Messages events", async () => {
+test("collectMessagesProtocolEventsToResponse reassembles synthetic Messages events", async () => {
   const expected: MessagesResponse = {
     id: "msg_1",
     type: "message",
@@ -29,7 +30,7 @@ Deno.test("collectMessagesProtocolEventsToResponse reassembles synthetic Message
   );
 });
 
-Deno.test("collectMessagesProtocolEventsToResponse preserves final message_delta input_tokens", async () => {
+test("collectMessagesProtocolEventsToResponse preserves final message_delta input_tokens", async () => {
   async function* events() {
     const payloads: MessagesStreamEventData[] = [{
       type: "message_start",
@@ -70,7 +71,7 @@ Deno.test("collectMessagesProtocolEventsToResponse preserves final message_delta
   assertEquals(response.usage, { input_tokens: 12, output_tokens: 4 });
 });
 
-Deno.test("collectMessagesProtocolEventsToResponse rejects streams without message_stop", async () => {
+test("collectMessagesProtocolEventsToResponse rejects streams without message_stop", async () => {
   async function* events() {
     const payloads: MessagesStreamEventData[] = [{
       type: "message_start",
@@ -111,7 +112,7 @@ Deno.test("collectMessagesProtocolEventsToResponse rejects streams without messa
   );
 });
 
-Deno.test("collectMessagesProtocolEventsToResponse rejects Messages error events", async () => {
+test("collectMessagesProtocolEventsToResponse rejects Messages error events", async () => {
   async function* events() {
     yield eventFrame(
       {

@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../test-assert.ts";
 import type { ChatCompletionChunk } from "../../../shared/protocol/chat-completions.ts";
 import type { GeminiStreamEvent } from "../../../shared/protocol/gemini.ts";
 import {
@@ -59,7 +60,7 @@ const drain = async (
   await collect(input);
 };
 
-Deno.test("translateToSourceEvents maps text chunks and stop finish without emitting DONE", async () => {
+test("translateToSourceEvents maps text chunks and stop finish without emitting DONE", async () => {
   const frames = await collect([
     eventFrame(chunk({ role: "assistant", content: "Hello " })),
     eventFrame(chunk({ content: "world" }, "stop")),
@@ -83,7 +84,7 @@ Deno.test("translateToSourceEvents maps text chunks and stop finish without emit
   ]);
 });
 
-Deno.test("translateToSourceEvents maps reasoning text and attaches opaque signature to next action", async () => {
+test("translateToSourceEvents maps reasoning text and attaches opaque signature to next action", async () => {
   const frames = await collect([
     eventFrame(chunk({ role: "assistant", reasoning_text: "trace" })),
     eventFrame(chunk({ reasoning_opaque: "sig_1" })),
@@ -118,7 +119,7 @@ Deno.test("translateToSourceEvents maps reasoning text and attaches opaque signa
   ]);
 });
 
-Deno.test("translateToSourceEvents flushes unclaimed opaque signature in the finish chunk", async () => {
+test("translateToSourceEvents flushes unclaimed opaque signature in the finish chunk", async () => {
   const frames = await collect([
     eventFrame(chunk({ role: "assistant", reasoning_opaque: "sig_only" })),
     eventFrame(chunk({}, "stop")),
@@ -139,7 +140,7 @@ Deno.test("translateToSourceEvents flushes unclaimed opaque signature in the fin
   ]);
 });
 
-Deno.test("translateToSourceEvents accumulates streamed tool calls and emits functionCall at finish", async () => {
+test("translateToSourceEvents accumulates streamed tool calls and emits functionCall at finish", async () => {
   const frames = await collect([
     eventFrame(chunk({
       role: "assistant",
@@ -153,7 +154,7 @@ Deno.test("translateToSourceEvents accumulates streamed tool calls and emits fun
     eventFrame(chunk({
       tool_calls: [{
         index: 0,
-        function: { arguments: ':"deno"}' },
+        function: { arguments: ':"docs"}' },
       }],
     })),
     eventFrame(chunk({}, "tool_calls")),
@@ -170,7 +171,7 @@ Deno.test("translateToSourceEvents accumulates streamed tool calls and emits fun
             functionCall: {
               id: "call_1",
               name: "lookup",
-              args: { query: "deno" },
+              args: { query: "docs" },
             },
           }],
         },
@@ -180,7 +181,7 @@ Deno.test("translateToSourceEvents accumulates streamed tool calls and emits fun
   ]);
 });
 
-Deno.test("translateToSourceEvents maps finish reasons and usage metadata", async () => {
+test("translateToSourceEvents maps finish reasons and usage metadata", async () => {
   const usage = {
     prompt_tokens: 10,
     completion_tokens: 5,
@@ -230,7 +231,7 @@ Deno.test("translateToSourceEvents maps finish reasons and usage metadata", asyn
   );
 });
 
-Deno.test("translateToSourceEvents preserves multiple choices that finish in separate chunks", async () => {
+test("translateToSourceEvents preserves multiple choices that finish in separate chunks", async () => {
   const frames = await collect([
     eventFrame(choiceChunk(0, { content: "first" }, "stop")),
     eventFrame(choiceChunk(1, { content: "second" }, "length")),
@@ -252,7 +253,7 @@ Deno.test("translateToSourceEvents preserves multiple choices that finish in sep
   ]);
 });
 
-Deno.test("translateToSourceEvents throws on upstream Chat error payloads", async () => {
+test("translateToSourceEvents throws on upstream Chat error payloads", async () => {
   await assertRejects(
     async () =>
       await drain([
@@ -266,7 +267,7 @@ Deno.test("translateToSourceEvents throws on upstream Chat error payloads", asyn
   );
 });
 
-Deno.test("translateToSourceEvents surfaces cached_tokens as cachedContentTokenCount", async () => {
+test("translateToSourceEvents surfaces cached_tokens as cachedContentTokenCount", async () => {
   const usage = {
     prompt_tokens: 100,
     completion_tokens: 8,

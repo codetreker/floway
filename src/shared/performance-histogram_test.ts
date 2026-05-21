@@ -1,16 +1,17 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../test-assert.ts";
 import {
   latencyBucketForMs,
   percentileFromHistogramBuckets,
 } from "./performance-histogram.ts";
 
-Deno.test("latencyBucketForMs returns self-describing exponential buckets", () => {
+test("latencyBucketForMs returns self-describing exponential buckets", () => {
   assertEquals(latencyBucketForMs(75), { lowerMs: 0, upperMs: 100 });
   assertEquals(latencyBucketForMs(101).lowerMs, 100);
   assertEquals(latencyBucketForMs(600_000).upperMs >= 600_000, true);
 });
 
-Deno.test("percentileFromHistogramBuckets merges mixed bucket shapes by upper bound", () => {
+test("percentileFromHistogramBuckets merges mixed bucket shapes by upper bound", () => {
   const p95 = percentileFromHistogramBuckets([
     { lowerMs: 0, upperMs: 100, count: 90 },
     { lowerMs: 100, upperMs: 150, count: 5 },
@@ -21,7 +22,7 @@ Deno.test("percentileFromHistogramBuckets merges mixed bucket shapes by upper bo
   assertEquals(p95, 150);
 });
 
-Deno.test("percentileFromHistogramBuckets returns null for empty histograms", () => {
+test("percentileFromHistogramBuckets returns null for empty histograms", () => {
   assertEquals(percentileFromHistogramBuckets([], 0.95), null);
   assertEquals(
     percentileFromHistogramBuckets(

@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../shared/copilot.ts";
 import { clearModelsCache } from "../providers/upstream-model-cache.ts";
 import {
@@ -9,7 +10,7 @@ import {
   withMockedFetch,
 } from "../../test-helpers.ts";
 
-Deno.test("/v1beta/models lists Copilot LLM models in Gemini model shape", async () => {
+test("/v1beta/models lists Copilot LLM models in Gemini model shape", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -84,7 +85,7 @@ Deno.test("/v1beta/models lists Copilot LLM models in Gemini model shape", async
   });
 });
 
-Deno.test("/v1beta/models/:modelId returns one Gemini model or Google RPC 404", async () => {
+test("/v1beta/models/:modelId returns one Gemini model or Google RPC 404", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -134,7 +135,7 @@ Deno.test("/v1beta/models/:modelId returns one Gemini model or Google RPC 404", 
   });
 });
 
-Deno.test("/v1beta/models includes custom upstream LLM models", async () => {
+test("/v1beta/models includes custom upstream LLM models", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -189,7 +190,7 @@ Deno.test("/v1beta/models includes custom upstream LLM models", async () => {
   });
 });
 
-Deno.test("/v1beta/models excludes custom upstream embedding-only models", async () => {
+test("/v1beta/models excludes custom upstream embedding-only models", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -231,7 +232,7 @@ Deno.test("/v1beta/models excludes custom upstream embedding-only models", async
   });
 });
 
-Deno.test("/v1beta/models hides upstream identity when a provider returns an invalid model list", async () => {
+test("/v1beta/models hides upstream identity when a provider returns an invalid model list", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -272,7 +273,7 @@ Deno.test("/v1beta/models hides upstream identity when a provider returns an inv
   });
 });
 
-Deno.test("/v1beta/models hides upstream HTTP error bodies", async () => {
+test("/v1beta/models hides upstream HTTP error bodies", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -316,7 +317,7 @@ Deno.test("/v1beta/models hides upstream HTTP error bodies", async () => {
   });
 });
 
-Deno.test("/v1beta/models hides thrown upstream request errors", async () => {
+test("/v1beta/models hides thrown upstream request errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();
@@ -359,7 +360,7 @@ Deno.test("/v1beta/models hides thrown upstream request errors", async () => {
   });
 });
 
-Deno.test("/v1beta/models hides malformed upstream response bodies", async () => {
+test("/v1beta/models hides malformed upstream response bodies", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

@@ -1,9 +1,10 @@
+import { test } from "vitest";
 import {
   assertEquals,
   assertExists,
   assertFalse,
   assertStringIncludes,
-} from "@std/assert";
+} from "../../../../test-assert.ts";
 import { clearCopilotTokenCache } from "../../../../shared/copilot.ts";
 import { clearModelsCache } from "../../../providers/upstream-model-cache.ts";
 import {
@@ -41,7 +42,7 @@ const geminiRequest = (model = "gpt-chat-native") => ({
   contents: [{ role: "user", parts: [{ text: `hello ${model}` }] }],
 });
 
-Deno.test("/v1beta/models/:model:generateContent routes Gemini through native chat target", async () => {
+test("/v1beta/models/:model:generateContent routes Gemini through native chat target", async () => {
   const { apiKey } = await setupAppTest();
   let upstreamPath = "";
   let upstreamBody: Record<string, unknown> | undefined;
@@ -98,7 +99,7 @@ Deno.test("/v1beta/models/:model:generateContent routes Gemini through native ch
   assertEquals(upstreamBody.model, "gpt-chat-native");
 });
 
-Deno.test("/v1beta/models/models/:model:generateContent accepts Gemini resource model names", async () => {
+test("/v1beta/models/models/:model:generateContent accepts Gemini resource model names", async () => {
   const { apiKey } = await setupAppTest();
   let upstreamBody: Record<string, unknown> | undefined;
 
@@ -149,7 +150,7 @@ Deno.test("/v1beta/models/models/:model:generateContent accepts Gemini resource 
   assertEquals(upstreamBody.model, "gpt-chat-resource");
 });
 
-Deno.test("/v1beta/models/:model:generateContent uses Messages for Copilot Claude because the provider hides Chat", async () => {
+test("/v1beta/models/:model:generateContent uses Messages for Copilot Claude because the provider hides Chat", async () => {
   const { apiKey } = await setupAppTest();
   let upstreamPath = "";
 
@@ -235,7 +236,7 @@ Deno.test("/v1beta/models/:model:generateContent uses Messages for Copilot Claud
   assertEquals(upstreamPath, "/v1/messages");
 });
 
-Deno.test("/v1beta/models/:model:generateContent routes Gemini through responses when only responses is supported", async () => {
+test("/v1beta/models/:model:generateContent routes Gemini through responses when only responses is supported", async () => {
   const { apiKey } = await setupAppTest();
   let upstreamPath = "";
 
@@ -308,7 +309,7 @@ Deno.test("/v1beta/models/:model:generateContent routes Gemini through responses
   assertEquals(upstreamPath, "/responses");
 });
 
-Deno.test("/v1beta/models/:model:streamGenerateContent returns Gemini data-only SSE and suppresses thoughts when requested", async () => {
+test("/v1beta/models/:model:streamGenerateContent returns Gemini data-only SSE and suppresses thoughts when requested", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -413,7 +414,7 @@ Deno.test("/v1beta/models/:model:streamGenerateContent returns Gemini data-only 
   });
 });
 
-Deno.test("/v1beta/models/:model:streamGenerateContent suppresses thoughts by default", async () => {
+test("/v1beta/models/:model:streamGenerateContent suppresses thoughts by default", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -510,7 +511,7 @@ Deno.test("/v1beta/models/:model:streamGenerateContent suppresses thoughts by de
   });
 });
 
-Deno.test("/v1beta/models/:model:generateContent malformed JSON returns Google RPC Status with debug fields", async () => {
+test("/v1beta/models/:model:generateContent malformed JSON returns Google RPC Status with debug fields", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp(
@@ -534,7 +535,7 @@ Deno.test("/v1beta/models/:model:generateContent malformed JSON returns Google R
   assertExists(body.error.stack);
 });
 
-Deno.test("/v1beta/models/:modelAction returns Google RPC 404 for malformed actions", async () => {
+test("/v1beta/models/:modelAction returns Google RPC 404 for malformed actions", async () => {
   const { apiKey } = await setupAppTest();
   const headers = {
     "content-type": "application/json",
@@ -569,7 +570,7 @@ Deno.test("/v1beta/models/:modelAction returns Google RPC 404 for malformed acti
   });
 });
 
-Deno.test("/v1beta/models/:model:generateContent accepts x-goog-api-key", async () => {
+test("/v1beta/models/:model:generateContent accepts x-goog-api-key", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -613,7 +614,7 @@ Deno.test("/v1beta/models/:model:generateContent accepts x-goog-api-key", async 
   });
 });
 
-Deno.test("/v1beta/models/:model:generateContent accepts admin playground access", async () => {
+test("/v1beta/models/:model:generateContent accepts admin playground access", async () => {
   const { adminKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -658,7 +659,7 @@ Deno.test("/v1beta/models/:model:generateContent accepts admin playground access
   });
 });
 
-Deno.test("/v1beta/models/:model:generateContent preserves custom upstream /models HTTP errors", async () => {
+test("/v1beta/models/:model:generateContent preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

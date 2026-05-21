@@ -1,8 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../../test-assert.ts";
 import { jsonResponse, withMockedFetch } from "../../../../test-helpers.ts";
 import { createTavilyWebSearchProvider } from "./tavily.ts";
 
-Deno.test(
+test(
   "createTavilyWebSearchProvider sends bearer auth and domain filters",
   async () => {
     let request: Request | undefined;
@@ -42,7 +43,7 @@ Deno.test(
   },
 );
 
-Deno.test(
+test(
   "createTavilyWebSearchProvider rejects blank and overlong queries before fetch",
   async () => {
     let called = false;
@@ -70,7 +71,7 @@ Deno.test(
   },
 );
 
-Deno.test("createTavilyWebSearchProvider maps 429 to too_many_requests", async () => {
+test("createTavilyWebSearchProvider maps 429 to too_many_requests", async () => {
   await withMockedFetch(
     () => jsonResponse({ message: "rate limited" }, 429),
     async () => {
@@ -84,7 +85,7 @@ Deno.test("createTavilyWebSearchProvider maps 429 to too_many_requests", async (
   );
 });
 
-Deno.test("createTavilyWebSearchProvider maps 413 to request_too_large", async () => {
+test("createTavilyWebSearchProvider maps 413 to request_too_large", async () => {
   await withMockedFetch(
     () => jsonResponse({ message: "too large" }, 413),
     async () => {

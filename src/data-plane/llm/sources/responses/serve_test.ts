@@ -1,10 +1,11 @@
+import { test } from "vitest";
 import {
   assertEquals,
   assertExists,
   assertFalse,
   assertStringIncludes,
-} from "@std/assert";
-import { FakeTime } from "@std/testing/time";
+} from "../../../../test-assert.ts";
+import { FakeTime } from "../../../../test-time.ts";
 import { clearCopilotTokenCache } from "../../../../shared/copilot.ts";
 import { clearModelsCache } from "../../../providers/upstream-model-cache.ts";
 import {
@@ -46,7 +47,7 @@ const promiseStateWithin = async <T>(
 const decodeChunk = (value: Uint8Array | undefined): string =>
   new TextDecoder().decode(value);
 
-Deno.test("/v1/responses rejects previous_response_id at the entrypoint", async () => {
+test("/v1/responses rejects previous_response_id at the entrypoint", async () => {
   const { apiKey } = await setupAppTest();
   let fetchCalls = 0;
 
@@ -78,7 +79,7 @@ Deno.test("/v1/responses rejects previous_response_id at the entrypoint", async 
   assertEquals(fetchCalls, 0);
 });
 
-Deno.test("/v1/responses rejects item_reference at the entrypoint", async () => {
+test("/v1/responses rejects item_reference at the entrypoint", async () => {
   const { apiKey } = await setupAppTest();
   let fetchCalls = 0;
 
@@ -112,7 +113,7 @@ Deno.test("/v1/responses rejects item_reference at the entrypoint", async () => 
   assertEquals(fetchCalls, 0);
 });
 
-Deno.test("/v1/responses rewrites codex-auto-review to gpt-5.4 low reasoning at the entrypoint", async () => {
+test("/v1/responses rewrites codex-auto-review to gpt-5.4 low reasoning at the entrypoint", async () => {
   const { apiKey, repo } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -194,7 +195,7 @@ Deno.test("/v1/responses rewrites codex-auto-review to gpt-5.4 low reasoning at 
   assertEquals(usage[0].outputTokens, 5);
 });
 
-Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched stream item IDs", async () => {
+test("/v1/responses direct mode converts apply_patch and fixes mismatched stream item IDs", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -310,7 +311,7 @@ Deno.test("/v1/responses direct mode converts apply_patch and fixes mismatched s
   assertFalse("service_tier" in upstreamBody!);
 });
 
-Deno.test("/v1/responses direct mode emits keepalive before the first upstream Responses frame", async () => {
+test("/v1/responses direct mode emits keepalive before the first upstream Responses frame", async () => {
   const { apiKey } = await setupAppTest();
   const encoder = new TextEncoder();
   let upstreamStarted!: () => void;
@@ -434,7 +435,7 @@ Deno.test("/v1/responses direct mode emits keepalive before the first upstream R
   });
 });
 
-Deno.test("/v1/responses streams malformed upstream Responses SSE as an error event", async () => {
+test("/v1/responses streams malformed upstream Responses SSE as an error event", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -494,7 +495,7 @@ Deno.test("/v1/responses streams malformed upstream Responses SSE as an error ev
   });
 });
 
-Deno.test("/v1/responses direct mode synthesizes full Responses SSE when upstream falls back to JSON", async () => {
+test("/v1/responses direct mode synthesizes full Responses SSE when upstream falls back to JSON", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -612,7 +613,7 @@ Deno.test("/v1/responses direct mode synthesizes full Responses SSE when upstrea
   });
 });
 
-Deno.test("/v1/responses resolves Claude reasoning variants before planning", async () => {
+test("/v1/responses resolves Claude reasoning variants before planning", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -688,7 +689,7 @@ Deno.test("/v1/responses resolves Claude reasoning variants before planning", as
   assertEquals(upstreamBody?.model, "claude-opus-4.7-xhigh");
 });
 
-Deno.test("/v1/responses direct mode retries connection-bound input item IDs once with a rewritten ID", async () => {
+test("/v1/responses direct mode retries connection-bound input item IDs once with a rewritten ID", async () => {
   const { apiKey } = await setupAppTest();
 
   const requests: Record<string, unknown>[] = [];
@@ -781,7 +782,7 @@ Deno.test("/v1/responses direct mode retries connection-bound input item IDs onc
   assertStringIncludes(secondInput[0].id as string, "msg_");
 });
 
-Deno.test("/v1/responses malformed JSON returns structured internal debug error", async () => {
+test("/v1/responses malformed JSON returns structured internal debug error", async () => {
   const { apiKey } = await setupAppTest();
 
   const response = await requestApp("/v1/responses", {
@@ -802,7 +803,7 @@ Deno.test("/v1/responses malformed JSON returns structured internal debug error"
   assertExists(body.error.stack);
 });
 
-Deno.test("/v1/responses falls back to chat completions for chat-only models", async () => {
+test("/v1/responses falls back to chat completions for chat-only models", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -894,7 +895,7 @@ Deno.test("/v1/responses falls back to chat completions for chat-only models", a
   assertEquals(upstreamBody!.max_tokens, 128);
 });
 
-Deno.test("/v1/responses streams chat completions as Responses SSE for chat-only models", async () => {
+test("/v1/responses streams chat completions as Responses SSE for chat-only models", async () => {
   const { apiKey } = await setupAppTest();
 
   await withMockedFetch((request) => {
@@ -1036,7 +1037,7 @@ Deno.test("/v1/responses streams chat completions as Responses SSE for chat-only
   });
 });
 
-Deno.test("/v1/responses via messages fills missing max_tokens from model limits", async () => {
+test("/v1/responses via messages fills missing max_tokens from model limits", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1155,7 +1156,7 @@ Deno.test("/v1/responses via messages fills missing max_tokens from model limits
   assertEquals(upstreamBody!.max_tokens, 4096);
 });
 
-Deno.test("/v1/responses prefers messages over chat completions when both translated paths are available", async () => {
+test("/v1/responses prefers messages over chat completions when both translated paths are available", async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1296,7 +1297,7 @@ Deno.test("/v1/responses prefers messages over chat completions when both transl
   assertEquals(upstreamBody!.stream, true);
 });
 
-Deno.test("/v1/responses preserves custom upstream /models HTTP errors", async () => {
+test("/v1/responses preserves custom upstream /models HTTP errors", async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.github.deleteAllAccounts();
   clearModelsCache();

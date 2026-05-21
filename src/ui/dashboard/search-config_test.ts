@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../test-assert.ts";
 import {
   activeCredentialValue,
   draftFromSearchConfig,
@@ -6,7 +7,7 @@ import {
   setActiveCredentialValue,
 } from "./search-config.ts";
 
-Deno.test("dashboard search config draft preserves inactive provider keys when switching", () => {
+test("dashboard search config draft preserves inactive provider keys when switching", () => {
   const draft = draftFromSearchConfig({
     provider: "tavily",
     tavily: { apiKey: "tvly-test" },

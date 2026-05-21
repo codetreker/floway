@@ -1,4 +1,5 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals, assertRejects } from "../../../../test-assert.ts";
 import type { GeminiStreamEvent } from "../../../shared/protocol/gemini.ts";
 import type {
   MessagesResponse,
@@ -53,7 +54,7 @@ const drain = async (
   await collect(input);
 };
 
-Deno.test("translateToSourceEvents maps text chunks, finish reason, and usage without DONE", async () => {
+test("translateToSourceEvents maps text chunks, finish reason, and usage without DONE", async () => {
   const frames = await collect([
     eventFrame(messageStart({ input_tokens: 10, output_tokens: 0 })),
     eventFrame({
@@ -115,7 +116,7 @@ Deno.test("translateToSourceEvents maps text chunks, finish reason, and usage wi
   ]);
 });
 
-Deno.test("translateToSourceEvents maps thinking text and attaches signature to the next text action", async () => {
+test("translateToSourceEvents maps thinking text and attaches signature to the next text action", async () => {
   const frames = await collect([
     eventFrame(messageStart()),
     eventFrame({
@@ -175,7 +176,7 @@ Deno.test("translateToSourceEvents maps thinking text and attaches signature to 
   ]);
 });
 
-Deno.test("translateToSourceEvents accumulates tool call JSON and attaches pending signature", async () => {
+test("translateToSourceEvents accumulates tool call JSON and attaches pending signature", async () => {
   const frames = await collect([
     eventFrame(messageStart()),
     eventFrame({
@@ -207,7 +208,7 @@ Deno.test("translateToSourceEvents accumulates tool call JSON and attaches pendi
     eventFrame({
       type: "content_block_delta",
       index: 1,
-      delta: { type: "input_json_delta", partial_json: ':"deno"}' },
+      delta: { type: "input_json_delta", partial_json: ':"docs"}' },
     }),
     eventFrame({ type: "content_block_stop", index: 1 }),
     eventFrame({ type: "message_delta", delta: { stop_reason: "tool_use" } }),
@@ -224,7 +225,7 @@ Deno.test("translateToSourceEvents accumulates tool call JSON and attaches pendi
             functionCall: {
               id: "tu_1",
               name: "lookup",
-              args: { query: "deno" },
+              args: { query: "docs" },
             },
             thoughtSignature: "sig_tool",
           }],
@@ -241,7 +242,7 @@ Deno.test("translateToSourceEvents accumulates tool call JSON and attaches pendi
   ]);
 });
 
-Deno.test("translateToSourceEvents maps max token and refusal finish reasons", async () => {
+test("translateToSourceEvents maps max token and refusal finish reasons", async () => {
   const maxTokenFrames = await collect([
     eventFrame(messageStart({ input_tokens: 8, output_tokens: 0 })),
     eventFrame({
@@ -284,7 +285,7 @@ Deno.test("translateToSourceEvents maps max token and refusal finish reasons", a
   ]);
 });
 
-Deno.test("translateToSourceEvents throws on Messages error events", async () => {
+test("translateToSourceEvents throws on Messages error events", async () => {
   await assertRejects(
     async () =>
       await drain([
@@ -298,7 +299,7 @@ Deno.test("translateToSourceEvents throws on Messages error events", async () =>
   );
 });
 
-Deno.test("translateToSourceEvents folds Anthropic cache fields into Gemini promptTokenCount and cachedContentTokenCount", async () => {
+test("translateToSourceEvents folds Anthropic cache fields into Gemini promptTokenCount and cachedContentTokenCount", async () => {
   const frames = await collect([
     eventFrame(messageStart({
       input_tokens: 10,

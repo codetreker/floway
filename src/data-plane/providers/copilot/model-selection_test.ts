@@ -1,4 +1,5 @@
-import { assertEquals } from "@std/assert";
+import { test } from "vitest";
+import { assertEquals } from "../../../test-assert.ts";
 import { resolveCopilotRawModel } from "./model-selection.ts";
 import type { CopilotModelsResponse, CopilotRawModel } from "./types.ts";
 
@@ -35,7 +36,7 @@ const models = (...data: CopilotRawModel[]): CopilotModelsResponse => ({
   data,
 });
 
-Deno.test("resolveCopilotRawModel strips Claude date aliases before variant selection", () => {
+test("resolveCopilotRawModel strips Claude date aliases before variant selection", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-haiku-4.5"),
@@ -48,7 +49,7 @@ Deno.test("resolveCopilotRawModel strips Claude date aliases before variant sele
   assertEquals(resolved?.id, "claude-haiku-4.5-1m");
 });
 
-Deno.test("resolveCopilotRawModel keeps explicit suffix models as exact upstream ids", () => {
+test("resolveCopilotRawModel keeps explicit suffix models as exact upstream ids", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-opus-4.7"),
@@ -65,7 +66,7 @@ Deno.test("resolveCopilotRawModel keeps explicit suffix models as exact upstream
   assertEquals(resolved?.id, "claude-opus-4.7-xhigh");
 });
 
-Deno.test("resolveCopilotRawModel strips date aliases before explicit suffix exact match", () => {
+test("resolveCopilotRawModel strips date aliases before explicit suffix exact match", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-opus-4.7"),
@@ -82,7 +83,7 @@ Deno.test("resolveCopilotRawModel strips date aliases before explicit suffix exa
   assertEquals(resolved?.id, "claude-opus-4.7-xhigh");
 });
 
-Deno.test("resolveCopilotRawModel supports integer-version Claude date aliases", () => {
+test("resolveCopilotRawModel supports integer-version Claude date aliases", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-sonnet-4"),
@@ -95,7 +96,7 @@ Deno.test("resolveCopilotRawModel supports integer-version Claude date aliases",
   assertEquals(resolved?.id, "claude-sonnet-4-1m");
 });
 
-Deno.test("resolveCopilotRawModel strips integer-version date aliases before explicit suffix exact match", () => {
+test("resolveCopilotRawModel strips integer-version date aliases before explicit suffix exact match", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-sonnet-4"),
@@ -108,7 +109,7 @@ Deno.test("resolveCopilotRawModel strips integer-version date aliases before exp
   assertEquals(resolved?.id, "claude-sonnet-4-1m");
 });
 
-Deno.test("resolveCopilotRawModel prefers 1m variants when they satisfy requested reasoning", () => {
+test("resolveCopilotRawModel prefers 1m variants when they satisfy requested reasoning", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-opus-4.7", { reasoningEfforts: ["medium"] }),
@@ -126,7 +127,7 @@ Deno.test("resolveCopilotRawModel prefers 1m variants when they satisfy requeste
   assertEquals(resolved?.id, "claude-opus-4.7-1m-internal");
 });
 
-Deno.test("resolveCopilotRawModel prioritizes explicit 1m intent even when effort cannot be met", () => {
+test("resolveCopilotRawModel prioritizes explicit 1m intent even when effort cannot be met", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-opus-4.6", { reasoningEfforts: ["low", "medium", "high"] }),
@@ -143,7 +144,7 @@ Deno.test("resolveCopilotRawModel prioritizes explicit 1m intent even when effor
   assertEquals(resolved?.id, "claude-opus-4.6-1m");
 });
 
-Deno.test("resolveCopilotRawModel keeps the base Claude id when there is no routing intent", () => {
+test("resolveCopilotRawModel keeps the base Claude id when there is no routing intent", () => {
   const resolved = resolveCopilotRawModel(
     models(
       model("claude-opus-4.7"),
