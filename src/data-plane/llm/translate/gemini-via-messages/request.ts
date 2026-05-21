@@ -1,10 +1,5 @@
-import type {
-  GeminiContent,
-  GeminiGenerateContentRequest,
-  GeminiGenerationConfig,
-  GeminiPart,
-  GeminiThinkingConfig,
-} from "../../../shared/protocol/gemini.ts";
+import type { ModelCapabilities } from '../../../providers/capabilities.ts';
+import type { GeminiContent, GeminiGenerateContentRequest, GeminiGenerationConfig, GeminiPart, GeminiThinkingConfig } from '../../../shared/protocol/gemini.ts';
 import {
   MESSAGES_FALLBACK_MAX_TOKENS,
   type MessagesAssistantContentBlock,
@@ -13,8 +8,7 @@ import {
   type MessagesTool,
   type MessagesToolResultBlock,
   type MessagesUserContentBlock,
-} from "../../../shared/protocol/messages.ts";
-import type { ModelCapabilities } from "../../../providers/capabilities.ts";
+} from '../../../shared/protocol/messages.ts';
 import {
   geminiFunctionCallingIntent,
   geminiFunctionCallPart,
@@ -27,60 +21,38 @@ import {
   geminiThoughtText,
   type GeminiToolCallIds,
   geminiVisibleText,
-} from "../shared/gemini.ts";
+} from '../shared/gemini.ts';
 
-const inlineDataToImageBlock = (
-  part: GeminiPart,
-): MessagesImageBlock | null => {
+const inlineDataToImageBlock = (part: GeminiPart): MessagesImageBlock | null => {
   const inlineData = geminiInlineData(part);
   if (!inlineData) return null;
 
   return {
-    type: "image",
+    type: 'image',
     source: {
-      type: "base64",
+      type: 'base64',
       media_type: inlineData.mimeType,
       data: inlineData.data,
     },
   };
 };
 
-const buildToolResultBlock = (
-  part: GeminiPart,
-  turnIndex: number,
-  partIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): MessagesToolResultBlock | null => {
-  const functionResponsePart = geminiFunctionResponsePart(
-    part,
-    unmatchedToolCallIds,
-    turnIndex,
-    partIndex,
-    "last",
-  );
+const buildToolResultBlock = (part: GeminiPart, turnIndex: number, partIndex: number, unmatchedToolCallIds: GeminiToolCallIds): MessagesToolResultBlock | null => {
+  const functionResponsePart = geminiFunctionResponsePart(part, unmatchedToolCallIds, turnIndex, partIndex, 'last');
   if (!functionResponsePart) return null;
 
   return {
-    type: "tool_result",
+    type: 'tool_result',
     tool_use_id: functionResponsePart.id,
     content: JSON.stringify(functionResponsePart.response.response),
   };
 };
 
-const buildUserMessage = (
-  content: GeminiContent,
-  turnIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): MessagesPayload["messages"][number] | null => {
+const buildUserMessage = (content: GeminiContent, turnIndex: number, unmatchedToolCallIds: GeminiToolCallIds): MessagesPayload['messages'][number] | null => {
   const blocks: MessagesUserContentBlock[] = [];
 
   content.parts.forEach((part, partIndex) => {
-    const toolResult = buildToolResultBlock(
-      part,
-      turnIndex,
-      partIndex,
-      unmatchedToolCallIds,
-    );
+    const toolResult = buildToolResultBlock(part, turnIndex, partIndex, unmatchedToolCallIds);
     if (toolResult) {
       blocks.push(toolResult);
       return;
@@ -88,7 +60,7 @@ const buildUserMessage = (
 
     const text = geminiPartText(part);
     if (text !== null) {
-      blocks.push({ type: "text", text });
+      blocks.push({ type: 'text', text });
       return;
     }
 
@@ -96,7 +68,7 @@ const buildUserMessage = (
     if (image) blocks.push(image);
   });
 
-  return blocks.length ? { role: "user", content: blocks } : null;
+  return blocks.length ? { role: 'user', content: blocks } : null;
 };
 
 const attachSignatureToThinking = (
@@ -109,70 +81,49 @@ const attachSignatureToThinking = (
 
   if (firstThinkingIndex !== undefined) {
     const block = blocks[firstThinkingIndex];
-    if (block?.type === "thinking") block.signature = signature;
+    if (block?.type === 'thinking') block.signature = signature;
     return;
   }
 
   if (firstSignedActionIndex !== undefined) {
     blocks.splice(firstSignedActionIndex, 0, {
-      type: "redacted_thinking",
+      type: 'redacted_thinking',
       data: signature,
     });
   }
 };
 
-const buildToolUseBlock = (
-  part: GeminiPart,
-  turnIndex: number,
-  partIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): MessagesAssistantContentBlock | null => {
-  const functionCallPart = geminiFunctionCallPart(
-    part,
-    unmatchedToolCallIds,
-    turnIndex,
-    partIndex,
-  );
+const buildToolUseBlock = (part: GeminiPart, turnIndex: number, partIndex: number, unmatchedToolCallIds: GeminiToolCallIds): MessagesAssistantContentBlock | null => {
+  const functionCallPart = geminiFunctionCallPart(part, unmatchedToolCallIds, turnIndex, partIndex);
   if (!functionCallPart) return null;
 
   return {
-    type: "tool_use",
+    type: 'tool_use',
     id: functionCallPart.id,
     name: functionCallPart.call.name,
     input: functionCallPart.call.args,
   };
 };
 
-const buildAssistantMessage = (
-  content: GeminiContent,
-  turnIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): MessagesPayload["messages"][number] | null => {
+const buildAssistantMessage = (content: GeminiContent, turnIndex: number, unmatchedToolCallIds: GeminiToolCallIds): MessagesPayload['messages'][number] | null => {
   const blocks: MessagesAssistantContentBlock[] = [];
   let firstThinkingIndex: number | undefined;
   let firstActionSignature: string | undefined;
   let firstSignedActionIndex: number | undefined;
 
   content.parts.forEach((part, partIndex) => {
-    if (
-      part.thoughtSignature !== undefined && firstActionSignature === undefined
-    ) {
+    if (part.thoughtSignature !== undefined && firstActionSignature === undefined) {
       firstActionSignature = part.thoughtSignature;
     }
 
     const thoughtText = geminiThoughtText(part);
     if (thoughtText !== null) {
       firstThinkingIndex ??= blocks.length;
-      blocks.push({ type: "thinking", thinking: thoughtText });
+      blocks.push({ type: 'thinking', thinking: thoughtText });
       return;
     }
 
-    const toolUse = buildToolUseBlock(
-      part,
-      turnIndex,
-      partIndex,
-      unmatchedToolCallIds,
-    );
+    const toolUse = buildToolUseBlock(part, turnIndex, partIndex, unmatchedToolCallIds);
     if (toolUse) {
       if (part.thoughtSignature !== undefined) {
         firstSignedActionIndex ??= blocks.length;
@@ -186,36 +137,28 @@ const buildAssistantMessage = (
       if (part.thoughtSignature !== undefined) {
         firstSignedActionIndex ??= blocks.length;
       }
-      blocks.push({ type: "text", text });
+      blocks.push({ type: 'text', text });
     }
   });
 
-  attachSignatureToThinking(
-    blocks,
-    firstActionSignature,
-    firstThinkingIndex,
-    firstSignedActionIndex,
-  );
+  attachSignatureToThinking(blocks, firstActionSignature, firstThinkingIndex, firstSignedActionIndex);
 
-  return blocks.length ? { role: "assistant", content: blocks } : null;
+  return blocks.length ? { role: 'assistant', content: blocks } : null;
 };
 
-const applyThinkingConfig = (
-  request: MessagesPayload,
-  thinkingConfig?: GeminiThinkingConfig,
-): void => {
+const applyThinkingConfig = (request: MessagesPayload, thinkingConfig?: GeminiThinkingConfig): void => {
   if (!thinkingConfig) return;
 
   if (thinkingConfig.thinkingBudget !== undefined) {
     if (thinkingConfig.thinkingBudget === -1) {
-      request.thinking = { type: "adaptive" };
+      request.thinking = { type: 'adaptive' };
     } else if (thinkingConfig.thinkingBudget > 0) {
       request.thinking = {
-        type: "enabled",
+        type: 'enabled',
         budget_tokens: thinkingConfig.thinkingBudget,
       };
     } else if (thinkingConfig.thinkingBudget === 0) {
-      request.thinking = { type: "disabled" };
+      request.thinking = { type: 'disabled' };
     }
   }
 
@@ -223,13 +166,8 @@ const applyThinkingConfig = (
   if (effort !== undefined) request.output_config = { effort };
 };
 
-const applyGenerationConfig = (
-  request: MessagesPayload,
-  generationConfig: GeminiGenerationConfig | undefined,
-  fallbackMaxOutputTokens: number,
-): void => {
-  request.max_tokens = generationConfig?.maxOutputTokens ??
-    fallbackMaxOutputTokens;
+const applyGenerationConfig = (request: MessagesPayload, generationConfig: GeminiGenerationConfig | undefined, fallbackMaxOutputTokens: number): void => {
+  request.max_tokens = generationConfig?.maxOutputTokens ?? fallbackMaxOutputTokens;
 
   if (!generationConfig) return;
 
@@ -249,44 +187,31 @@ const applyGenerationConfig = (
   applyThinkingConfig(request, generationConfig.thinkingConfig);
 };
 
-const inputSchemaForDeclaration = (
-  parameters: Record<string, unknown> | undefined,
-): Record<string, unknown> => {
+const inputSchemaForDeclaration = (parameters: Record<string, unknown> | undefined): Record<string, unknown> => {
   if (parameters !== undefined) return parameters;
 
   // MessagesClientTool requires input_schema, so parameterless Gemini function
   // declarations use the smallest object schema rather than dropping the tool.
-  return { type: "object", properties: {} };
+  return { type: 'object', properties: {} };
 };
 
-const buildTools = (
-  payload: GeminiGenerateContentRequest,
-): MessagesTool[] | undefined => {
-  const tools = geminiFunctionDeclarations(payload, "all")
-    .map((declaration) => ({
-      type: "custom" as const,
-      name: declaration.name,
-      ...(declaration.description !== undefined
-        ? { description: declaration.description }
-        : {}),
-      input_schema: inputSchemaForDeclaration(declaration.parameters),
-    }));
+const buildTools = (payload: GeminiGenerateContentRequest): MessagesTool[] | undefined => {
+  const tools = geminiFunctionDeclarations(payload, 'all').map(declaration => ({
+    type: 'custom' as const,
+    name: declaration.name,
+    ...(declaration.description !== undefined ? { description: declaration.description } : {}),
+    input_schema: inputSchemaForDeclaration(declaration.parameters),
+  }));
 
   return tools.length ? tools : undefined;
 };
 
-export const buildTargetRequest = (
-  payload: GeminiGenerateContentRequest,
-  model: string,
-  wantsStream: boolean,
-  capabilities: ModelCapabilities,
-): MessagesPayload => {
+export const buildTargetRequest = (payload: GeminiGenerateContentRequest, model: string, wantsStream: boolean, capabilities: ModelCapabilities): MessagesPayload => {
   // Gemini can omit maxOutputTokens, but MessagesPayload requires max_tokens.
   // Prefer the model's advertised `/models` cap when one is known; otherwise
   // fall back to the gateway policy default shared with the other *-to-Messages
   // translators.
-  const fallbackMaxOutputTokens = capabilities.maxOutputTokens ??
-    MESSAGES_FALLBACK_MAX_TOKENS;
+  const fallbackMaxOutputTokens = capabilities.maxOutputTokens ?? MESSAGES_FALLBACK_MAX_TOKENS;
   const request: MessagesPayload = {
     model,
     stream: wantsStream,
@@ -299,37 +224,29 @@ export const buildTargetRequest = (
   if (system !== null) request.system = system;
 
   payload.contents?.forEach((content, turnIndex) => {
-    const message = content.role === "model"
-      ? buildAssistantMessage(content, turnIndex, unmatchedToolCallIds)
-      : buildUserMessage(content, turnIndex, unmatchedToolCallIds);
+    const message = content.role === 'model' ? buildAssistantMessage(content, turnIndex, unmatchedToolCallIds) : buildUserMessage(content, turnIndex, unmatchedToolCallIds);
     if (message) request.messages.push(message);
   });
 
-  applyGenerationConfig(
-    request,
-    payload.generationConfig,
-    fallbackMaxOutputTokens,
-  );
+  applyGenerationConfig(request, payload.generationConfig, fallbackMaxOutputTokens);
 
   const tools = buildTools(payload);
   if (tools) request.tools = tools;
 
-  const intent = geminiFunctionCallingIntent(
-    payload.toolConfig?.functionCallingConfig,
-  );
+  const intent = geminiFunctionCallingIntent(payload.toolConfig?.functionCallingConfig);
   switch (intent?.type) {
-    case "none":
-      request.tool_choice = { type: "none" };
-      break;
-    case "auto":
-      request.tool_choice = { type: "auto" };
-      break;
-    case "any":
-      request.tool_choice = { type: "any" };
-      break;
-    case "named":
-      request.tool_choice = { type: "tool", name: intent.name };
-      break;
+  case 'none':
+    request.tool_choice = { type: 'none' };
+    break;
+  case 'auto':
+    request.tool_choice = { type: 'auto' };
+    break;
+  case 'any':
+    request.tool_choice = { type: 'any' };
+    break;
+  case 'named':
+    request.tool_choice = { type: 'tool', name: intent.name };
+    break;
   }
 
   return request;

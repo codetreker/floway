@@ -1,24 +1,16 @@
-import type {
-  GeminiCandidate,
-  GeminiGenerateContentResponse,
-  GeminiPart,
-  GeminiStreamEvent,
-} from "../../../../shared/protocol/gemini.ts";
-import type { ProtocolFrame } from "../../../shared/stream/types.ts";
-import {
-  GEMINI_MISSING_TERMINAL_MESSAGE,
-  isGeminiErrorEvent,
-  isGeminiTerminalEvent,
-} from "./protocol.ts";
+import { GEMINI_MISSING_TERMINAL_MESSAGE, isGeminiErrorEvent, isGeminiTerminalEvent } from './protocol.ts';
+import type { GeminiCandidate, GeminiGenerateContentResponse, GeminiPart, GeminiStreamEvent } from '../../../../shared/protocol/gemini.ts';
+import type { ProtocolFrame } from '../../../shared/stream/types.ts';
 
 const hasOnlyTextShape = (part: GeminiPart): boolean =>
-  part.inlineData === undefined && part.functionCall === undefined &&
-  part.functionResponse === undefined && part.fileData === undefined &&
-  part.executableCode === undefined && part.codeExecutionResult === undefined;
+  part.inlineData === undefined &&
+  part.functionCall === undefined &&
+  part.functionResponse === undefined &&
+  part.fileData === undefined &&
+  part.executableCode === undefined &&
+  part.codeExecutionResult === undefined;
 
-const isMergeableTextPart = (part: GeminiPart): boolean =>
-  part.text !== undefined && part.thought !== true &&
-  part.thoughtSignature === undefined && hasOnlyTextShape(part);
+const isMergeableTextPart = (part: GeminiPart): boolean => part.text !== undefined && part.thought !== true && part.thoughtSignature === undefined && hasOnlyTextShape(part);
 
 const appendPart = (parts: GeminiPart[], part: GeminiPart): void => {
   const previous = parts.at(-1);
@@ -30,23 +22,16 @@ const appendPart = (parts: GeminiPart[], part: GeminiPart): void => {
   parts.push({ ...part });
 };
 
-const mergeCandidate = (
-  candidates: Map<number, GeminiCandidate>,
-  incoming: GeminiCandidate,
-): void => {
+const mergeCandidate = (candidates: Map<number, GeminiCandidate>, incoming: GeminiCandidate): void => {
   const existing = candidates.get(incoming.index);
   if (!existing) {
     const candidate: GeminiCandidate = {
       index: incoming.index,
       content: {
-        ...(incoming.content.role !== undefined
-          ? { role: incoming.content.role }
-          : {}),
+        ...(incoming.content.role !== undefined ? { role: incoming.content.role } : {}),
         parts: [],
       },
-      ...(incoming.finishReason !== undefined
-        ? { finishReason: incoming.finishReason }
-        : {}),
+      ...(incoming.finishReason !== undefined ? { finishReason: incoming.finishReason } : {}),
     };
     for (const part of incoming.content.parts) {
       appendPart(candidate.content.parts, part);
@@ -66,15 +51,13 @@ const mergeCandidate = (
   }
 };
 
-export const collectGeminiProtocolEventsToResponse = async (
-  frames: AsyncIterable<ProtocolFrame<GeminiStreamEvent>>,
-): Promise<GeminiGenerateContentResponse> => {
+export const collectGeminiProtocolEventsToResponse = async (frames: AsyncIterable<ProtocolFrame<GeminiStreamEvent>>): Promise<GeminiGenerateContentResponse> => {
   const candidates = new Map<number, GeminiCandidate>();
   const response: GeminiGenerateContentResponse = {};
   let completed = false;
 
   for await (const frame of frames) {
-    if (frame.type === "done") {
+    if (frame.type === 'done') {
       completed = true;
       break;
     }
@@ -108,9 +91,7 @@ export const collectGeminiProtocolEventsToResponse = async (
     throw new Error(GEMINI_MISSING_TERMINAL_MESSAGE);
   }
 
-  const mergedCandidates = [...candidates.values()].sort((a, b) =>
-    a.index - b.index
-  );
+  const mergedCandidates = [...candidates.values()].sort((a, b) => a.index - b.index);
   if (mergedCandidates.length > 0) response.candidates = mergedCandidates;
 
   return response;

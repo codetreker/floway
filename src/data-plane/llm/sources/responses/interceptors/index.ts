@@ -1,6 +1,6 @@
-import type { ResponsesInterceptor } from "../../../interceptors.ts";
-import { fixApplyPatchTools } from "./fix-apply-patch-tools.ts";
-import { stripUnsupportedTools } from "./strip-unsupported-tools.ts";
+import { fixApplyPatchTools } from './fix-apply-patch-tools.ts';
+import { stripUnsupportedTools } from './strip-unsupported-tools.ts';
+import type { ResponsesInterceptor } from '../../../interceptors.ts';
 
 export const responsesSourceInterceptors = [
   // fix-apply-patch-tools must run before strip-unsupported-tools so the

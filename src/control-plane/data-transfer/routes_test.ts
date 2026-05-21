@@ -1,66 +1,60 @@
-import { test } from "vitest";
-import { assertEquals } from "../../test-assert.ts";
-import { Hono } from "hono";
-import { DEFAULT_SEARCH_CONFIG } from "../../data-plane/tools/web-search/search-config.ts";
-import { initRepo } from "../../repo/index.ts";
-import { InMemoryRepo } from "../../repo/memory.ts";
-import type {
-  ApiKey,
-  GitHubAccount,
-  PerformanceTelemetryRecord,
-  SearchUsageRecord,
-  UsageRecord,
-} from "../../repo/types.ts";
-import { exportData, importData } from "./routes.ts";
+import { Hono } from 'hono';
+import { test } from 'vitest';
 
-const hasOwn = (value: object, key: string) =>
-  Object.prototype.hasOwnProperty.call(value, key);
+import { exportData, importData } from './routes.ts';
+import { DEFAULT_SEARCH_CONFIG } from '../../data-plane/tools/web-search/search-config.ts';
+import { initRepo } from '../../repo/index.ts';
+import { InMemoryRepo } from '../../repo/memory.ts';
+import type { ApiKey, GitHubAccount, PerformanceTelemetryRecord, SearchUsageRecord, UsageRecord } from '../../repo/types.ts';
+import { assertEquals } from '../../test-assert.ts';
+
+const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 
 // ---- Fixtures ----
 
 const KEY_A: ApiKey = {
-  id: "key-aaa",
-  name: "Alice",
-  key: "raw-key-aaa",
-  createdAt: "2026-01-01T00:00:00.000Z",
-  lastUsedAt: "2026-01-02T00:00:00.000Z",
+  id: 'key-aaa',
+  name: 'Alice',
+  key: 'raw-key-aaa',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  lastUsedAt: '2026-01-02T00:00:00.000Z',
 };
 
 const KEY_B: ApiKey = {
-  id: "key-bbb",
-  name: "Bob",
-  key: "raw-key-bbb",
-  createdAt: "2026-02-01T00:00:00.000Z",
+  id: 'key-bbb',
+  name: 'Bob',
+  key: 'raw-key-bbb',
+  createdAt: '2026-02-01T00:00:00.000Z',
 };
 
 const ACCOUNT_X: GitHubAccount = {
-  token: "ghu_xxxx",
-  accountType: "individual",
+  token: 'ghu_xxxx',
+  accountType: 'individual',
   user: {
     id: 100,
-    login: "alice",
-    name: "Alice",
-    avatar_url: "https://example.com/a.png",
+    login: 'alice',
+    name: 'Alice',
+    avatar_url: 'https://example.com/a.png',
   },
 };
 
 const ACCOUNT_Y: GitHubAccount = {
-  token: "ghu_yyyy",
-  accountType: "enterprise",
+  token: 'ghu_yyyy',
+  accountType: 'enterprise',
   user: {
     id: 200,
-    login: "bob",
+    login: 'bob',
     name: null,
-    avatar_url: "https://example.com/b.png",
+    avatar_url: 'https://example.com/b.png',
   },
 };
 
 const USAGE_1: UsageRecord = {
-  keyId: "key-aaa",
-  model: "claude-opus-4-6",
-  upstream: "copilot:100",
-  modelKey: "claude-opus-4.6",
-  hour: "2026-01-01T10",
+  keyId: 'key-aaa',
+  model: 'claude-opus-4-6',
+  upstream: 'copilot:100',
+  modelKey: 'claude-opus-4.6',
+  hour: '2026-01-01T10',
   requests: 5,
   inputTokens: 1000,
   outputTokens: 500,
@@ -69,11 +63,11 @@ const USAGE_1: UsageRecord = {
 };
 
 const USAGE_2: UsageRecord = {
-  keyId: "key-bbb",
-  model: "gpt-5.4",
-  upstream: "openai:custom",
-  modelKey: "gpt-5.4",
-  hour: "2026-01-01T11",
+  keyId: 'key-bbb',
+  model: 'gpt-5.4',
+  upstream: 'openai:custom',
+  modelKey: 'gpt-5.4',
+  hour: '2026-01-01T11',
   requests: 3,
   inputTokens: 2000,
   outputTokens: 800,
@@ -82,30 +76,30 @@ const USAGE_2: UsageRecord = {
 };
 
 const SEARCH_USAGE_1: SearchUsageRecord = {
-  provider: "tavily",
-  keyId: "key-aaa",
-  hour: "2026-01-01T10",
+  provider: 'tavily',
+  keyId: 'key-aaa',
+  hour: '2026-01-01T10',
   requests: 2,
 };
 
 const SEARCH_USAGE_2: SearchUsageRecord = {
-  provider: "microsoft-grounding",
-  keyId: "key-bbb",
-  hour: "2026-01-01T11",
+  provider: 'microsoft-grounding',
+  keyId: 'key-bbb',
+  hour: '2026-01-01T11',
   requests: 4,
 };
 
 const PERFORMANCE_1: PerformanceTelemetryRecord = {
-  hour: "2026-01-01T10",
-  metricScope: "request_total",
-  keyId: "key-aaa",
-  model: "claude-opus-4-7",
-  upstream: "copilot:100",
-  modelKey: "claude-opus-4.7-xhigh",
-  sourceApi: "messages",
-  targetApi: "responses",
+  hour: '2026-01-01T10',
+  metricScope: 'request_total',
+  keyId: 'key-aaa',
+  model: 'claude-opus-4-7',
+  upstream: 'copilot:100',
+  modelKey: 'claude-opus-4.7-xhigh',
+  sourceApi: 'messages',
+  targetApi: 'responses',
   stream: true,
-  runtimeLocation: "SJC",
+  runtimeLocation: 'SJC',
   requests: 5,
   errors: 1,
   totalMsSum: 1250,
@@ -113,16 +107,16 @@ const PERFORMANCE_1: PerformanceTelemetryRecord = {
 };
 
 const PERFORMANCE_2: PerformanceTelemetryRecord = {
-  hour: "2026-01-01T11",
-  metricScope: "upstream_success",
-  keyId: "key-bbb",
-  model: "gpt-5.3-codex",
-  upstream: "openai:custom",
-  modelKey: "gpt-5.3-codex",
-  sourceApi: "responses",
-  targetApi: "chat-completions",
+  hour: '2026-01-01T11',
+  metricScope: 'upstream_success',
+  keyId: 'key-bbb',
+  model: 'gpt-5.3-codex',
+  upstream: 'openai:custom',
+  modelKey: 'gpt-5.3-codex',
+  sourceApi: 'responses',
+  targetApi: 'chat-completions',
   stream: false,
-  runtimeLocation: "unknown",
+  runtimeLocation: 'unknown',
   requests: 3,
   errors: 0,
   totalMsSum: 900,
@@ -130,16 +124,16 @@ const PERFORMANCE_2: PerformanceTelemetryRecord = {
 };
 
 const PERFORMANCE_GEMINI: PerformanceTelemetryRecord = {
-  hour: "2026-01-01T12",
-  metricScope: "request_total",
-  keyId: "key-aaa",
-  model: "claude-sonnet-4-5",
-  upstream: "copilot:100",
-  modelKey: "claude-sonnet-4.5",
-  sourceApi: "gemini",
-  targetApi: "messages",
+  hour: '2026-01-01T12',
+  metricScope: 'request_total',
+  keyId: 'key-aaa',
+  model: 'claude-sonnet-4-5',
+  upstream: 'copilot:100',
+  modelKey: 'claude-sonnet-4.5',
+  sourceApi: 'gemini',
+  targetApi: 'messages',
   stream: true,
-  runtimeLocation: "SJC",
+  runtimeLocation: 'SJC',
   requests: 7,
   errors: 0,
   totalMsSum: 1400,
@@ -152,23 +146,21 @@ function setup() {
   const repo = new InMemoryRepo();
   initRepo(repo);
   const app = new Hono();
-  app.get("/export", exportData);
-  app.post("/import", importData);
+  app.get('/export', exportData);
+  app.post('/import', importData);
   return { repo, app };
 }
 
 async function doExport(app: Hono, includePerformance = false) {
-  const resp = await app.request(
-    includePerformance ? "/export?include_performance=1" : "/export",
-  );
+  const resp = await app.request(includePerformance ? '/export?include_performance=1' : '/export');
   assertEquals(resp.status, 200);
   return await resp.json();
 }
 
 async function doImport(app: Hono, mode: string, data: any) {
-  const resp = await app.request("/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const resp = await app.request('/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode, data }),
   });
   return { status: resp.status, body: await resp.json() };
@@ -176,12 +168,12 @@ async function doImport(app: Hono, mode: string, data: any) {
 
 // ---- Tests: export structure ----
 
-test("export — empty database returns correct structure", async () => {
+test('export — empty database returns correct structure', async () => {
   const { app } = setup();
   const result = await doExport(app);
 
   assertEquals(result.version, 1);
-  assertEquals(typeof result.exportedAt, "string");
+  assertEquals(typeof result.exportedAt, 'string');
   assertEquals(Array.isArray(result.data.apiKeys), true);
   assertEquals(result.data.apiKeys.length, 0);
   assertEquals(Array.isArray(result.data.githubAccounts), true);
@@ -191,11 +183,11 @@ test("export — empty database returns correct structure", async () => {
   assertEquals(Array.isArray(result.data.searchUsage), true);
   assertEquals(result.data.searchUsage.length, 0);
   assertEquals(result.data.performanceIncluded, false);
-  assertEquals(hasOwn(result.data, "performance"), false);
+  assertEquals(hasOwn(result.data, 'performance'), false);
   assertEquals(result.data.searchConfig, DEFAULT_SEARCH_CONFIG);
 });
 
-test("export — contains stored data without performance by default", async () => {
+test('export — contains stored data without performance by default', async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -209,9 +201,9 @@ test("export — contains stored data without performance by default", async () 
   await repo.performance.set(PERFORMANCE_1);
   await repo.performance.set(PERFORMANCE_2);
   await repo.searchConfig.save({
-    provider: "tavily",
-    tavily: { apiKey: "tvly-test" },
-    microsoftGrounding: { apiKey: "ms-test" },
+    provider: 'tavily',
+    tavily: { apiKey: 'tvly-test' },
+    microsoftGrounding: { apiKey: 'ms-test' },
   });
 
   const result = await doExport(app);
@@ -221,11 +213,11 @@ test("export — contains stored data without performance by default", async () 
   assertEquals(result.data.usage.length, 2);
   assertEquals(result.data.searchUsage.length, 2);
   assertEquals(result.data.performanceIncluded, false);
-  assertEquals(hasOwn(result.data, "performance"), false);
-  assertEquals(result.data.searchConfig.provider, "tavily");
+  assertEquals(hasOwn(result.data, 'performance'), false);
+  assertEquals(result.data.searchConfig.provider, 'tavily');
 });
 
-test("export — includes performance only when requested", async () => {
+test('export — includes performance only when requested', async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
@@ -235,12 +227,12 @@ test("export — includes performance only when requested", async () => {
   const fullExport = await doExport(app, true);
 
   assertEquals(defaultExport.data.performanceIncluded, false);
-  assertEquals(hasOwn(defaultExport.data, "performance"), false);
+  assertEquals(hasOwn(defaultExport.data, 'performance'), false);
   assertEquals(fullExport.data.performanceIncluded, true);
   assertEquals(fullExport.data.performance.length, 2);
 });
 
-test("export — apiKeys contain all fields", async () => {
+test('export — apiKeys contain all fields', async () => {
   const { app, repo } = setup();
   await repo.apiKeys.save(KEY_A);
 
@@ -254,7 +246,7 @@ test("export — apiKeys contain all fields", async () => {
   assertEquals(key.lastUsedAt, KEY_A.lastUsedAt);
 });
 
-test("export — apiKey without lastUsedAt omits or nulls it", async () => {
+test('export — apiKey without lastUsedAt omits or nulls it', async () => {
   const { app, repo } = setup();
   await repo.apiKeys.save(KEY_B); // KEY_B has no lastUsedAt
 
@@ -266,7 +258,7 @@ test("export — apiKey without lastUsedAt omits or nulls it", async () => {
   assertEquals(key.lastUsedAt == null, true);
 });
 
-test("export — githubAccounts contain all fields", async () => {
+test('export — githubAccounts contain all fields', async () => {
   const { app, repo } = setup();
   await repo.github.saveAccount(ACCOUNT_X.user.id, ACCOUNT_X);
 
@@ -281,7 +273,7 @@ test("export — githubAccounts contain all fields", async () => {
   assertEquals(account.user.avatar_url, ACCOUNT_X.user.avatar_url);
 });
 
-test("export — githubAccount with null name", async () => {
+test('export — githubAccount with null name', async () => {
   const { app, repo } = setup();
   await repo.github.saveAccount(ACCOUNT_Y.user.id, ACCOUNT_Y);
 
@@ -289,7 +281,7 @@ test("export — githubAccount with null name", async () => {
   assertEquals(result.data.githubAccounts[0].user.name, null);
 });
 
-test("export — usage records contain all fields", async () => {
+test('export — usage records contain all fields', async () => {
   const { app, repo } = setup();
   await repo.usage.set(USAGE_1);
 
@@ -306,7 +298,7 @@ test("export — usage records contain all fields", async () => {
   assertEquals(u.cacheCreationTokens, USAGE_1.cacheCreationTokens);
 });
 
-test("export — searchUsage records contain all fields", async () => {
+test('export — searchUsage records contain all fields', async () => {
   const { app, repo } = setup();
   await repo.searchUsage.set(SEARCH_USAGE_1);
 
@@ -319,7 +311,7 @@ test("export — searchUsage records contain all fields", async () => {
   assertEquals(u.requests, SEARCH_USAGE_1.requests);
 });
 
-test("export — performance records contain raw dimensions and buckets", async () => {
+test('export — performance records contain raw dimensions and buckets', async () => {
   const { app, repo } = setup();
   await repo.performance.set(PERFORMANCE_1);
 
@@ -329,7 +321,7 @@ test("export — performance records contain raw dimensions and buckets", async 
 
 // ---- Tests: round-trip (import → export) ----
 
-test("round-trip — replace import then export yields equivalent data", async () => {
+test('round-trip — replace import then export yields equivalent data', async () => {
   const { app } = setup();
 
   const original = {
@@ -340,7 +332,7 @@ test("round-trip — replace import then export yields equivalent data", async (
     performance: [PERFORMANCE_1, PERFORMANCE_2],
   };
 
-  const { status, body } = await doImport(app, "replace", original);
+  const { status, body } = await doImport(app, 'replace', original);
   assertEquals(status, 200);
   assertEquals(body.ok, true);
   assertEquals(body.imported, {
@@ -355,24 +347,12 @@ test("round-trip — replace import then export yields equivalent data", async (
   const exported = await doExport(app, true);
 
   // Sort for stable comparison
-  const sortById = (a: { id: string }, b: { id: string }) =>
-    a.id.localeCompare(b.id);
-  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) =>
-    a.user.id - b.user.id;
-  const sortByUsage = (a: UsageRecord, b: UsageRecord) =>
-    a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId);
-  const sortBySearchUsage = (a: SearchUsageRecord, b: SearchUsageRecord) =>
-    a.hour.localeCompare(b.hour) ||
-    a.provider.localeCompare(b.provider) ||
-    a.keyId.localeCompare(b.keyId);
-  const sortByPerformance = (
-    a: PerformanceTelemetryRecord,
-    b: PerformanceTelemetryRecord,
-  ) =>
-    a.hour.localeCompare(b.hour) ||
-    a.metricScope.localeCompare(b.metricScope) ||
-    a.keyId.localeCompare(b.keyId) ||
-    a.model.localeCompare(b.model);
+  const sortById = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
+  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) => a.user.id - b.user.id;
+  const sortByUsage = (a: UsageRecord, b: UsageRecord) => a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId);
+  const sortBySearchUsage = (a: SearchUsageRecord, b: SearchUsageRecord) => a.hour.localeCompare(b.hour) || a.provider.localeCompare(b.provider) || a.keyId.localeCompare(b.keyId);
+  const sortByPerformance = (a: PerformanceTelemetryRecord, b: PerformanceTelemetryRecord) =>
+    a.hour.localeCompare(b.hour) || a.metricScope.localeCompare(b.metricScope) || a.keyId.localeCompare(b.keyId) || a.model.localeCompare(b.model);
 
   exported.data.apiKeys.sort(sortById);
   exported.data.githubAccounts.sort(sortByUserId);
@@ -394,7 +374,7 @@ test("round-trip — replace import then export yields equivalent data", async (
   assertEquals(exported.data.performance, expected.performance);
 });
 
-test("round-trip — merge import then export contains both old and new data", async () => {
+test('round-trip — merge import then export contains both old and new data', async () => {
   const { app, repo } = setup();
 
   // Pre-existing data
@@ -412,7 +392,7 @@ test("round-trip — merge import then export contains both old and new data", a
     searchUsage: [SEARCH_USAGE_2],
   };
 
-  const { status } = await doImport(app, "merge", newData);
+  const { status } = await doImport(app, 'merge', newData);
   assertEquals(status, 200);
 
   const exported = await doExport(app, true);
@@ -423,12 +403,12 @@ test("round-trip — merge import then export contains both old and new data", a
   assertEquals(exported.data.searchUsage.length, 2);
 });
 
-test("import replace — clears existing searchUsage before importing provided records", async () => {
+test('import replace — clears existing searchUsage before importing provided records', async () => {
   const { app, repo } = setup();
 
   await repo.searchUsage.set(SEARCH_USAGE_1);
 
-  const { status, body } = await doImport(app, "replace", {
+  const { status, body } = await doImport(app, 'replace', {
     searchUsage: [SEARCH_USAGE_2],
   });
 
@@ -439,12 +419,12 @@ test("import replace — clears existing searchUsage before importing provided r
   assertEquals(exported.data.searchUsage, [SEARCH_USAGE_2]);
 });
 
-test("import replace — clears existing performance before importing provided records", async () => {
+test('import replace — clears existing performance before importing provided records', async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
 
-  const { status, body } = await doImport(app, "replace", {
+  const { status, body } = await doImport(app, 'replace', {
     performance: [PERFORMANCE_2],
   });
 
@@ -455,12 +435,12 @@ test("import replace — clears existing performance before importing provided r
   assertEquals(exported.data.performance, [PERFORMANCE_2]);
 });
 
-test("import replace — preserves existing performance when payload omits performance", async () => {
+test('import replace — preserves existing performance when payload omits performance', async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
 
-  const { status, body } = await doImport(app, "replace", {
+  const { status, body } = await doImport(app, 'replace', {
     apiKeys: [KEY_B],
   });
 
@@ -471,12 +451,12 @@ test("import replace — preserves existing performance when payload omits perfo
   assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
-test("import replace — preserves existing performance for legacy empty payloads without intent", async () => {
+test('import replace — preserves existing performance for legacy empty payloads without intent', async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
 
-  const { status, body } = await doImport(app, "replace", {
+  const { status, body } = await doImport(app, 'replace', {
     performance: [],
   });
 
@@ -487,12 +467,12 @@ test("import replace — preserves existing performance for legacy empty payload
   assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
-test("import replace — clears existing performance when explicitly included empty", async () => {
+test('import replace — clears existing performance when explicitly included empty', async () => {
   const { app, repo } = setup();
 
   await repo.performance.set(PERFORMANCE_1);
 
-  const { status, body } = await doImport(app, "replace", {
+  const { status, body } = await doImport(app, 'replace', {
     performanceIncluded: true,
     performance: [],
   });
@@ -504,10 +484,10 @@ test("import replace — clears existing performance when explicitly included em
   assertEquals(exported.data.performance, []);
 });
 
-test("import replace — accepts Gemini performance records", async () => {
+test('import replace — accepts Gemini performance records', async () => {
   const { app } = setup();
 
-  const { status, body } = await doImport(app, "replace", {
+  const { status, body } = await doImport(app, 'replace', {
     performance: [PERFORMANCE_GEMINI],
   });
 
@@ -518,31 +498,33 @@ test("import replace — accepts Gemini performance records", async () => {
   assertEquals(exported.data.performance, [PERFORMANCE_GEMINI]);
 });
 
-test("import replace — rejects invalid searchUsage before clearing existing data", async () => {
+test('import replace — rejects invalid searchUsage before clearing existing data', async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
   await repo.searchUsage.set(SEARCH_USAGE_1);
 
-  const resp = await app.request("/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const resp = await app.request('/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      mode: "replace",
+      mode: 'replace',
       data: {
-        searchUsage: [{
-          provider: "disabled",
-          keyId: "key-bad",
-          hour: "2026-01-01T12",
-          requests: 1,
-        }],
+        searchUsage: [
+          {
+            provider: 'disabled',
+            keyId: 'key-bad',
+            hour: '2026-01-01T12',
+            requests: 1,
+          },
+        ],
       },
     }),
   });
 
   assertEquals(resp.status, 400);
   assertEquals(await resp.json(), {
-    error: "invalid searchUsage record at index 0",
+    error: 'invalid searchUsage record at index 0',
   });
 
   const exported = await doExport(app, true);
@@ -550,26 +532,26 @@ test("import replace — rejects invalid searchUsage before clearing existing da
   assertEquals(exported.data.searchUsage, [SEARCH_USAGE_1]);
 });
 
-test("import replace — rejects invalid performance before clearing existing data", async () => {
+test('import replace — rejects invalid performance before clearing existing data', async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
   await repo.performance.set(PERFORMANCE_1);
 
-  const resp = await app.request("/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const resp = await app.request('/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      mode: "replace",
+      mode: 'replace',
       data: {
-        performance: [{ ...PERFORMANCE_2, metricScope: "bad" }],
+        performance: [{ ...PERFORMANCE_2, metricScope: 'bad' }],
       },
     }),
   });
 
   assertEquals(resp.status, 400);
   assertEquals(await resp.json(), {
-    error: "invalid performance record at index 0",
+    error: 'invalid performance record at index 0',
   });
 
   const exported = await doExport(app, true);
@@ -577,47 +559,47 @@ test("import replace — rejects invalid performance before clearing existing da
   assertEquals(exported.data.performance, [PERFORMANCE_1]);
 });
 
-test("export/import include searchConfig and replace it as a singleton when present", async () => {
+test('export/import include searchConfig and replace it as a singleton when present', async () => {
   const { app, repo } = setup();
 
   await repo.searchConfig.save({
-    provider: "tavily",
-    tavily: { apiKey: "tvly-original" },
-    microsoftGrounding: { apiKey: "ms-original" },
+    provider: 'tavily',
+    tavily: { apiKey: 'tvly-original' },
+    microsoftGrounding: { apiKey: 'ms-original' },
   });
 
   const exported = await doExport(app);
-  assertEquals(exported.data.searchConfig.provider, "tavily");
+  assertEquals(exported.data.searchConfig.provider, 'tavily');
 
-  const { status } = await doImport(app, "merge", {
+  const { status } = await doImport(app, 'merge', {
     apiKeys: [],
     githubAccounts: [],
     usage: [],
     searchConfig: {
-      provider: "microsoft-grounding",
-      tavily: { apiKey: "tvly-imported" },
-      microsoftGrounding: { apiKey: "ms-imported" },
+      provider: 'microsoft-grounding',
+      tavily: { apiKey: 'tvly-imported' },
+      microsoftGrounding: { apiKey: 'ms-imported' },
     },
   });
 
   assertEquals(status, 200);
   assertEquals(await repo.searchConfig.get(), {
-    provider: "microsoft-grounding",
-    tavily: { apiKey: "tvly-imported" },
-    microsoftGrounding: { apiKey: "ms-imported" },
+    provider: 'microsoft-grounding',
+    tavily: { apiKey: 'tvly-imported' },
+    microsoftGrounding: { apiKey: 'ms-imported' },
   });
 });
 
-test("import replace resets searchConfig to default when the payload omits it", async () => {
+test('import replace resets searchConfig to default when the payload omits it', async () => {
   const { app, repo } = setup();
 
   await repo.searchConfig.save({
-    provider: "tavily",
-    tavily: { apiKey: "tvly-original" },
-    microsoftGrounding: { apiKey: "ms-original" },
+    provider: 'tavily',
+    tavily: { apiKey: 'tvly-original' },
+    microsoftGrounding: { apiKey: 'ms-original' },
   });
 
-  const { status } = await doImport(app, "replace", {
+  const { status } = await doImport(app, 'replace', {
     apiKeys: [],
     githubAccounts: [],
     usage: [],
@@ -629,7 +611,7 @@ test("import replace resets searchConfig to default when the payload omits it", 
   assertEquals(exported.data.searchConfig, DEFAULT_SEARCH_CONFIG);
 });
 
-test("round-trip — double import with replace is idempotent", async () => {
+test('round-trip — double import with replace is idempotent', async () => {
   const { app } = setup();
 
   const data = {
@@ -638,8 +620,8 @@ test("round-trip — double import with replace is idempotent", async () => {
     usage: [USAGE_1],
   };
 
-  await doImport(app, "replace", data);
-  await doImport(app, "replace", data);
+  await doImport(app, 'replace', data);
+  await doImport(app, 'replace', data);
 
   const exported = await doExport(app);
   assertEquals(exported.data.apiKeys.length, 1);
@@ -647,13 +629,13 @@ test("round-trip — double import with replace is idempotent", async () => {
   assertEquals(exported.data.usage.length, 1);
 });
 
-test("round-trip — export from A, import into B, export from B matches A", async () => {
+test('round-trip — export from A, import into B, export from B matches A', async () => {
   // Simulate moving data between two deployments.
   const repoA = new InMemoryRepo();
   initRepo(repoA);
   const appA = new Hono();
-  appA.get("/export", exportData);
-  appA.post("/import", importData);
+  appA.get('/export', exportData);
+  appA.post('/import', importData);
 
   await repoA.apiKeys.save(KEY_A);
   await repoA.apiKeys.save(KEY_B);
@@ -671,31 +653,19 @@ test("round-trip — export from A, import into B, export from B matches A", asy
   const repoB = new InMemoryRepo();
   initRepo(repoB);
   const appB = new Hono();
-  appB.get("/export", exportData);
-  appB.post("/import", importData);
+  appB.get('/export', exportData);
+  appB.post('/import', importData);
 
-  await doImport(appB, "replace", exportA.data);
+  await doImport(appB, 'replace', exportA.data);
   const exportB = await doExport(appB, true);
 
   // Compare data (ignoring exportedAt timestamp)
-  const sortById = (a: { id: string }, b: { id: string }) =>
-    a.id.localeCompare(b.id);
-  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) =>
-    a.user.id - b.user.id;
-  const sortByUsage = (a: UsageRecord, b: UsageRecord) =>
-    a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId);
-  const sortBySearchUsage = (a: SearchUsageRecord, b: SearchUsageRecord) =>
-    a.hour.localeCompare(b.hour) ||
-    a.provider.localeCompare(b.provider) ||
-    a.keyId.localeCompare(b.keyId);
-  const sortByPerformance = (
-    a: PerformanceTelemetryRecord,
-    b: PerformanceTelemetryRecord,
-  ) =>
-    a.hour.localeCompare(b.hour) ||
-    a.metricScope.localeCompare(b.metricScope) ||
-    a.keyId.localeCompare(b.keyId) ||
-    a.model.localeCompare(b.model);
+  const sortById = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
+  const sortByUserId = (a: GitHubAccount, b: GitHubAccount) => a.user.id - b.user.id;
+  const sortByUsage = (a: UsageRecord, b: UsageRecord) => a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId);
+  const sortBySearchUsage = (a: SearchUsageRecord, b: SearchUsageRecord) => a.hour.localeCompare(b.hour) || a.provider.localeCompare(b.provider) || a.keyId.localeCompare(b.keyId);
+  const sortByPerformance = (a: PerformanceTelemetryRecord, b: PerformanceTelemetryRecord) =>
+    a.hour.localeCompare(b.hour) || a.metricScope.localeCompare(b.metricScope) || a.keyId.localeCompare(b.keyId) || a.model.localeCompare(b.model);
 
   exportA.data.apiKeys.sort(sortById);
   exportA.data.githubAccounts.sort(sortByUserId);
@@ -717,7 +687,7 @@ test("round-trip — export from A, import into B, export from B matches A", asy
 
 // ---- Tests: import modes ----
 
-test("import replace — clears existing data", async () => {
+test('import replace — clears existing data', async () => {
   const { app, repo } = setup();
 
   await repo.apiKeys.save(KEY_A);
@@ -726,7 +696,7 @@ test("import replace — clears existing data", async () => {
   await repo.searchUsage.set(SEARCH_USAGE_1);
 
   // Replace with only KEY_B
-  await doImport(app, "replace", {
+  await doImport(app, 'replace', {
     apiKeys: [KEY_B],
     githubAccounts: [],
     usage: [],
@@ -739,27 +709,27 @@ test("import replace — clears existing data", async () => {
   assertEquals(exported.data.usage.length, 0);
   assertEquals(exported.data.searchUsage.length, 0);
   assertEquals(exported.data.performanceIncluded, false);
-  assertEquals(hasOwn(exported.data, "performance"), false);
+  assertEquals(hasOwn(exported.data, 'performance'), false);
 });
 
-test("import merge — upserts existing records by key", async () => {
+test('import merge — upserts existing records by key', async () => {
   const { app, repo } = setup();
 
   // Pre-existing KEY_A with old name
-  await repo.apiKeys.save({ ...KEY_A, name: "OldName" });
+  await repo.apiKeys.save({ ...KEY_A, name: 'OldName' });
 
   // Merge with KEY_A (new name) + KEY_B
-  await doImport(app, "merge", {
+  await doImport(app, 'merge', {
     apiKeys: [KEY_A, KEY_B],
   });
 
   const exported = await doExport(app);
   assertEquals(exported.data.apiKeys.length, 2);
   const updatedA = exported.data.apiKeys.find((k: ApiKey) => k.id === KEY_A.id);
-  assertEquals(updatedA.name, "Alice"); // updated to imported value
+  assertEquals(updatedA.name, 'Alice'); // updated to imported value
 });
 
-test("import merge — usage set overwrites matching records", async () => {
+test('import merge — usage set overwrites matching records', async () => {
   const { app, repo } = setup();
 
   // Existing usage
@@ -771,7 +741,7 @@ test("import merge — usage set overwrites matching records", async () => {
   });
 
   // Merge with USAGE_1 (different values)
-  await doImport(app, "merge", { usage: [USAGE_1] });
+  await doImport(app, 'merge', { usage: [USAGE_1] });
 
   const exported = await doExport(app);
   assertEquals(exported.data.usage.length, 1);
@@ -781,29 +751,29 @@ test("import merge — usage set overwrites matching records", async () => {
 
 // ---- Tests: validation ----
 
-test("import — rejects invalid mode", async () => {
+test('import — rejects invalid mode', async () => {
   const { app } = setup();
-  const { status, body } = await doImport(app, "invalid", { apiKeys: [] });
+  const { status, body } = await doImport(app, 'invalid', { apiKeys: [] });
   assertEquals(status, 400);
   assertEquals(body.error, "mode must be 'merge' or 'replace'");
 });
 
-test("import — rejects missing data", async () => {
+test('import — rejects missing data', async () => {
   const { app } = setup();
-  const resp = await app.request("/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode: "merge" }),
+  const resp = await app.request('/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'merge' }),
   });
   assertEquals(resp.status, 400);
   const body = await resp.json();
-  assertEquals(body.error, "data is required");
+  assertEquals(body.error, 'data is required');
 });
 
-test("import — handles missing optional arrays gracefully", async () => {
+test('import — handles missing optional arrays gracefully', async () => {
   const { app } = setup();
   // data object with no arrays
-  const { status, body } = await doImport(app, "replace", {});
+  const { status, body } = await doImport(app, 'replace', {});
   assertEquals(status, 200);
   assertEquals(body.ok, true);
   assertEquals(body.imported, {

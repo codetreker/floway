@@ -1,15 +1,8 @@
-import { getRepo } from "../../repo/index.ts";
-import { createCopilotProvider } from "./copilot/provider.ts";
-import { endpointsIncludeLlmGeneration } from "./endpoints.ts";
-import { createOpenAiProvider } from "./openai/provider.ts";
-import type {
-  CatalogModel,
-  ModelEndpoint,
-  ModelProviderInstance,
-  ProviderModelRecord,
-  ResolvedModel,
-  UpstreamModel,
-} from "./types.ts";
+import { createCopilotProvider } from './copilot/provider.ts';
+import { endpointsIncludeLlmGeneration } from './endpoints.ts';
+import { createOpenAiProvider } from './openai/provider.ts';
+import type { CatalogModel, ModelEndpoint, ModelProviderInstance, ProviderModelRecord, ResolvedModel, UpstreamModel } from './types.ts';
+import { getRepo } from '../../repo/index.ts';
 
 interface ProviderModelsResult {
   models: ResolvedModel[];
@@ -17,9 +10,7 @@ interface ProviderModelsResult {
   lastError: unknown;
 }
 
-export const listModelProviders = async (): Promise<
-  ModelProviderInstance[]
-> => {
+export const listModelProviders = async (): Promise<ModelProviderInstance[]> => {
   const providers: ModelProviderInstance[] = [];
 
   const accounts = await getRepo().github.listAccounts();
@@ -36,10 +27,7 @@ export const listModelProviders = async (): Promise<
   return providers;
 };
 
-const unionEndpoints = (
-  a: readonly ModelEndpoint[],
-  b: readonly ModelEndpoint[],
-): ModelEndpoint[] => {
+const unionEndpoints = (a: readonly ModelEndpoint[], b: readonly ModelEndpoint[]): ModelEndpoint[] => {
   const result = [...a];
   for (const endpoint of b) {
     if (!result.includes(endpoint)) result.push(endpoint);
@@ -47,14 +35,8 @@ const unionEndpoints = (
   return result;
 };
 
-const catalogModelFromUpstreamModel = (
-  upstreamModel: UpstreamModel,
-): CatalogModel => {
-  const {
-    providerData: _providerData,
-    supportedEndpoints: upstreamSupportedEndpoints,
-    ...modelInfo
-  } = upstreamModel;
+const catalogModelFromUpstreamModel = (upstreamModel: UpstreamModel): CatalogModel => {
+  const { providerData: _providerData, supportedEndpoints: upstreamSupportedEndpoints, ...modelInfo } = upstreamModel;
   const supportedEndpoints = [...upstreamSupportedEndpoints];
 
   return {
@@ -64,9 +46,7 @@ const catalogModelFromUpstreamModel = (
   };
 };
 
-const collectProviderModels = async (
-  providers: readonly ModelProviderInstance[],
-): Promise<ProviderModelsResult> => {
+const collectProviderModels = async (providers: readonly ModelProviderInstance[]): Promise<ProviderModelsResult> => {
   const byId = new Map<string, ResolvedModel>();
   let sawSuccess = false;
   let lastError: unknown = null;
@@ -99,16 +79,11 @@ const collectProviderModels = async (
         // public /models metadata. Runtime execution still uses the selected
         // provider's own UpstreamModel, so capability-sensitive calls do not
         // depend on this merged view being perfectly representative.
-        const supportedEndpoints = unionEndpoints(
-          existing.supportedEndpoints,
-          upstreamModel.supportedEndpoints,
-        );
+        const supportedEndpoints = unionEndpoints(existing.supportedEndpoints, upstreamModel.supportedEndpoints);
         byId.set(upstreamModel.id, {
           ...existing,
           supportedEndpoints,
-          supports_generation: endpointsIncludeLlmGeneration(
-            supportedEndpoints,
-          ),
+          supports_generation: endpointsIncludeLlmGeneration(supportedEndpoints),
           providers: [...existing.providers, record],
         });
       }
@@ -120,22 +95,10 @@ const collectProviderModels = async (
   return { models: [...byId.values()], sawSuccess, lastError };
 };
 
-const modelWithProviderInstances = (
-  model: ResolvedModel,
-  providers: ReadonlySet<ModelProviderInstance>,
-): ResolvedModel => {
+const modelWithProviderInstances = (model: ResolvedModel, providers: ReadonlySet<ModelProviderInstance>): ResolvedModel => {
   const providerInstances = [...providers];
-  const bindings = model.providers.filter((binding) =>
-    providerInstances.some((instance) =>
-      instance.upstream === binding.upstream &&
-      instance.provider === binding.provider
-    )
-  );
-  const supportedEndpoints = bindings.reduce<ModelEndpoint[]>(
-    (endpoints, binding) =>
-      unionEndpoints(endpoints, binding.upstreamModel.supportedEndpoints),
-    [],
-  );
+  const bindings = model.providers.filter(binding => providerInstances.some(instance => instance.upstream === binding.upstream && instance.provider === binding.provider));
+  const supportedEndpoints = bindings.reduce<ModelEndpoint[]>((endpoints, binding) => unionEndpoints(endpoints, binding.upstreamModel.supportedEndpoints), []);
 
   return {
     ...model,
@@ -148,33 +111,24 @@ const modelWithProviderInstances = (
 export const getModels = async (): Promise<ResolvedModel[]> => {
   const providers = await listModelProviders();
   if (providers.length === 0) {
-    throw new Error(
-      "No upstream provider configured — connect GitHub Copilot or add a custom upstream in the dashboard",
-    );
+    throw new Error('No upstream provider configured — connect GitHub Copilot or add a custom upstream in the dashboard');
   }
 
-  const { models, sawSuccess, lastError } = await collectProviderModels(
-    providers,
-  );
+  const { models, sawSuccess, lastError } = await collectProviderModels(providers);
 
   if (sawSuccess) return models;
   if (lastError) throw lastError;
   return [];
 };
 
-export const getCatalogModels = async (): Promise<CatalogModel[]> =>
-  (await getModels()).map(({ providers: _providers, ...model }) => model);
+export const getCatalogModels = async (): Promise<CatalogModel[]> => (await getModels()).map(({ providers: _providers, ...model }) => model);
 
 export interface ModelResolution {
   id: string;
   model?: ResolvedModel;
 }
 
-const resolveProviderAlias = (
-  providers: readonly ModelProviderInstance[],
-  byId: ReadonlyMap<string, ResolvedModel>,
-  modelId: string,
-): ResolvedModel | undefined => {
+const resolveProviderAlias = (providers: readonly ModelProviderInstance[], byId: ReadonlyMap<string, ResolvedModel>, modelId: string): ResolvedModel | undefined => {
   let resolved: ResolvedModel | undefined;
   const providersForAlias = new Set<ModelProviderInstance>();
 
@@ -186,10 +140,7 @@ const resolveProviderAlias = (
     if (!model) continue;
     if (resolved && resolved.id !== model.id) continue;
 
-    const providerHasModel = model.providers.some((binding) =>
-      binding.upstream === instance.upstream &&
-      binding.provider === instance.provider
-    );
+    const providerHasModel = model.providers.some(binding => binding.upstream === instance.upstream && binding.provider === instance.provider);
     if (!providerHasModel) continue;
 
     resolved = model;
@@ -200,18 +151,14 @@ const resolveProviderAlias = (
   return modelWithProviderInstances(resolved, providersForAlias);
 };
 
-export const resolveModelForRequest = async (
-  modelId: string,
-): Promise<ModelResolution> => {
+export const resolveModelForRequest = async (modelId: string): Promise<ModelResolution> => {
   const providers = await listModelProviders();
   if (providers.length === 0) {
-    throw new Error(
-      "No upstream provider configured — connect GitHub Copilot or add a custom upstream in the dashboard",
-    );
+    throw new Error('No upstream provider configured — connect GitHub Copilot or add a custom upstream in the dashboard');
   }
 
   const { models, lastError } = await collectProviderModels(providers);
-  const byId = new Map(models.map((model) => [model.id, model]));
+  const byId = new Map(models.map(model => [model.id, model]));
 
   const exact = byId.get(modelId);
   if (exact) return { id: exact.id, model: exact };

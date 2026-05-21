@@ -2,26 +2,22 @@
 // Supports login with ADMIN_KEY (full dashboard access) or API key (restricted)
 // No sessions, no cookies. All auth via key in every request.
 
-import type { Context } from "hono";
-import { getRepo } from "../../repo/index.ts";
-import type { GitHubAccount } from "../../repo/types.ts";
-import { clearCopilotTokenCache } from "../../shared/copilot.ts";
-import { getEnv } from "../../runtime/env.ts";
-import { clearModelsCache } from "../../data-plane/providers/upstream-model-cache.ts";
-import {
-  detectAccountType,
-  fetchGitHubUser,
-  pollGitHubDeviceFlow,
-  startGitHubDeviceFlow,
-} from "./github-device-flow.ts";
+import type { Context } from 'hono';
 
-type GitHubUser = GitHubAccount["user"];
+import { detectAccountType, fetchGitHubUser, pollGitHubDeviceFlow, startGitHubDeviceFlow } from './github-device-flow.ts';
+import { clearModelsCache } from '../../data-plane/providers/upstream-model-cache.ts';
+import { getRepo } from '../../repo/index.ts';
+import type { GitHubAccount } from '../../repo/types.ts';
+import { getEnv } from '../../runtime/env.ts';
+import { clearCopilotTokenCache } from '../../shared/copilot.ts';
+
+type GitHubUser = GitHubAccount['user'];
 
 /** POST /auth/login — validate ADMIN_KEY or API key */
 export const authLogin = async (c: Context) => {
   try {
     const body = await c.req.json<{ key: string }>();
-    const adminKey = getEnv("ADMIN_KEY");
+    const adminKey = getEnv('ADMIN_KEY');
 
     // ADMIN_KEY login
     if (adminKey && body.key === adminKey) {
@@ -40,7 +36,7 @@ export const authLogin = async (c: Context) => {
       });
     }
 
-    return c.json({ error: "Invalid key" }, 401);
+    return c.json({ error: 'Invalid key' }, 401);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return c.json({ error: msg }, 500);
@@ -72,19 +68,16 @@ export const authGithubPoll = async (c: Context) => {
 
     const data = await pollGitHubDeviceFlow(body.device_code);
 
-    if (data.error === "authorization_pending") {
-      return c.json({ status: "pending" });
+    if (data.error === 'authorization_pending') {
+      return c.json({ status: 'pending' });
     }
 
-    if (data.error === "slow_down") {
-      return c.json({ status: "slow_down", interval: data.interval });
+    if (data.error === 'slow_down') {
+      return c.json({ status: 'slow_down', interval: data.interval });
     }
 
     if (data.error) {
-      return c.json(
-        { status: "error", error: data.error_description ?? data.error },
-        400,
-      );
+      return c.json({ status: 'error', error: data.error_description ?? data.error }, 400);
     }
 
     if (data.access_token) {
@@ -99,10 +92,10 @@ export const authGithubPoll = async (c: Context) => {
       });
       await clearCopilotTokenCache();
       clearModelsCache();
-      return c.json({ status: "complete", user });
+      return c.json({ status: 'complete', user });
     }
 
-    return c.json({ status: "error", error: "Unknown response" }, 500);
+    return c.json({ status: 'error', error: 'Unknown response' }, 500);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return c.json({ error: msg }, 502);
@@ -113,34 +106,36 @@ export const authGithubPoll = async (c: Context) => {
 export const authMe = async (c: Context) => {
   const accounts = await getRepo().github.listAccounts();
 
-  const refreshedAccounts = await Promise.all(accounts.map(async (account) => {
-    if (account.user.login) return account;
-    try {
-      const userResp = await fetch("https://api.github.com/user", {
-        headers: {
-          authorization: `token ${account.token}`,
-          accept: "application/json",
-          "user-agent": "copilot-gateway",
-        },
-      });
-      if (!userResp.ok) return account;
-      const user = (await userResp.json()) as GitHubUser;
-      await getRepo().github.saveAccount(user.id, {
-        token: account.token,
-        accountType: account.accountType,
-        user,
-      });
-      return { ...account, user };
-    } catch {
-      // Ignore — user just stays as-is.
-      return account;
-    }
-  }));
+  const refreshedAccounts = await Promise.all(
+    accounts.map(async account => {
+      if (account.user.login) return account;
+      try {
+        const userResp = await fetch('https://api.github.com/user', {
+          headers: {
+            authorization: `token ${account.token}`,
+            accept: 'application/json',
+            'user-agent': 'copilot-gateway',
+          },
+        });
+        if (!userResp.ok) return account;
+        const user = (await userResp.json()) as GitHubUser;
+        await getRepo().github.saveAccount(user.id, {
+          token: account.token,
+          accountType: account.accountType,
+          user,
+        });
+        return { ...account, user };
+      } catch {
+        // Ignore — user just stays as-is.
+        return account;
+      }
+    }),
+  );
 
   return c.json({
     authenticated: true,
     github_connected: refreshedAccounts.length > 0,
-    accounts: refreshedAccounts.map((a) => ({
+    accounts: refreshedAccounts.map(a => ({
       id: a.user.id,
       login: a.user.login,
       name: a.user.name,
@@ -156,9 +151,9 @@ export const authMe = async (c: Context) => {
 
 /** DELETE /auth/github/:id — disconnect a specific GitHub account */
 export const authGithubDisconnect = async (c: Context) => {
-  const userId = Number(c.req.param("id"));
+  const userId = Number(c.req.param('id'));
   if (!userId || isNaN(userId)) {
-    return c.json({ error: "Invalid user ID" }, 400);
+    return c.json({ error: 'Invalid user ID' }, 400);
   }
   await getRepo().github.deleteAccount(userId);
   await clearCopilotTokenCache();
@@ -170,19 +165,15 @@ export const authGithubDisconnect = async (c: Context) => {
 export const authGithubOrder = async (c: Context) => {
   const body = await c.req.json<{ user_ids: number[] }>();
   if (!Array.isArray(body.user_ids)) {
-    return c.json({ error: "user_ids is required" }, 400);
+    return c.json({ error: 'user_ids is required' }, 400);
   }
 
   const repo = getRepo().github;
   const accounts = await repo.listAccounts();
-  const accountIds = new Set(accounts.map((account) => account.user.id));
+  const accountIds = new Set(accounts.map(account => account.user.id));
   const requestedIds = new Set(body.user_ids);
-  if (
-    body.user_ids.length !== accounts.length ||
-    requestedIds.size !== body.user_ids.length ||
-    body.user_ids.some((id) => !accountIds.has(id))
-  ) {
-    return c.json({ error: "Invalid GitHub account order" }, 400);
+  if (body.user_ids.length !== accounts.length || requestedIds.size !== body.user_ids.length || body.user_ids.some(id => !accountIds.has(id))) {
+    return c.json({ error: 'Invalid GitHub account order' }, 400);
   }
 
   await repo.setOrder(body.user_ids);

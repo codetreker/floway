@@ -9,7 +9,7 @@ export interface GeminiGenerateContentRequest {
 }
 
 export interface GeminiContent {
-  role?: "user" | "model";
+  role?: 'user' | 'model';
   parts: GeminiPart[];
 }
 
@@ -42,12 +42,12 @@ export interface GeminiGenerationConfig {
 
 export interface GeminiThinkingConfig {
   thinkingBudget?: number;
-  thinkingLevel?: "minimal" | "low" | "medium" | "high" | string;
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high' | string;
   includeThoughts?: boolean;
 }
 
 export interface GeminiFunctionCallingConfig {
-  mode?: "AUTO" | "ANY" | "NONE" | "VALIDATED";
+  mode?: 'AUTO' | 'ANY' | 'NONE' | 'VALIDATED';
   allowedFunctionNames?: string[];
 }
 
@@ -87,14 +87,7 @@ export interface GeminiCandidate {
   index: number;
 }
 
-export type GeminiFinishReason =
-  | "STOP"
-  | "MAX_TOKENS"
-  | "SAFETY"
-  | "RECITATION"
-  | "OTHER"
-  | "MALFORMED_FUNCTION_CALL"
-  | "FINISH_REASON_UNSPECIFIED";
+export type GeminiFinishReason = 'STOP' | 'MAX_TOKENS' | 'SAFETY' | 'RECITATION' | 'OTHER' | 'MALFORMED_FUNCTION_CALL' | 'FINISH_REASON_UNSPECIFIED';
 
 export interface GeminiUsageMetadata {
   promptTokenCount?: number;
@@ -112,6 +105,4 @@ export interface GeminiErrorResponse {
   };
 }
 
-export type GeminiStreamEvent =
-  | GeminiGenerateContentResponse
-  | GeminiErrorResponse;
+export type GeminiStreamEvent = GeminiGenerateContentResponse | GeminiErrorResponse;

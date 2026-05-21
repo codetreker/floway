@@ -1,8 +1,9 @@
-import { test } from "vitest";
-import { assertEquals, assertRejects } from "../../../../test-assert.ts";
-import type { MessagesStreamEventData } from "../../../shared/protocol/messages.ts";
-import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
-import { translateToSourceEvents } from "./events.ts";
+import { test } from 'vitest';
+
+import { translateToSourceEvents } from './events.ts';
+import { assertEquals, assertRejects } from '../../../../test-assert.ts';
+import type { MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
+import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
 
 const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   for await (const _frame of frames) {
@@ -16,74 +17,62 @@ const collect = async <T>(frames: AsyncIterable<T>): Promise<T[]> => {
   return collected;
 };
 
-test("translateToSourceEvents stops after Messages message_stop", async () => {
-  async function* stream(): AsyncGenerator<
-    ProtocolFrame<MessagesStreamEventData>
-  > {
-    yield eventFrame({ type: "message_stop" });
+test('translateToSourceEvents stops after Messages message_stop', async () => {
+  async function* stream(): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {
+    yield eventFrame({ type: 'message_stop' });
     yield eventFrame({
-      type: "error",
+      type: 'error',
       error: {
-        type: "overloaded_error",
-        message: "ignored after message_stop",
+        type: 'overloaded_error',
+        message: 'ignored after message_stop',
       },
     });
   }
 
-  const frames = await collect(
-    translateToSourceEvents(stream(), "resp_123", "gpt-test"),
-  );
+  const frames = await collect(translateToSourceEvents(stream(), 'resp_123', 'gpt-test'));
 
   assertEquals(
-    frames.map((frame) =>
-      frame.type === "event" ? frame.event.type : frame.type
-    ),
-    ["response.completed"],
+    frames.map(frame => (frame.type === 'event' ? frame.event.type : frame.type)),
+    ['response.completed'],
   );
 });
 
-test("translateToSourceEvents translates Messages error terminal and stops", async () => {
-  async function* stream(): AsyncGenerator<
-    ProtocolFrame<MessagesStreamEventData>
-  > {
+test('translateToSourceEvents translates Messages error terminal and stops', async () => {
+  async function* stream(): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {
     yield eventFrame({
-      type: "error",
+      type: 'error',
       error: {
-        type: "overloaded_error",
-        message: "upstream overloaded",
+        type: 'overloaded_error',
+        message: 'upstream overloaded',
       },
     });
-    yield eventFrame({ type: "message_stop" });
+    yield eventFrame({ type: 'message_stop' });
   }
 
-  const frames = await collect(
-    translateToSourceEvents(stream(), "resp_123", "gpt-test"),
-  );
+  const frames = await collect(translateToSourceEvents(stream(), 'resp_123', 'gpt-test'));
 
   assertEquals(frames.length, 1);
   assertEquals(
     frames[0],
     eventFrame({
-      type: "error",
-      message: "upstream overloaded",
-      code: "overloaded_error",
+      type: 'error',
+      message: 'upstream overloaded',
+      code: 'overloaded_error',
       sequence_number: 0,
     }),
   );
 });
 
-test("translateToSourceEvents rejects truncated Messages streams without message_stop", async () => {
-  async function* stream(): AsyncGenerator<
-    ProtocolFrame<MessagesStreamEventData>
-  > {
+test('translateToSourceEvents rejects truncated Messages streams without message_stop', async () => {
+  async function* stream(): AsyncGenerator<ProtocolFrame<MessagesStreamEventData>> {
     yield eventFrame({
-      type: "message_start",
+      type: 'message_start',
       message: {
-        id: "msg_truncated",
-        type: "message",
-        role: "assistant",
+        id: 'msg_truncated',
+        type: 'message',
+        role: 'assistant',
         content: [],
-        model: "claude-test",
+        model: 'claude-test',
         stop_reason: null,
         stop_sequence: null,
         usage: { input_tokens: 1, output_tokens: 0 },
@@ -91,10 +80,5 @@ test("translateToSourceEvents rejects truncated Messages streams without message
     });
   }
 
-  await assertRejects(
-    async () =>
-      await drain(translateToSourceEvents(stream(), "resp_123", "gpt-test")),
-    Error,
-    "Upstream Messages stream ended without a message_stop event.",
-  );
+  await assertRejects(async () => await drain(translateToSourceEvents(stream(), 'resp_123', 'gpt-test')), Error, 'Upstream Messages stream ended without a message_stop event.');
 });

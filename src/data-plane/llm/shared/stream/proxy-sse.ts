@@ -1,5 +1,6 @@
-import type { SSEStreamingApi } from "hono/streaming";
-import type { SseFrame, SseWritableFrame } from "./types.ts";
+import type { SSEStreamingApi } from 'hono/streaming';
+
+import type { SseFrame, SseWritableFrame } from './types.ts';
 
 export const DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS = 15_000;
 
@@ -15,38 +16,31 @@ interface ProxySSEOptions {
 
 type ResolvedProxySSEKeepAliveOptions = Required<ProxySSEKeepAliveOptions>;
 
-type NextFrameResult =
-  | { type: "frame"; result: IteratorResult<SseFrame> }
-  | { type: "next-error"; error: unknown }
-  | { type: "keep-alive" }
-  | { type: "abort" };
+type NextFrameResult = { type: 'frame'; result: IteratorResult<SseFrame> } | { type: 'next-error'; error: unknown } | { type: 'keep-alive' } | { type: 'abort' };
 
-export type StreamCompletion = "eof" | "error" | "cancel";
+export type StreamCompletion = 'eof' | 'error' | 'cancel';
 
-const resolveKeepAliveOptions = (
-  keepAlive: ProxySSEKeepAliveOptions | undefined,
-): ResolvedProxySSEKeepAliveOptions | undefined => {
+const resolveKeepAliveOptions = (keepAlive: ProxySSEKeepAliveOptions | undefined): ResolvedProxySSEKeepAliveOptions | undefined => {
   if (!keepAlive) return undefined;
 
   const intervalMs = keepAlive.intervalMs ?? DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS;
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-    throw new Error("SSE keepalive interval must be a positive number");
+    throw new Error('SSE keepalive interval must be a positive number');
   }
 
   return { intervalMs, frame: keepAlive.frame };
 };
 
 const serializeSSECommentFrame = (comment: string): string =>
-  comment.split(/\r\n|\r|\n/).map((line) => `: ${line}`).join("\n") +
-  "\n\n";
+  `${comment
+    .split(/\r\n|\r|\n/)
+    .map(line => `: ${line}`)
+    .join('\n')}\n\n`;
 
-const writeSSEFrame = async (
-  stream: SSEStreamingApi,
-  frame: SseWritableFrame,
-): Promise<void> => {
+const writeSSEFrame = async (stream: SSEStreamingApi, frame: SseWritableFrame): Promise<void> => {
   if (stream.aborted || stream.closed) return;
 
-  if (frame.type === "sse-comment") {
+  if (frame.type === 'sse-comment') {
     await stream.write(serializeSSECommentFrame(frame.comment));
     return;
   }
@@ -60,17 +54,15 @@ const writeSSEFrame = async (
 const streamAbortPromise = (stream: SSEStreamingApi): Promise<void> => {
   if (stream.aborted || stream.closed) return Promise.resolve();
 
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     stream.onAbort(resolve);
   });
 };
 
-const pendingFrameResult = (
-  pendingNext: Promise<IteratorResult<SseFrame>>,
-): Promise<NextFrameResult> =>
+const pendingFrameResult = (pendingNext: Promise<IteratorResult<SseFrame>>): Promise<NextFrameResult> =>
   pendingNext.then(
-    (result): NextFrameResult => ({ type: "frame", result }),
-    (error): NextFrameResult => ({ type: "next-error", error }),
+    (result): NextFrameResult => ({ type: 'frame', result }),
+    (error): NextFrameResult => ({ type: 'next-error', error }),
   );
 
 const nextFrameOrKeepAlive = async (
@@ -81,10 +73,10 @@ const nextFrameOrKeepAlive = async (
   if (!keepAlive) return await Promise.race([pendingFrame, pendingAbort]);
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const pendingKeepAlive = new Promise<{ type: "keep-alive" }>((resolve) => {
+  const pendingKeepAlive = new Promise<{ type: 'keep-alive' }>(resolve => {
     timeoutId = setTimeout(() => {
       timeoutId = undefined;
-      resolve({ type: "keep-alive" });
+      resolve({ type: 'keep-alive' });
     }, keepAlive.intervalMs);
   });
 
@@ -109,7 +101,7 @@ const drainSSEFrames = async (
   };
   const abortResult = streamAbortPromise(stream).then((): NextFrameResult => {
     abortDownstream();
-    return { type: "abort" };
+    return { type: 'abort' };
   });
   let pendingNext = pendingFrameResult(iterator.next());
   let completed = false;
@@ -124,35 +116,31 @@ const drainSSEFrames = async (
     while (true) {
       if (stream.aborted || stream.closed) {
         stopForDownstream();
-        return "cancel";
+        return 'cancel';
       }
 
-      const next = await nextFrameOrKeepAlive(
-        pendingNext,
-        abortResult,
-        keepAlive,
-      );
+      const next = await nextFrameOrKeepAlive(pendingNext, abortResult, keepAlive);
 
-      if (next.type === "abort") {
+      if (next.type === 'abort') {
         stopForDownstream();
-        return "cancel";
+        return 'cancel';
       }
-      if (next.type === "keep-alive") {
+      if (next.type === 'keep-alive') {
         if (!keepAlive) continue;
         await writeSSEFrame(stream, keepAlive.frame);
         continue;
       }
-      if (next.type === "next-error") {
+      if (next.type === 'next-error') {
         if (stream.aborted || stream.closed) {
           stopForDownstream();
-          return "cancel";
+          return 'cancel';
         }
         throw next.error;
       }
 
       if (next.result.done) {
         completed = true;
-        return "eof";
+        return 'eof';
       }
 
       await writeSSEFrame(stream, next.result.value);
@@ -167,16 +155,7 @@ const drainSSEFrames = async (
   }
 };
 
-export const writeSSEFrames = async (
-  stream: SSEStreamingApi,
-  events: AsyncIterable<SseFrame>,
-  options: ProxySSEOptions = {},
-): Promise<StreamCompletion> => {
+export const writeSSEFrames = async (stream: SSEStreamingApi, events: AsyncIterable<SseFrame>, options: ProxySSEOptions = {}): Promise<StreamCompletion> => {
   const keepAlive = resolveKeepAliveOptions(options.keepAlive);
-  return await drainSSEFrames(
-    stream,
-    events,
-    keepAlive,
-    options.downstreamAbortController,
-  );
+  return await drainSSEFrames(stream, events, keepAlive, options.downstreamAbortController);
 };

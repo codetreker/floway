@@ -1,13 +1,9 @@
-import type { Context } from "hono";
-import {
-  loadSearchConfig,
-  normalizeSearchConfig,
-  saveSearchConfig,
-} from "../../data-plane/tools/web-search/search-config.ts";
-import { testSearchConfigConnection } from "../../data-plane/tools/web-search/provider.ts";
+import type { Context } from 'hono';
 
-export const getSearchConfigRoute = async (c: Context) =>
-  c.json(await loadSearchConfig());
+import { testSearchConfigConnection } from '../../data-plane/tools/web-search/provider.ts';
+import { loadSearchConfig, normalizeSearchConfig, saveSearchConfig } from '../../data-plane/tools/web-search/search-config.ts';
+
+export const getSearchConfigRoute = async (c: Context) => c.json(await loadSearchConfig());
 
 export const putSearchConfigRoute = async (c: Context) => {
   const body: unknown = await c.req.json();

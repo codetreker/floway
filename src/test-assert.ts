@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { expect } from 'vitest';
 
 type ErrorConstructor = new (...args: never[]) => Error;
 
@@ -6,11 +6,7 @@ export function assert(value: unknown, message?: string): asserts value {
   expect(Boolean(value), message).toBe(true);
 }
 
-export function assertEquals(
-  actual: unknown,
-  expected: unknown,
-  message?: string,
-): void {
+export function assertEquals(actual: unknown, expected: unknown, message?: string): void {
   expect(actual, message).toEqual(expected);
 }
 
@@ -18,37 +14,20 @@ export function assertFalse(value: unknown, message?: string): void {
   expect(Boolean(value), message).toBe(false);
 }
 
-export function assertExists<T>(
-  value: T,
-  message?: string,
-): asserts value is NonNullable<T> {
+export function assertExists<T>(value: T, message?: string): asserts value is NonNullable<T> {
   expect(value, message).not.toBeNull();
   expect(value, message).not.toBeUndefined();
 }
 
-export function assertStringIncludes(
-  actual: string,
-  expected: string,
-  message?: string,
-): void {
+export function assertStringIncludes(actual: string, expected: string, message?: string): void {
   expect(actual, message).toContain(expected);
 }
 
-export function assertAlmostEquals(
-  actual: number,
-  expected: number,
-  tolerance = 1e-7,
-  message?: string,
-): void {
+export function assertAlmostEquals(actual: number, expected: number, tolerance = 1e-7, message?: string): void {
   expect(Math.abs(actual - expected), message).toBeLessThanOrEqual(tolerance);
 }
 
-export function assertThrows(
-  fn: () => unknown,
-  errorClass?: ErrorConstructor,
-  messageIncludes?: string,
-  message?: string,
-): Error {
+export function assertThrows(fn: () => unknown, errorClass?: ErrorConstructor, messageIncludes?: string, message?: string): Error {
   try {
     fn();
   } catch (error) {
@@ -56,15 +35,10 @@ export function assertThrows(
     return error as Error;
   }
 
-  throw new Error(message ?? "Expected function to throw");
+  throw new Error(message ?? 'Expected function to throw');
 }
 
-export async function assertRejects(
-  fn: () => Promise<unknown> | unknown,
-  errorClass?: ErrorConstructor,
-  messageIncludes?: string,
-  message?: string,
-): Promise<Error> {
+export async function assertRejects(fn: () => Promise<unknown> | unknown, errorClass?: ErrorConstructor, messageIncludes?: string, message?: string): Promise<Error> {
   try {
     await fn();
   } catch (error) {
@@ -72,21 +46,15 @@ export async function assertRejects(
     return error as Error;
   }
 
-  throw new Error(message ?? "Expected promise to reject");
+  throw new Error(message ?? 'Expected promise to reject');
 }
 
-const assertExpectedError = (
-  error: unknown,
-  errorClass?: ErrorConstructor,
-  messageIncludes?: string,
-  message?: string,
-): void => {
+const assertExpectedError = (error: unknown, errorClass?: ErrorConstructor, messageIncludes?: string, message?: string): void => {
   if (errorClass !== undefined) {
     expect(error, message).toBeInstanceOf(errorClass);
   }
 
   if (messageIncludes !== undefined) {
-    expect(error instanceof Error ? error.message : String(error), message)
-      .toContain(messageIncludes);
+    expect(error instanceof Error ? error.message : String(error), message).toContain(messageIncludes);
   }
 };

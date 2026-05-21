@@ -8,13 +8,13 @@
 // stored `pathOverrides` config so admins can point one endpoint at a subpath
 // without disturbing the others.
 
-import type { EndpointKey } from "../../repo/types.ts";
+import type { EndpointKey } from '../../repo/types.ts';
 
 export interface UpstreamFetchOptions {
   extraHeaders?: Record<string, string>;
 }
 
-export type UpstreamKind = "copilot" | "openai";
+export type UpstreamKind = 'copilot' | 'openai';
 
 export interface Upstream {
   id: string;
@@ -28,9 +28,5 @@ export interface Upstream {
   // low-level setting into ModelProvider.enabledFixes before target emitters
   // assemble optional interceptors.
   enabledFixes: ReadonlySet<string>;
-  fetch(
-    endpoint: EndpointKey,
-    init: RequestInit,
-    options?: UpstreamFetchOptions,
-  ): Promise<Response>;
+  fetch(endpoint: EndpointKey, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response>;
 }

@@ -1,5 +1,5 @@
-import { recordCostUsd } from "./pricing.ts";
-import type { UsageRecord } from "../../repo/types.ts";
+import { recordCostUsd } from './pricing.ts';
+import type { UsageRecord } from '../../repo/types.ts';
 
 export interface DisplayUsageRecord {
   keyId: string;
@@ -13,24 +13,15 @@ export interface DisplayUsageRecord {
   cost: number;
 }
 
-const usageRecordKey = (record: DisplayUsageRecord): string =>
-  `${record.keyId}\0${record.model}\0${record.hour}`;
+const usageRecordKey = (record: DisplayUsageRecord): string => `${record.keyId}\0${record.model}\0${record.hour}`;
 
-export function aggregateUsageForDisplay(
-  records: readonly UsageRecord[],
-): DisplayUsageRecord[] {
+export function aggregateUsageForDisplay(records: readonly UsageRecord[]): DisplayUsageRecord[] {
   const byKey = new Map<string, DisplayUsageRecord>();
 
   for (const record of records) {
     const cacheRead = record.cacheReadTokens ?? 0;
     const cacheCreation = record.cacheCreationTokens ?? 0;
-    const cost = recordCostUsd(
-      record.model,
-      record.inputTokens,
-      record.outputTokens,
-      cacheRead,
-      cacheCreation,
-    );
+    const cost = recordCostUsd(record.model, record.inputTokens, record.outputTokens, cacheRead, cacheCreation);
 
     const displayRecord: DisplayUsageRecord = {
       keyId: record.keyId,
@@ -53,16 +44,10 @@ export function aggregateUsageForDisplay(
     existing.requests += displayRecord.requests;
     existing.inputTokens += displayRecord.inputTokens;
     existing.outputTokens += displayRecord.outputTokens;
-    existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) +
-      (displayRecord.cacheReadTokens ?? 0);
-    existing.cacheCreationTokens = (existing.cacheCreationTokens ?? 0) +
-      (displayRecord.cacheCreationTokens ?? 0);
+    existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + (displayRecord.cacheReadTokens ?? 0);
+    existing.cacheCreationTokens = (existing.cacheCreationTokens ?? 0) + (displayRecord.cacheCreationTokens ?? 0);
     existing.cost += displayRecord.cost;
   }
 
-  return [...byKey.values()].sort((a, b) =>
-    a.hour.localeCompare(b.hour) ||
-    a.keyId.localeCompare(b.keyId) ||
-    a.model.localeCompare(b.model)
-  );
+  return [...byKey.values()].sort((a, b) => a.hour.localeCompare(b.hour) || a.keyId.localeCompare(b.keyId) || a.model.localeCompare(b.model));
 }

@@ -1,14 +1,5 @@
-import type {
-  GeminiGenerateContentRequest,
-  GeminiGenerationConfig,
-  GeminiPart,
-} from "../../../shared/protocol/gemini.ts";
-import type {
-  ResponseInputContent,
-  ResponseInputItem,
-  ResponsesPayload,
-  ResponseTool,
-} from "../../../shared/protocol/responses.ts";
+import type { GeminiGenerateContentRequest, GeminiGenerationConfig, GeminiPart } from '../../../shared/protocol/gemini.ts';
+import type { ResponseInputContent, ResponseInputItem, ResponsesPayload, ResponseTool } from '../../../shared/protocol/responses.ts';
 import {
   geminiFunctionCallingIntent,
   geminiFunctionCallPart,
@@ -22,118 +13,79 @@ import {
   geminiThoughtText,
   type GeminiToolCallIds,
   geminiVisibleText,
-} from "../shared/gemini.ts";
+} from '../shared/gemini.ts';
 
-const flushPendingContent = (
-  input: ResponseInputItem[],
-  pending: ResponseInputContent[],
-  role: "user" | "assistant",
-): void => {
+const flushPendingContent = (input: ResponseInputItem[], pending: ResponseInputContent[], role: 'user' | 'assistant'): void => {
   if (pending.length === 0) return;
-  input.push({ type: "message", role, content: [...pending] });
+  input.push({ type: 'message', role, content: [...pending] });
   pending.length = 0;
 };
 
-const inlineDataToInputImage = (
-  part: GeminiPart,
-): ResponseInputContent | null => {
+const inlineDataToInputImage = (part: GeminiPart): ResponseInputContent | null => {
   const imageUrl = geminiInlineDataUrl(part);
   if (imageUrl === null) return null;
 
   return {
-    type: "input_image",
+    type: 'input_image',
     image_url: imageUrl,
-    detail: "auto",
+    detail: 'auto',
   };
 };
 
-const buildFunctionCallOutput = (
-  part: GeminiPart,
-  turnIndex: number,
-  partIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): ResponseInputItem | null => {
-  const functionResponsePart = geminiFunctionResponsePart(
-    part,
-    unmatchedToolCallIds,
-    turnIndex,
-    partIndex,
-  );
+const buildFunctionCallOutput = (part: GeminiPart, turnIndex: number, partIndex: number, unmatchedToolCallIds: GeminiToolCallIds): ResponseInputItem | null => {
+  const functionResponsePart = geminiFunctionResponsePart(part, unmatchedToolCallIds, turnIndex, partIndex);
   if (!functionResponsePart) return null;
 
   return {
-    type: "function_call_output",
+    type: 'function_call_output',
     call_id: functionResponsePart.id,
     output: JSON.stringify(functionResponsePart.response.response),
-    status: "completed",
+    status: 'completed',
   };
 };
 
-const buildFunctionCall = (
-  part: GeminiPart,
-  turnIndex: number,
-  partIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): ResponseInputItem | null => {
-  const functionCallPart = geminiFunctionCallPart(
-    part,
-    unmatchedToolCallIds,
-    turnIndex,
-    partIndex,
-  );
+const buildFunctionCall = (part: GeminiPart, turnIndex: number, partIndex: number, unmatchedToolCallIds: GeminiToolCallIds): ResponseInputItem | null => {
+  const functionCallPart = geminiFunctionCallPart(part, unmatchedToolCallIds, turnIndex, partIndex);
   if (!functionCallPart) return null;
 
   return {
-    type: "function_call",
+    type: 'function_call',
     call_id: functionCallPart.id,
     name: functionCallPart.call.name,
     arguments: JSON.stringify(functionCallPart.call.args),
-    status: "completed",
+    status: 'completed',
   };
 };
 
-const buildReasoningItem = (
-  part: GeminiPart,
-  turnIndex: number,
-  partIndex: number,
-): ResponseInputItem | null => {
-  const text = geminiThoughtText(part) ?? "";
+const buildReasoningItem = (part: GeminiPart, turnIndex: number, partIndex: number): ResponseInputItem | null => {
+  const text = geminiThoughtText(part) ?? '';
   const hasSignature = part.thoughtSignature !== undefined;
 
   if (!text && !hasSignature) return null;
 
   return {
-    type: "reasoning",
+    type: 'reasoning',
     id: geminiReasoningId(turnIndex, partIndex),
-    summary: text ? [{ type: "summary_text", text }] : [],
+    summary: text ? [{ type: 'summary_text', text }] : [],
     ...(hasSignature ? { encrypted_content: part.thoughtSignature } : {}),
   };
 };
 
-const buildUserInputItems = (
-  content: NonNullable<GeminiGenerateContentRequest["contents"]>[number],
-  turnIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): ResponseInputItem[] => {
+const buildUserInputItems = (content: NonNullable<GeminiGenerateContentRequest['contents']>[number], turnIndex: number, unmatchedToolCallIds: GeminiToolCallIds): ResponseInputItem[] => {
   const input: ResponseInputItem[] = [];
   const pendingContent: ResponseInputContent[] = [];
 
   content.parts.forEach((part, partIndex) => {
-    const functionOutput = buildFunctionCallOutput(
-      part,
-      turnIndex,
-      partIndex,
-      unmatchedToolCallIds,
-    );
+    const functionOutput = buildFunctionCallOutput(part, turnIndex, partIndex, unmatchedToolCallIds);
     if (functionOutput) {
-      flushPendingContent(input, pendingContent, "user");
+      flushPendingContent(input, pendingContent, 'user');
       input.push(functionOutput);
       return;
     }
 
     const text = geminiPartText(part);
     if (text !== null) {
-      pendingContent.push({ type: "input_text", text });
+      pendingContent.push({ type: 'input_text', text });
       return;
     }
 
@@ -141,51 +93,39 @@ const buildUserInputItems = (
     if (image) pendingContent.push(image);
   });
 
-  flushPendingContent(input, pendingContent, "user");
+  flushPendingContent(input, pendingContent, 'user');
   return input;
 };
 
-const buildAssistantInputItems = (
-  content: NonNullable<GeminiGenerateContentRequest["contents"]>[number],
-  turnIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): ResponseInputItem[] => {
+const buildAssistantInputItems = (content: NonNullable<GeminiGenerateContentRequest['contents']>[number], turnIndex: number, unmatchedToolCallIds: GeminiToolCallIds): ResponseInputItem[] => {
   const input: ResponseInputItem[] = [];
   const pendingContent: ResponseInputContent[] = [];
 
   content.parts.forEach((part, partIndex) => {
     const reasoning = buildReasoningItem(part, turnIndex, partIndex);
     if (reasoning) {
-      flushPendingContent(input, pendingContent, "assistant");
+      flushPendingContent(input, pendingContent, 'assistant');
       input.push(reasoning);
 
       if (part.thought === true && !part.functionCall) return;
     }
 
-    const functionCall = buildFunctionCall(
-      part,
-      turnIndex,
-      partIndex,
-      unmatchedToolCallIds,
-    );
+    const functionCall = buildFunctionCall(part, turnIndex, partIndex, unmatchedToolCallIds);
     if (functionCall) {
-      flushPendingContent(input, pendingContent, "assistant");
+      flushPendingContent(input, pendingContent, 'assistant');
       input.push(functionCall);
       return;
     }
 
     const text = geminiVisibleText(part);
-    if (text !== null) pendingContent.push({ type: "output_text", text });
+    if (text !== null) pendingContent.push({ type: 'output_text', text });
   });
 
-  flushPendingContent(input, pendingContent, "assistant");
+  flushPendingContent(input, pendingContent, 'assistant');
   return input;
 };
 
-const applyGenerationConfig = (
-  request: ResponsesPayload,
-  generationConfig?: GeminiGenerationConfig,
-): void => {
+const applyGenerationConfig = (request: ResponsesPayload, generationConfig?: GeminiGenerationConfig): void => {
   if (!generationConfig) return;
 
   if (generationConfig.maxOutputTokens !== undefined) {
@@ -201,15 +141,15 @@ const applyGenerationConfig = (
   if (generationConfig.responseSchema !== undefined) {
     request.text = {
       format: {
-        type: "json_schema",
+        type: 'json_schema',
         json_schema: {
-          name: "gemini_response",
+          name: 'gemini_response',
           schema: generationConfig.responseSchema,
         },
       },
     };
-  } else if (generationConfig.responseMimeType === "application/json") {
-    request.text = { format: { type: "json_object" } };
+  } else if (generationConfig.responseMimeType === 'application/json') {
+    request.text = { format: { type: 'json_object' } };
   }
 
   const effort = geminiReasoningEffort(generationConfig.thinkingConfig);
@@ -217,35 +157,23 @@ const applyGenerationConfig = (
 
   request.reasoning = {
     effort,
-    ...(effort !== "none" &&
-        generationConfig.thinkingConfig?.includeThoughts === true
-      ? { summary: "detailed" as const }
-      : {}),
+    ...(effort !== 'none' && generationConfig.thinkingConfig?.includeThoughts === true ? { summary: 'detailed' as const } : {}),
   };
 };
 
-const buildTools = (
-  payload: GeminiGenerateContentRequest,
-): ResponseTool[] | undefined => {
-  const tools = geminiFunctionDeclarations(payload, "any")
-    .map((declaration) => ({
-      type: "function" as const,
-      name: declaration.name,
-      ...(declaration.description !== undefined
-        ? { description: declaration.description }
-        : {}),
-      parameters: declaration.parameters ?? { type: "object", properties: {} },
-      strict: false,
-    }));
+const buildTools = (payload: GeminiGenerateContentRequest): ResponseTool[] | undefined => {
+  const tools = geminiFunctionDeclarations(payload, 'any').map(declaration => ({
+    type: 'function' as const,
+    name: declaration.name,
+    ...(declaration.description !== undefined ? { description: declaration.description } : {}),
+    parameters: declaration.parameters ?? { type: 'object', properties: {} },
+    strict: false,
+  }));
 
   return tools.length ? tools : undefined;
 };
 
-export const buildTargetRequest = (
-  payload: GeminiGenerateContentRequest,
-  model: string,
-  wantsStream: boolean,
-): ResponsesPayload => {
+export const buildTargetRequest = (payload: GeminiGenerateContentRequest, model: string, wantsStream: boolean): ResponsesPayload => {
   const request: ResponsesPayload = {
     model,
     stream: wantsStream,
@@ -258,11 +186,7 @@ export const buildTargetRequest = (
 
   const input = request.input as ResponseInputItem[];
   payload.contents?.forEach((content, turnIndex) => {
-    input.push(
-      ...(content.role === "model"
-        ? buildAssistantInputItems(content, turnIndex, unmatchedToolCallIds)
-        : buildUserInputItems(content, turnIndex, unmatchedToolCallIds)),
-    );
+    input.push(...(content.role === 'model' ? buildAssistantInputItems(content, turnIndex, unmatchedToolCallIds) : buildUserInputItems(content, turnIndex, unmatchedToolCallIds)));
   });
 
   applyGenerationConfig(request, payload.generationConfig);
@@ -271,22 +195,20 @@ export const buildTargetRequest = (
   if (tools) {
     request.tools = tools;
 
-    const intent = geminiFunctionCallingIntent(
-      payload.toolConfig?.functionCallingConfig,
-    );
+    const intent = geminiFunctionCallingIntent(payload.toolConfig?.functionCallingConfig);
     switch (intent?.type) {
-      case "none":
-        request.tool_choice = "none";
-        break;
-      case "auto":
-        request.tool_choice = "auto";
-        break;
-      case "any":
-        request.tool_choice = "required";
-        break;
-      case "named":
-        request.tool_choice = { type: "function", name: intent.name };
-        break;
+    case 'none':
+      request.tool_choice = 'none';
+      break;
+    case 'auto':
+      request.tool_choice = 'auto';
+      break;
+    case 'any':
+      request.tool_choice = 'required';
+      break;
+    case 'named':
+      request.tool_choice = { type: 'function', name: intent.name };
+      break;
     }
   }
 

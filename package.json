@@ -6,6 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply copilot-db",
+    "lint": "eslint --cache .",
+    "lint:fix": "eslint --cache . --fix",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -15,6 +17,14 @@
     "hono": "^4"
   },
   "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@stylistic/eslint-plugin": "5.6.1",
+    "@typescript-eslint/eslint-plugin": "8.48.1",
+    "@typescript-eslint/parser": "8.48.1",
+    "eslint": "9.39.1",
+    "eslint-import-resolver-typescript": "4.4.4",
+    "eslint-plugin-import": "2.32.0",
+    "jiti": "2.6.1",
     "typescript": "^5.9.3",
     "vitest": "4.0.18",
     "wrangler": "^4.81.0"

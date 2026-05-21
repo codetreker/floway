@@ -1,20 +1,10 @@
-import type { ChatCompletionsPayload } from "../shared/protocol/chat-completions.ts";
-import type { EmbeddingsPayload } from "../shared/protocol/embeddings.ts";
-import type { MessagesPayload } from "../shared/protocol/messages.ts";
-import type { ResponsesPayload } from "../shared/protocol/responses.ts";
-import type {
-  ChatCompletionsInterceptor,
-  GeminiInterceptor,
-  MessagesInterceptor,
-  ResponsesInterceptor,
-} from "../llm/interceptors.ts";
+import type { ChatCompletionsInterceptor, GeminiInterceptor, MessagesInterceptor, ResponsesInterceptor } from '../llm/interceptors.ts';
+import type { ChatCompletionsPayload } from '../shared/protocol/chat-completions.ts';
+import type { EmbeddingsPayload } from '../shared/protocol/embeddings.ts';
+import type { MessagesPayload } from '../shared/protocol/messages.ts';
+import type { ResponsesPayload } from '../shared/protocol/responses.ts';
 
-export type ModelEndpoint =
-  | "chat_completions"
-  | "responses"
-  | "messages"
-  | "messages_count_tokens"
-  | "embeddings";
+export type ModelEndpoint = 'chat_completions' | 'responses' | 'messages' | 'messages_count_tokens' | 'embeddings';
 
 export interface ModelMetadata {
   id: string;
@@ -109,31 +99,9 @@ export interface ProviderCallResult {
 
 export interface ModelProvider {
   getProvidedModels(): Promise<readonly UpstreamModel[]>;
-  callChatCompletions(
-    model: UpstreamModel,
-    body: Omit<ChatCompletionsPayload, "model">,
-    signal?: AbortSignal,
-  ): Promise<ProviderCallResult>;
-  callResponses(
-    model: UpstreamModel,
-    body: Omit<ResponsesPayload, "model">,
-    signal?: AbortSignal,
-  ): Promise<ProviderCallResult>;
-  callMessages(
-    model: UpstreamModel,
-    body: Omit<MessagesPayload, "model">,
-    signal?: AbortSignal,
-    anthropicBeta?: readonly string[],
-  ): Promise<ProviderCallResult>;
-  callMessagesCountTokens(
-    model: UpstreamModel,
-    body: Omit<MessagesPayload, "model">,
-    signal?: AbortSignal,
-    anthropicBeta?: readonly string[],
-  ): Promise<ProviderCallResult>;
-  callEmbeddings(
-    model: UpstreamModel,
-    body: Omit<EmbeddingsPayload, "model">,
-    signal?: AbortSignal,
-  ): Promise<ProviderCallResult>;
+  callChatCompletions(model: UpstreamModel, body: Omit<ChatCompletionsPayload, 'model'>, signal?: AbortSignal): Promise<ProviderCallResult>;
+  callResponses(model: UpstreamModel, body: Omit<ResponsesPayload, 'model'>, signal?: AbortSignal): Promise<ProviderCallResult>;
+  callMessages(model: UpstreamModel, body: Omit<MessagesPayload, 'model'>, signal?: AbortSignal, anthropicBeta?: readonly string[]): Promise<ProviderCallResult>;
+  callMessagesCountTokens(model: UpstreamModel, body: Omit<MessagesPayload, 'model'>, signal?: AbortSignal, anthropicBeta?: readonly string[]): Promise<ProviderCallResult>;
+  callEmbeddings(model: UpstreamModel, body: Omit<EmbeddingsPayload, 'model'>, signal?: AbortSignal): Promise<ProviderCallResult>;
 }

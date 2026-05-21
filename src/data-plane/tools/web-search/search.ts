@@ -1,10 +1,6 @@
-import type { WebSearchProvider } from "./provider.ts";
-import type {
-  WebSearchProviderName,
-  WebSearchProviderRequest,
-  WebSearchProviderResult,
-} from "./types.ts";
-import { recordWebSearchUsage } from "./usage.ts";
+import type { WebSearchProvider } from './provider.ts';
+import type { WebSearchProviderName, WebSearchProviderRequest, WebSearchProviderResult } from './types.ts';
+import { recordWebSearchUsage } from './usage.ts';
 
 export const searchWebAndRecordUsage = async (opts: {
   provider: WebSearchProvider;
@@ -18,12 +14,9 @@ export const searchWebAndRecordUsage = async (opts: {
     try {
       await recordWebSearchUsage(opts.keyId, opts.providerName, 1);
     } catch (error) {
-      console.error("Web search usage record error:", error);
+      console.error('Web search usage record error:', error);
     }
   }
 };
 
-export const searchWebWithoutRecordingUsage = async (opts: {
-  provider: WebSearchProvider;
-  request: WebSearchProviderRequest;
-}): Promise<WebSearchProviderResult> => await opts.provider(opts.request);
+export const searchWebWithoutRecordingUsage = async (opts: { provider: WebSearchProvider; request: WebSearchProviderRequest }): Promise<WebSearchProviderResult> => await opts.provider(opts.request);

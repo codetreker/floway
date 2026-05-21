@@ -222,7 +222,11 @@ stored API key. Mutating key APIs and GitHub account management are admin-only;
 - Keep fallback semantics strict; do not add synthetic defaults for convenience.
 - Avoid `catch` for normal control flow. Use it at real boundaries: fetch,
   parsing, probing, top-level request guards, and explicit workaround retries.
-- Prefer functional TypeScript, arrow functions, double quotes, and semicolons.
+- Prefer functional TypeScript, arrow functions, single quotes, and semicolons.
+- ESLint is the source of truth for import order and code style. Use
+  `pnpm run lint:fix` for mechanical cleanup, and keep the existing compact
+  handwritten wrapping style instead of reintroducing Deno fmt-style hard
+  column wrapping.
 - Do not extract tiny one-off helpers unless they encode a real domain rule, are
   reused, materially simplify a flow, or need isolated tests.
 - Comment only non-obvious decisions, upstream quirks, protocol mismatches, or
@@ -235,6 +239,7 @@ Primary commands:
 
 ```bash
 pnpm run test
+pnpm run lint
 pnpm run typecheck
 pnpm run dev
 pnpm run deploy

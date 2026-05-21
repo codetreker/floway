@@ -1,42 +1,25 @@
-import type { Context } from "hono";
-import type {
-  ChatCompletionChunk,
-  ChatCompletionsPayload,
-} from "../../../shared/protocol/chat-completions.ts";
-import type { ProviderModelRecord } from "../../../providers/types.ts";
-import { getModelCapabilities } from "../../../providers/capabilities.ts";
-import { resolveModelForRequest } from "../../../providers/registry.ts";
-import {
-  type ChatCompletionsInterceptor,
-  runInterceptors,
-} from "../../interceptors.ts";
-import type { StreamExecuteResult } from "../../shared/errors/result.ts";
-import { planChatRequest } from "./plan.ts";
-import { buildTargetRequest as buildMessagesTargetRequest } from "../../translate/chat-completions-via-messages/request.ts";
-import { buildTargetRequest as buildResponsesTargetRequest } from "../../translate/chat-completions-via-responses/request.ts";
-import { emitToMessages } from "../../targets/messages/emit.ts";
-import { emitToResponses } from "../../targets/responses/emit.ts";
-import { emitToChatCompletions } from "../../targets/chat-completions/emit.ts";
-import { translateToSourceEvents as translateMessagesToSourceEvents } from "../../translate/chat-completions-via-messages/events.ts";
-import { translateToSourceEvents as translateResponsesToSourceEvents } from "../../translate/chat-completions-via-responses/events.ts";
-import { respondChatCompletions } from "./respond.ts";
-import {
-  createSourceExecutionContext,
-  openAiMissingModelResult,
-  openAiUnsupportedEndpointResult,
-  sourceErrorResult,
-  sourceExchangeMeta,
-  sourceTargetInput,
-} from "../execute.ts";
+import type { Context } from 'hono';
 
-const chatSourceInterceptorsForProvider = (
-  binding: ProviderModelRecord,
-): readonly ChatCompletionsInterceptor[] =>
-  binding.sourceInterceptors?.chatCompletions ?? [];
+import { planChatRequest } from './plan.ts';
+import { respondChatCompletions } from './respond.ts';
+import { getModelCapabilities } from '../../../providers/capabilities.ts';
+import { resolveModelForRequest } from '../../../providers/registry.ts';
+import type { ProviderModelRecord } from '../../../providers/types.ts';
+import type { ChatCompletionChunk, ChatCompletionsPayload } from '../../../shared/protocol/chat-completions.ts';
+import { type ChatCompletionsInterceptor, runInterceptors } from '../../interceptors.ts';
+import type { StreamExecuteResult } from '../../shared/errors/result.ts';
+import { emitToChatCompletions } from '../../targets/chat-completions/emit.ts';
+import { emitToMessages } from '../../targets/messages/emit.ts';
+import { emitToResponses } from '../../targets/responses/emit.ts';
+import { translateToSourceEvents as translateMessagesToSourceEvents } from '../../translate/chat-completions-via-messages/events.ts';
+import { buildTargetRequest as buildMessagesTargetRequest } from '../../translate/chat-completions-via-messages/request.ts';
+import { translateToSourceEvents as translateResponsesToSourceEvents } from '../../translate/chat-completions-via-responses/events.ts';
+import { buildTargetRequest as buildResponsesTargetRequest } from '../../translate/chat-completions-via-responses/request.ts';
+import { createSourceExecutionContext, openAiMissingModelResult, openAiUnsupportedEndpointResult, sourceErrorResult, sourceExchangeMeta, sourceTargetInput } from '../execute.ts';
 
-export const serveChatCompletions = async (
-  c: Context,
-): Promise<Response> => {
+const chatSourceInterceptorsForProvider = (binding: ProviderModelRecord): readonly ChatCompletionsInterceptor[] => binding.sourceInterceptors?.chatCompletions ?? [];
+
+export const serveChatCompletions = async (c: Context): Promise<Response> => {
   const source = createSourceExecutionContext(c);
   // Target interceptors may force upstream usage for gateway accounting, but
   // Chat SSE exposes usage only when the caller requested `include_usage`.
@@ -47,9 +30,7 @@ export const serveChatCompletions = async (
     const wantsStream = payload.stream === true;
     source.beginDownstream(wantsStream);
 
-    const { id: model, model: resolved } = await resolveModelForRequest(
-      payload.model,
-    );
+    const { id: model, model: resolved } = await resolveModelForRequest(payload.model);
     let result: StreamExecuteResult<ChatCompletionChunk> | undefined;
 
     if (!resolved) {
@@ -63,98 +44,49 @@ export const serveChatCompletions = async (
         if (!plan) continue;
 
         const sourceCtx = {
-          ...sourceExchangeMeta(
-            source,
-            binding,
-            "chat-completions",
-            plan.target,
-            model,
-          ),
+          ...sourceExchangeMeta(source, binding, 'chat-completions', plan.target, model),
           payload: attemptPayload,
         };
 
-        result = await runInterceptors(
-          sourceCtx,
-          chatSourceInterceptorsForProvider(binding),
-          async () => {
-            const payload = sourceCtx.payload;
+        result = await runInterceptors(sourceCtx, chatSourceInterceptorsForProvider(binding), async () => {
+          const payload = sourceCtx.payload;
 
-            if (plan.target === "messages") {
-              const targetPayload = await buildMessagesTargetRequest(
-                payload,
-                capabilities,
-              );
-              const targetResult = source.rememberPerformance(
-                await emitToMessages(sourceTargetInput(
-                  source,
-                  binding,
-                  "chat-completions",
-                  "messages",
-                  model,
-                  targetPayload,
-                  wantsStream,
-                )),
-              );
-              return targetResult.type === "events"
-                ? {
+          if (plan.target === 'messages') {
+            const targetPayload = await buildMessagesTargetRequest(payload, capabilities);
+            const targetResult = source.rememberPerformance(await emitToMessages(sourceTargetInput(source, binding, 'chat-completions', 'messages', model, targetPayload, wantsStream)));
+            return targetResult.type === 'events'
+              ? {
                   ...targetResult,
                   events: translateMessagesToSourceEvents(targetResult.events),
                 }
-                : targetResult;
-            }
+              : targetResult;
+          }
 
-            if (plan.target === "responses") {
-              const targetPayload = buildResponsesTargetRequest(payload);
-              const targetResult = source.rememberPerformance(
-                await emitToResponses(sourceTargetInput(
-                  source,
-                  binding,
-                  "chat-completions",
-                  "responses",
-                  model,
-                  targetPayload,
-                  wantsStream,
-                )),
-              );
-              return targetResult.type === "events"
-                ? {
+          if (plan.target === 'responses') {
+            const targetPayload = buildResponsesTargetRequest(payload);
+            const targetResult = source.rememberPerformance(await emitToResponses(sourceTargetInput(source, binding, 'chat-completions', 'responses', model, targetPayload, wantsStream)));
+            return targetResult.type === 'events'
+              ? {
                   ...targetResult,
                   events: translateResponsesToSourceEvents(targetResult.events),
                 }
-                : targetResult;
-            }
+              : targetResult;
+          }
 
-            return source.rememberPerformance(
-              await emitToChatCompletions(sourceTargetInput(
-                source,
-                binding,
-                "chat-completions",
-                "chat-completions",
-                model,
-                payload,
-                wantsStream,
-              )),
-            );
-          },
-        );
+          return source.rememberPerformance(await emitToChatCompletions(sourceTargetInput(source, binding, 'chat-completions', 'chat-completions', model, payload, wantsStream)));
+        });
         break;
       }
 
-      result ??= openAiUnsupportedEndpointResult(model, "/chat/completions");
+      result ??= openAiUnsupportedEndpointResult(model, '/chat/completions');
     }
 
-    return await respondChatCompletions(
-      c,
-      result,
-      wantsStream,
-      includeUsageChunk,
-      source,
-    );
+    return await respondChatCompletions(c, result, wantsStream, includeUsageChunk, source);
   } catch (error) {
     return await respondChatCompletions(
       c,
       sourceErrorResult(error, {
-        sourceApi: "chat-completions",
+        sourceApi: 'chat-completions',
         internalStatus: 502,
         lastPerformance: source.lastPerformance,
       }),

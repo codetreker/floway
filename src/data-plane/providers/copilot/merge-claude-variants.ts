@@ -23,20 +23,17 @@
 // questions. restricted_to is a union for the same reason: a permissive view
 // for clients that do happen to read it; upstream still enforces real access.
 
-import { copilotPublicModelId } from "./model-name.ts";
-import type { CopilotModelsResponse, CopilotRawModel } from "./types.ts";
+import { copilotPublicModelId } from './model-name.ts';
+import type { CopilotModelsResponse, CopilotRawModel } from './types.ts';
 
-const isClaudeModel = (model: CopilotRawModel): boolean =>
-  model.id.startsWith("claude-");
+const isClaudeModel = (model: CopilotRawModel): boolean => model.id.startsWith('claude-');
 
 const maxOf = (...values: (number | undefined)[]): number | undefined => {
-  const defined = values.filter((v): v is number => typeof v === "number");
+  const defined = values.filter((v): v is number => typeof v === 'number');
   return defined.length > 0 ? Math.max(...defined) : undefined;
 };
 
-const unionStrings = (
-  ...lists: (readonly string[] | undefined)[]
-): string[] | undefined => {
+const unionStrings = (...lists: (readonly string[] | undefined)[]): string[] | undefined => {
   // Returns undefined when no source had the field at all, vs [] when at least
   // one source had it explicitly empty. Callers (e.g. billing.restricted_to)
   // use the absent/present distinction to decide whether to set the key.
@@ -52,7 +49,7 @@ const unionStrings = (
 
 const pickBase = (variants: CopilotRawModel[]): CopilotRawModel => {
   const baseId = copilotPublicModelId(variants[0].id);
-  const exact = variants.find((m) => m.id === baseId);
+  const exact = variants.find(m => m.id === baseId);
   if (exact) return exact;
   // No exact base id (e.g. only suffixed variants exist); pick the shortest id
   // so the variant closest to the base wins.
@@ -77,31 +74,19 @@ const mergeVariantGroup = (variants: CopilotRawModel[]): CopilotRawModel => {
       family: baseId,
       limits: {
         ...limits,
-        max_context_window_tokens: maxOf(
-          ...variants.map((v) =>
-            v.capabilities?.limits?.max_context_window_tokens
-          ),
-        ),
-        max_prompt_tokens: maxOf(
-          ...variants.map((v) => v.capabilities?.limits?.max_prompt_tokens),
-        ),
-        max_output_tokens: maxOf(
-          ...variants.map((v) => v.capabilities?.limits?.max_output_tokens),
-        ),
+        max_context_window_tokens: maxOf(...variants.map(v => v.capabilities?.limits?.max_context_window_tokens)),
+        max_prompt_tokens: maxOf(...variants.map(v => v.capabilities?.limits?.max_prompt_tokens)),
+        max_output_tokens: maxOf(...variants.map(v => v.capabilities?.limits?.max_output_tokens)),
       },
       supports: {
         ...supports,
-        reasoning_effort: unionStrings(
-          ...variants.map((v) => v.capabilities?.supports?.reasoning_effort),
-        ),
+        reasoning_effort: unionStrings(...variants.map(v => v.capabilities?.supports?.reasoning_effort)),
       },
     },
   };
 
   if (base.billing) {
-    const restrictedUnion = unionStrings(
-      ...variants.map((v) => v.billing?.restricted_to),
-    );
+    const restrictedUnion = unionStrings(...variants.map(v => v.billing?.restricted_to));
     merged.billing = {
       ...base.billing,
       ...(restrictedUnion ? { restricted_to: restrictedUnion } : {}),
@@ -111,16 +96,12 @@ const mergeVariantGroup = (variants: CopilotRawModel[]): CopilotRawModel => {
   return merged;
 };
 
-export const mergeClaudeVariants = (
-  models: CopilotModelsResponse,
-): CopilotModelsResponse => {
+export const mergeClaudeVariants = (models: CopilotModelsResponse): CopilotModelsResponse => {
   const groups = new Map<string, CopilotRawModel[]>();
   const order: string[] = [];
 
   for (const model of models.data) {
-    const key = isClaudeModel(model)
-      ? copilotPublicModelId(model.id)
-      : model.id;
+    const key = isClaudeModel(model) ? copilotPublicModelId(model.id) : model.id;
     if (!groups.has(key)) {
       groups.set(key, []);
       order.push(key);
@@ -130,6 +111,6 @@ export const mergeClaudeVariants = (
 
   return {
     object: models.object,
-    data: order.map((key) => mergeVariantGroup(groups.get(key)!)),
+    data: order.map(key => mergeVariantGroup(groups.get(key)!)),
   };
 };

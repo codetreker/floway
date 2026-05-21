@@ -1,41 +1,23 @@
-import { chatCompletionsErrorPayloadMessage } from "../../../shared/protocol/chat-completions-errors.ts";
-import type {
-  ChatCompletionChunk,
-  Delta,
-} from "../../../shared/protocol/chat-completions.ts";
-import type {
-  GeminiCandidate,
-  GeminiGenerateContentResponse,
-  GeminiPart,
-  GeminiStreamEvent,
-  GeminiUsageMetadata,
-} from "../../../shared/protocol/gemini.ts";
-import { eventFrame, type ProtocolFrame } from "../../shared/stream/types.ts";
-import {
-  appendGeminiThoughtSignature,
-  flushGeminiThoughtSignature,
-  type GeminiThoughtSignatureState,
-  parseStrictJsonObject,
-  signGeminiPart,
-} from "../shared/gemini.ts";
-import { mapFinishReason, mapUsage } from "./result.ts";
+import { mapFinishReason, mapUsage } from './result.ts';
+import { chatCompletionsErrorPayloadMessage } from '../../../shared/protocol/chat-completions-errors.ts';
+import type { ChatCompletionChunk, Delta } from '../../../shared/protocol/chat-completions.ts';
+import type { GeminiCandidate, GeminiGenerateContentResponse, GeminiPart, GeminiStreamEvent, GeminiUsageMetadata } from '../../../shared/protocol/gemini.ts';
+import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
+import { appendGeminiThoughtSignature, flushGeminiThoughtSignature, type GeminiThoughtSignatureState, parseStrictJsonObject, signGeminiPart } from '../shared/gemini.ts';
 
-const UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE =
-  "Upstream Chat Completions stream ended without a DONE sentinel.";
+const UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE = 'Upstream Chat Completions stream ended without a DONE sentinel.';
 
-const upstreamChatCompletionEventsUntilDone = async function* (
-  frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
-): AsyncGenerator<ChatCompletionChunk> {
+const upstreamChatCompletionEventsUntilDone = async function* (frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>): AsyncGenerator<ChatCompletionChunk> {
   for await (const frame of frames) {
-    if (frame.type === "done") return;
+    if (frame.type === 'done') return;
     yield frame.event;
   }
 
   throw new Error(UPSTREAM_CHAT_COMPLETIONS_MISSING_DONE_MESSAGE);
 };
 
-type ChatStreamChoice = ChatCompletionChunk["choices"][0];
-type ChatToolCallDelta = NonNullable<Delta["tool_calls"]>[0];
+type ChatStreamChoice = ChatCompletionChunk['choices'][0];
+type ChatToolCallDelta = NonNullable<Delta['tool_calls']>[0];
 
 interface ChatToolCallDraft {
   id?: string;
@@ -47,20 +29,14 @@ interface ChoiceState extends GeminiThoughtSignatureState {
   toolCalls: Record<number, ChatToolCallDraft>;
 }
 
-const getChoiceState = (
-  states: Record<number, ChoiceState>,
-  index: number,
-): ChoiceState => {
+const getChoiceState = (states: Record<number, ChoiceState>, index: number): ChoiceState => {
   states[index] ??= { toolCalls: {} };
   return states[index];
 };
 
-const accumulateToolCalls = (
-  toolCalls: ChatToolCallDelta[],
-  state: ChoiceState,
-): void => {
+const accumulateToolCalls = (toolCalls: ChatToolCallDelta[], state: ChoiceState): void => {
   for (const toolCall of toolCalls) {
-    const current = state.toolCalls[toolCall.index] ??= { argsJson: "" };
+    const current = (state.toolCalls[toolCall.index] ??= { argsJson: '' });
     if (toolCall.id !== undefined) current.id = toolCall.id;
     if (toolCall.function?.name !== undefined) {
       current.name = toolCall.function.name;
@@ -74,47 +50,37 @@ const accumulateToolCalls = (
 const flushToolCallParts = (state: ChoiceState): GeminiPart[] => {
   const parts: GeminiPart[] = [];
 
-  for (
-    const [_index, toolCall] of Object.entries(state.toolCalls).sort(
-      ([left], [right]) => Number(left) - Number(right),
-    )
-  ) {
+  for (const [_index, toolCall] of Object.entries(state.toolCalls).sort(([left], [right]) => Number(left) - Number(right))) {
     if (!toolCall.name) continue;
 
-    parts.push(signGeminiPart(state, {
-      functionCall: {
-        ...(toolCall.id !== undefined ? { id: toolCall.id } : {}),
-        name: toolCall.name,
-        args: toolCall.argsJson
-          ? parseStrictJsonObject(
-            toolCall.argsJson,
-            "Chat Completions tool call arguments",
-          )
-          : {},
-      },
-    }));
+    parts.push(
+      signGeminiPart(state, {
+        functionCall: {
+          ...(toolCall.id !== undefined ? { id: toolCall.id } : {}),
+          name: toolCall.name,
+          args: toolCall.argsJson ? parseStrictJsonObject(toolCall.argsJson, 'Chat Completions tool call arguments') : {},
+        },
+      }),
+    );
   }
 
   state.toolCalls = {};
   return parts;
 };
 
-const buildCandidate = (
-  choice: ChatStreamChoice,
-  state: ChoiceState,
-): GeminiCandidate | null => {
+const buildCandidate = (choice: ChatStreamChoice, state: ChoiceState): GeminiCandidate | null => {
   const parts: GeminiPart[] = [];
   const { delta } = choice;
 
-  if (typeof delta.reasoning_text === "string") {
+  if (typeof delta.reasoning_text === 'string') {
     parts.push({ text: delta.reasoning_text, thought: true });
   }
 
-  if (typeof delta.reasoning_opaque === "string") {
+  if (typeof delta.reasoning_opaque === 'string') {
     appendGeminiThoughtSignature(state, delta.reasoning_opaque);
   }
 
-  if (typeof delta.content === "string") {
+  if (typeof delta.content === 'string') {
     parts.push(signGeminiPart(state, { text: delta.content }));
   }
 
@@ -130,22 +96,16 @@ const buildCandidate = (
 
   return {
     index: choice.index,
-    content: { role: "model", parts },
+    content: { role: 'model', parts },
     ...(finishReason !== undefined ? { finishReason } : {}),
   };
 };
 
-const translateChunk = (
-  chunk: ChatCompletionChunk,
-  states: Record<number, ChoiceState>,
-): GeminiGenerateContentResponse | null => {
+const translateChunk = (chunk: ChatCompletionChunk, states: Record<number, ChoiceState>): GeminiGenerateContentResponse | null => {
   const candidates: GeminiCandidate[] = [];
 
   for (const choice of chunk.choices) {
-    const candidate = buildCandidate(
-      choice,
-      getChoiceState(states, choice.index),
-    );
+    const candidate = buildCandidate(choice, getChoiceState(states, choice.index));
 
     if (candidate) candidates.push(candidate);
   }
@@ -169,9 +129,7 @@ const throwOnChatErrorPayload = (chunk: ChatCompletionChunk): void => {
   });
 };
 
-export const translateToSourceEvents = async function* (
-  frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
-): AsyncGenerator<ProtocolFrame<GeminiStreamEvent>> {
+export const translateToSourceEvents = async function* (frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>): AsyncGenerator<ProtocolFrame<GeminiStreamEvent>> {
   const states: Record<number, ChoiceState> = {};
   let pendingUsageMetadata: GeminiUsageMetadata | undefined;
   const deferredFinalCandidates: GeminiCandidate[] = [];
@@ -187,12 +145,8 @@ export const translateToSourceEvents = async function* (
     }
 
     const candidates = response.candidates ?? [];
-    const finishedCandidates = candidates.filter((candidate) =>
-      candidate.finishReason !== undefined
-    );
-    const nonFinalCandidates = candidates.filter((candidate) =>
-      candidate.finishReason === undefined
-    );
+    const finishedCandidates = candidates.filter(candidate => candidate.finishReason !== undefined);
+    const nonFinalCandidates = candidates.filter(candidate => candidate.finishReason === undefined);
 
     if (nonFinalCandidates.length) {
       yield eventFrame({ candidates: nonFinalCandidates });

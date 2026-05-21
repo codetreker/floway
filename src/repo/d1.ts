@@ -18,9 +18,9 @@ import type {
   UpstreamConfigRepo,
   UsageRecord,
   UsageRepo,
-} from "./types.ts";
-import { assertWebSearchProviderName } from "../shared/web-search-providers.ts";
-import { latencyBucketForMs } from "../shared/performance-histogram.ts";
+} from './types.ts';
+import { latencyBucketForMs } from '../shared/performance-histogram.ts';
+import { assertWebSearchProviderName } from '../shared/web-search-providers.ts';
 
 // Minimal D1 type definitions (subset of @cloudflare/workers-types)
 interface D1Result<T = Record<string, unknown>> {
@@ -41,65 +41,44 @@ export interface D1Database {
   batch?(statements: D1PreparedStatement[]): Promise<D1Result[]>;
 }
 
-const SEARCH_CONFIG_KEY = "search_config";
-const GITHUB_ACCOUNT_ORDER_KEY = "github_account_order";
+const SEARCH_CONFIG_KEY = 'search_config';
+const GITHUB_ACCOUNT_ORDER_KEY = 'github_account_order';
 
-const serializeStoredConfig = (value: unknown): string =>
-  JSON.stringify(value === undefined ? null : value);
+const serializeStoredConfig = (value: unknown): string => JSON.stringify(value === undefined ? null : value);
 
 class D1ApiKeyRepo implements ApiKeyRepo {
   constructor(private db: D1Database) {}
 
   async list(): Promise<ApiKey[]> {
-    const { results } = await this.db
-      .prepare(
-        "SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at",
-      )
-      .all<
-        {
-          id: string;
-          name: string;
-          key: string;
-          created_at: string;
-          last_used_at: string | null;
-        }
-      >();
+    const { results } = await this.db.prepare('SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at').all<{
+      id: string;
+      name: string;
+      key: string;
+      created_at: string;
+      last_used_at: string | null;
+    }>();
     return results.map(toApiKey);
   }
 
   async findByRawKey(rawKey: string): Promise<ApiKey | null> {
-    const row = await this.db
-      .prepare(
-        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?",
-      )
-      .bind(rawKey)
-      .first<
-        {
-          id: string;
-          name: string;
-          key: string;
-          created_at: string;
-          last_used_at: string | null;
-        }
-      >();
+    const row = await this.db.prepare('SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?').bind(rawKey).first<{
+      id: string;
+      name: string;
+      key: string;
+      created_at: string;
+      last_used_at: string | null;
+    }>();
     return row ? toApiKey(row) : null;
   }
 
   async getById(id: string): Promise<ApiKey | null> {
-    const row = await this.db
-      .prepare(
-        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?",
-      )
-      .bind(id)
-      .first<
-        {
-          id: string;
-          name: string;
-          key: string;
-          created_at: string;
-          last_used_at: string | null;
-        }
-      >();
+    const row = await this.db.prepare('SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?').bind(id).first<{
+      id: string;
+      name: string;
+      key: string;
+      created_at: string;
+      last_used_at: string | null;
+    }>();
     return row ? toApiKey(row) : null;
   }
 
@@ -114,25 +93,16 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM api_keys WHERE id = ?")
-      .bind(id).run();
-    return (result.meta.changes as number ?? 0) > 0;
+    const result = await this.db.prepare('DELETE FROM api_keys WHERE id = ?').bind(id).run();
+    return ((result.meta.changes as number) ?? 0) > 0;
   }
 
   async deleteAll(): Promise<void> {
-    await this.db.prepare("DELETE FROM api_keys").run();
+    await this.db.prepare('DELETE FROM api_keys').run();
   }
 }
 
-function toApiKey(
-  row: {
-    id: string;
-    name: string;
-    key: string;
-    created_at: string;
-    last_used_at: string | null;
-  },
-): ApiKey {
+function toApiKey(row: { id: string; name: string; key: string; created_at: string; last_used_at: string | null }): ApiKey {
   return {
     id: row.id,
     name: row.name,
@@ -146,17 +116,12 @@ class D1GitHubRepo implements GitHubRepo {
   constructor(private db: D1Database) {}
 
   private async listAccountIds(): Promise<number[]> {
-    const { results } = await this.db
-      .prepare("SELECT user_id FROM github_accounts ORDER BY user_id")
-      .all<{ user_id: number }>();
-    return results.map((row) => row.user_id);
+    const { results } = await this.db.prepare('SELECT user_id FROM github_accounts ORDER BY user_id').all<{ user_id: number }>();
+    return results.map(row => row.user_id);
   }
 
   private async readOrder(): Promise<number[]> {
-    const orderRow = await this.db
-      .prepare("SELECT value FROM config WHERE key = ?")
-      .bind(GITHUB_ACCOUNT_ORDER_KEY)
-      .first<{ value: string }>();
+    const orderRow = await this.db.prepare('SELECT value FROM config WHERE key = ?').bind(GITHUB_ACCOUNT_ORDER_KEY).first<{ value: string }>();
 
     if (orderRow?.value) {
       try {
@@ -174,9 +139,7 @@ class D1GitHubRepo implements GitHubRepo {
 
   private async writeOrder(userIds: number[]): Promise<void> {
     if (userIds.length === 0) {
-      await this.db.prepare("DELETE FROM config WHERE key = ?")
-        .bind(GITHUB_ACCOUNT_ORDER_KEY)
-        .run();
+      await this.db.prepare('DELETE FROM config WHERE key = ?').bind(GITHUB_ACCOUNT_ORDER_KEY).run();
       return;
     }
 
@@ -193,56 +156,37 @@ class D1GitHubRepo implements GitHubRepo {
     const accountIds = await this.listAccountIds();
     const accountIdSet = new Set(accountIds);
     const seen = new Set<number>();
-    const ordered = userIds.filter((id) => {
+    const ordered = userIds.filter(id => {
       if (!accountIdSet.has(id) || seen.has(id)) return false;
       seen.add(id);
       return true;
     });
-    const rest = accountIds.filter((id) => !seen.has(id));
+    const rest = accountIds.filter(id => !seen.has(id));
     return [...ordered, ...rest];
   }
 
   async listAccounts(): Promise<GitHubAccount[]> {
-    const { results } = await this.db
-      .prepare(
-        "SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts ORDER BY user_id",
-      )
-      .all<
-        {
-          user_id: number;
-          token: string;
-          account_type: string;
-          login: string;
-          name: string | null;
-          avatar_url: string;
-        }
-      >();
-    const rank = new Map(
-      (await this.readOrder()).map((id, index) => [id, index]),
-    );
-    return results.map(toGitHubAccount).sort((a, b) =>
-      (rank.get(a.user.id) ?? Number.MAX_SAFE_INTEGER) -
-        (rank.get(b.user.id) ?? Number.MAX_SAFE_INTEGER) ||
-      a.user.id - b.user.id
-    );
+    const { results } = await this.db.prepare('SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts ORDER BY user_id').all<{
+      user_id: number;
+      token: string;
+      account_type: string;
+      login: string;
+      name: string | null;
+      avatar_url: string;
+    }>();
+    const rank = new Map((await this.readOrder()).map((id, index) => [id, index]));
+    return results.map(toGitHubAccount).sort((a, b) => (rank.get(a.user.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.user.id) ?? Number.MAX_SAFE_INTEGER) || a.user.id - b.user.id);
   }
 
   async getAccount(userId: number): Promise<GitHubAccount | null> {
-    const row = await this.db
-      .prepare(
-        "SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?",
-      )
-      .bind(userId)
-      .first<
-        {
-          user_id: number;
-          token: string;
-          account_type: string;
-          login: string;
-          name: string | null;
-          avatar_url: string;
-        }
-      >();
+    const row = await this.db.prepare('SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?').bind(userId).first<{
+      user_id: number;
+      token: string;
+      account_type: string;
+      login: string;
+      name: string | null;
+      avatar_url: string;
+    }>();
     return row ? toGitHubAccount(row) : null;
   }
 
@@ -252,14 +196,7 @@ class D1GitHubRepo implements GitHubRepo {
         `INSERT INTO github_accounts (user_id, token, account_type, login, name, avatar_url) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, account_type = excluded.account_type, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
       )
-      .bind(
-        userId,
-        account.token,
-        account.accountType,
-        account.user.login,
-        account.user.name,
-        account.user.avatar_url,
-      )
+      .bind(userId, account.token, account.accountType, account.user.login, account.user.name, account.user.avatar_url)
       .run();
     const order = await this.readOrder();
     if (!order.includes(userId)) {
@@ -268,9 +205,7 @@ class D1GitHubRepo implements GitHubRepo {
   }
 
   async deleteAccount(userId: number): Promise<void> {
-    await this.db.prepare("DELETE FROM github_accounts WHERE user_id = ?").bind(
-      userId,
-    ).run();
+    await this.db.prepare('DELETE FROM github_accounts WHERE user_id = ?').bind(userId).run();
     await this.writeOrder(await this.normalizeOrder(await this.readOrder()));
   }
 
@@ -279,21 +214,12 @@ class D1GitHubRepo implements GitHubRepo {
   }
 
   async deleteAllAccounts(): Promise<void> {
-    await this.db.prepare("DELETE FROM github_accounts").run();
+    await this.db.prepare('DELETE FROM github_accounts').run();
     await this.writeOrder([]);
   }
 }
 
-function toGitHubAccount(
-  row: {
-    user_id: number;
-    token: string;
-    account_type: string;
-    login: string;
-    name: string | null;
-    avatar_url: string;
-  },
-): GitHubAccount {
+function toGitHubAccount(row: { user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }): GitHubAccount {
   return {
     token: row.token,
     accountType: row.account_type,
@@ -331,69 +257,48 @@ class D1UsageRepo implements UsageRepo {
            cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
            cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens`,
       )
-      .bind(
-        keyId,
-        model,
-        upstream,
-        modelKey,
-        hour,
-        requests,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-      )
+      .bind(keyId, model, upstream, modelKey, hour, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
       .run();
   }
 
-  async query(
-    opts: { keyId?: string; start: string; end: string },
-  ): Promise<UsageRecord[]> {
+  async query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]> {
     const sql = opts.keyId
-      ? "SELECT key_id, model, upstream, model_key, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage WHERE key_id = ? AND hour >= ? AND hour < ? ORDER BY hour"
-      : "SELECT key_id, model, upstream, model_key, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage WHERE hour >= ? AND hour < ? ORDER BY hour";
-    const binds = opts.keyId
-      ? [opts.keyId, opts.start, opts.end]
-      : [opts.start, opts.end];
+      ? 'SELECT key_id, model, upstream, model_key, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage WHERE key_id = ? AND hour >= ? AND hour < ? ORDER BY hour'
+      : 'SELECT key_id, model, upstream, model_key, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage WHERE hour >= ? AND hour < ? ORDER BY hour';
+    const binds = opts.keyId ? [opts.keyId, opts.start, opts.end] : [opts.start, opts.end];
     const { results } = await this.db
       .prepare(sql)
       .bind(...binds)
-      .all<
-        {
-          key_id: string;
-          model: string;
-          upstream: string | null;
-          model_key: string;
-          hour: string;
-          requests: number;
-          input_tokens: number;
-          output_tokens: number;
-          cache_read_tokens: number;
-          cache_creation_tokens: number;
-        }
-      >();
+      .all<{
+      key_id: string;
+      model: string;
+      upstream: string | null;
+      model_key: string;
+      hour: string;
+      requests: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_creation_tokens: number;
+    }>();
     return results.map(toUsageRecord);
   }
 
   async listAll(): Promise<UsageRecord[]> {
     const { results } = await this.db
-      .prepare(
-        "SELECT key_id, model, upstream, model_key, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage ORDER BY hour",
-      )
-      .all<
-        {
-          key_id: string;
-          model: string;
-          upstream: string | null;
-          model_key: string;
-          hour: string;
-          requests: number;
-          input_tokens: number;
-          output_tokens: number;
-          cache_read_tokens: number;
-          cache_creation_tokens: number;
-        }
-      >();
+      .prepare('SELECT key_id, model, upstream, model_key, hour, requests, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM usage ORDER BY hour')
+      .all<{
+      key_id: string;
+      model: string;
+      upstream: string | null;
+      model_key: string;
+      hour: string;
+      requests: number;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_creation_tokens: number;
+    }>();
     return results.map(toUsageRecord);
   }
 
@@ -425,7 +330,7 @@ class D1UsageRepo implements UsageRepo {
   }
 
   async deleteAll(): Promise<void> {
-    await this.db.prepare("DELETE FROM usage").run();
+    await this.db.prepare('DELETE FROM usage').run();
   }
 }
 
@@ -465,12 +370,7 @@ const toUsageRecord = (row: UsageRow): UsageRecord => ({
 class D1SearchUsageRepo implements SearchUsageRepo {
   constructor(private db: D1Database) {}
 
-  async record(
-    provider: SearchUsageRecord["provider"],
-    keyId: string,
-    hour: string,
-    requests: number,
-  ): Promise<void> {
+  async record(provider: SearchUsageRecord['provider'], keyId: string, hour: string, requests: number): Promise<void> {
     const validProvider = assertWebSearchProviderName(provider);
     await this.db
       .prepare(
@@ -482,53 +382,38 @@ class D1SearchUsageRepo implements SearchUsageRepo {
       .run();
   }
 
-  async query(
-    opts: {
-      provider?: SearchUsageRecord["provider"];
-      keyId?: string;
-      start: string;
-      end: string;
-    },
-  ): Promise<SearchUsageRecord[]> {
-    const filters = ["hour >= ?", "hour < ?"];
+  async query(opts: { provider?: SearchUsageRecord['provider']; keyId?: string; start: string; end: string }): Promise<SearchUsageRecord[]> {
+    const filters = ['hour >= ?', 'hour < ?'];
     const binds: unknown[] = [opts.start, opts.end];
     if (opts.provider) {
       const validProvider = assertWebSearchProviderName(opts.provider);
-      filters.unshift("provider = ?");
+      filters.unshift('provider = ?');
       binds.unshift(validProvider);
     }
     if (opts.keyId) {
-      filters.push("key_id = ?");
+      filters.push('key_id = ?');
       binds.push(opts.keyId);
     }
 
     const { results } = await this.db
-      .prepare(
-        `SELECT provider, key_id, hour, requests FROM search_usage WHERE ${
-          filters.join(" AND ")
-        } ORDER BY hour`,
-      )
+      .prepare(`SELECT provider, key_id, hour, requests FROM search_usage WHERE ${filters.join(' AND ')} ORDER BY hour`)
       .bind(...binds)
       .all<{
-        provider: string;
-        key_id: string;
-        hour: string;
-        requests: number;
-      }>();
+      provider: string;
+      key_id: string;
+      hour: string;
+      requests: number;
+    }>();
     return results.map(toSearchUsageRecord);
   }
 
   async listAll(): Promise<SearchUsageRecord[]> {
-    const { results } = await this.db
-      .prepare(
-        "SELECT provider, key_id, hour, requests FROM search_usage ORDER BY hour",
-      )
-      .all<{
-        provider: string;
-        key_id: string;
-        hour: string;
-        requests: number;
-      }>();
+    const { results } = await this.db.prepare('SELECT provider, key_id, hour, requests FROM search_usage ORDER BY hour').all<{
+      provider: string;
+      key_id: string;
+      hour: string;
+      requests: number;
+    }>();
     return results.map(toSearchUsageRecord);
   }
 
@@ -545,7 +430,7 @@ class D1SearchUsageRepo implements SearchUsageRepo {
   }
 
   async deleteAll(): Promise<void> {
-    await this.db.prepare("DELETE FROM search_usage").run();
+    await this.db.prepare('DELETE FROM search_usage').run();
   }
 }
 
@@ -555,63 +440,45 @@ class D1PerformanceRepo implements PerformanceRepo {
   async recordLatency(sample: PerformanceLatencySample): Promise<void> {
     const durationMs = Math.max(0, Math.round(sample.durationMs));
     const bucket = latencyBucketForMs(durationMs);
-    await this.runStatements([
-      this.addSummaryStatement(sample, 1, 0, durationMs),
-      this.addBucketStatement(sample, bucket.lowerMs, bucket.upperMs, 1),
-    ]);
+    await this.runStatements([this.addSummaryStatement(sample, 1, 0, durationMs), this.addBucketStatement(sample, bucket.lowerMs, bucket.upperMs, 1)]);
   }
 
   async recordError(sample: PerformanceErrorSample): Promise<void> {
     await this.addSummaryStatement(sample, 0, 1, 0).run();
   }
 
-  async query(opts: {
-    keyId?: string;
-    metricScope?: PerformanceMetricScope;
-    start: string;
-    end: string;
-  }): Promise<PerformanceTelemetryRecord[]> {
-    const filters = ["hour >= ?", "hour < ?"];
+  async query(opts: { keyId?: string; metricScope?: PerformanceMetricScope; start: string; end: string }): Promise<PerformanceTelemetryRecord[]> {
+    const filters = ['hour >= ?', 'hour < ?'];
     const binds: unknown[] = [opts.start, opts.end];
     if (opts.keyId) {
-      filters.push("key_id = ?");
+      filters.push('key_id = ?');
       binds.push(opts.keyId);
     }
     if (opts.metricScope) {
-      filters.push("metric_scope = ?");
+      filters.push('metric_scope = ?');
       binds.push(opts.metricScope);
     }
-    return await this.queryWhere(filters.join(" AND "), binds);
+    return await this.queryWhere(filters.join(' AND '), binds);
   }
 
   async listAll(): Promise<PerformanceTelemetryRecord[]> {
-    return await this.queryWhere("1 = 1", []);
+    return await this.queryWhere('1 = 1', []);
   }
 
   async set(record: PerformanceTelemetryRecord): Promise<void> {
     await this.runStatements([
       this.setSummaryStatement(record),
       this.deleteBucketsStatement(record),
-      ...record.buckets.map((bucket) =>
-        this.setBucketStatement(
-          record,
-          bucket.lowerMs,
-          bucket.upperMs,
-          bucket.count,
-        )
-      ),
+      ...record.buckets.map(bucket => this.setBucketStatement(record, bucket.lowerMs, bucket.upperMs, bucket.count)),
     ]);
   }
 
   async deleteAll(): Promise<void> {
-    await this.db.prepare("DELETE FROM performance_latency_buckets").run();
-    await this.db.prepare("DELETE FROM performance_summary").run();
+    await this.db.prepare('DELETE FROM performance_latency_buckets').run();
+    await this.db.prepare('DELETE FROM performance_summary').run();
   }
 
-  private async queryWhere(
-    where: string,
-    binds: unknown[],
-  ): Promise<PerformanceTelemetryRecord[]> {
+  private async queryWhere(where: string, binds: unknown[]): Promise<PerformanceTelemetryRecord[]> {
     const records = new Map<string, PerformanceTelemetryRecord>();
 
     const { results: summaries } = await this.db
@@ -663,9 +530,7 @@ class D1PerformanceRepo implements PerformanceRepo {
     return [...records.values()].sort(comparePerformanceTelemetryRecords);
   }
 
-  private async runStatements(
-    statements: D1PreparedStatement[],
-  ): Promise<void> {
+  private async runStatements(statements: D1PreparedStatement[]): Promise<void> {
     if (this.db.batch) {
       await this.db.batch(statements);
       return;
@@ -673,12 +538,7 @@ class D1PerformanceRepo implements PerformanceRepo {
     for (const statement of statements) await statement.run();
   }
 
-  private addSummaryStatement(
-    sample: PerformanceDimensions,
-    requests: number,
-    errors: number,
-    totalMsSum: number,
-  ): D1PreparedStatement {
+  private addSummaryStatement(sample: PerformanceDimensions, requests: number, errors: number, totalMsSum: number): D1PreparedStatement {
     return this.db
       .prepare(
         `INSERT INTO performance_summary (hour, metric_scope, key_id, model, upstream, model_key, source_api, target_api, stream, runtime_location, requests, errors, total_ms_sum)
@@ -705,9 +565,7 @@ class D1PerformanceRepo implements PerformanceRepo {
       );
   }
 
-  private setSummaryStatement(
-    record: PerformanceTelemetryRecord,
-  ): D1PreparedStatement {
+  private setSummaryStatement(record: PerformanceTelemetryRecord): D1PreparedStatement {
     return this.db
       .prepare(
         `INSERT INTO performance_summary (hour, metric_scope, key_id, model, upstream, model_key, source_api, target_api, stream, runtime_location, requests, errors, total_ms_sum)
@@ -734,9 +592,7 @@ class D1PerformanceRepo implements PerformanceRepo {
       );
   }
 
-  private deleteBucketsStatement(
-    record: PerformanceDimensions,
-  ): D1PreparedStatement {
+  private deleteBucketsStatement(record: PerformanceDimensions): D1PreparedStatement {
     return this.db
       .prepare(
         `DELETE FROM performance_latency_buckets
@@ -745,39 +601,21 @@ class D1PerformanceRepo implements PerformanceRepo {
       .bind(...performanceDimensionBinds(record));
   }
 
-  private addBucketStatement(
-    sample: PerformanceDimensions,
-    lowerMs: number,
-    upperMs: number,
-    count: number,
-  ): D1PreparedStatement {
-    return this.bucketStatement(sample, lowerMs, upperMs, count, "add");
+  private addBucketStatement(sample: PerformanceDimensions, lowerMs: number, upperMs: number, count: number): D1PreparedStatement {
+    return this.bucketStatement(sample, lowerMs, upperMs, count, 'add');
   }
 
-  private setBucketStatement(
-    sample: PerformanceDimensions,
-    lowerMs: number,
-    upperMs: number,
-    count: number,
-  ): D1PreparedStatement {
-    return this.bucketStatement(sample, lowerMs, upperMs, count, "set");
+  private setBucketStatement(sample: PerformanceDimensions, lowerMs: number, upperMs: number, count: number): D1PreparedStatement {
+    return this.bucketStatement(sample, lowerMs, upperMs, count, 'set');
   }
 
-  private bucketStatement(
-    sample: PerformanceDimensions,
-    lowerMs: number,
-    upperMs: number,
-    count: number,
-    mode: "add" | "set",
-  ): D1PreparedStatement {
+  private bucketStatement(sample: PerformanceDimensions, lowerMs: number, upperMs: number, count: number, mode: 'add' | 'set'): D1PreparedStatement {
     return this.db
       .prepare(
         `INSERT INTO performance_latency_buckets (hour, metric_scope, key_id, model, upstream, model_key, source_api, target_api, stream, runtime_location, lower_ms, upper_ms, count)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT DO UPDATE SET
-           count = ${
-          mode === "add" ? "count + excluded.count" : "excluded.count"
-        }`,
+           count = ${mode === 'add' ? 'count + excluded.count' : 'excluded.count'}`,
       )
       .bind(
         sample.hour,
@@ -822,9 +660,7 @@ interface PerformanceBucketRow extends PerformanceDimensionRow {
   count: number;
 }
 
-function performanceDimensionsFromRow(
-  row: PerformanceDimensionRow,
-): PerformanceDimensions {
+function performanceDimensionsFromRow(row: PerformanceDimensionRow): PerformanceDimensions {
   return {
     hour: row.hour,
     metricScope: row.metric_scope as PerformanceMetricScope,
@@ -832,67 +668,39 @@ function performanceDimensionsFromRow(
     model: row.model,
     upstream: row.upstream ?? null,
     modelKey: row.model_key,
-    sourceApi: row.source_api as PerformanceTelemetryRecord["sourceApi"],
-    targetApi: row.target_api as PerformanceTelemetryRecord["targetApi"],
+    sourceApi: row.source_api as PerformanceTelemetryRecord['sourceApi'],
+    targetApi: row.target_api as PerformanceTelemetryRecord['targetApi'],
     stream: row.stream === 1,
     runtimeLocation: row.runtime_location,
   };
 }
 
 function performanceRecordKey(record: PerformanceDimensions): string {
-  return [
-    record.hour,
-    record.metricScope,
-    record.keyId,
-    record.model,
-    record.upstream,
-    record.modelKey,
-    record.sourceApi,
-    record.targetApi,
-    record.stream ? "1" : "0",
-    record.runtimeLocation,
-  ].join("\0");
+  return [record.hour, record.metricScope, record.keyId, record.model, record.upstream, record.modelKey, record.sourceApi, record.targetApi, record.stream ? '1' : '0', record.runtimeLocation].join(
+    '\0',
+  );
 }
 
 function performanceDimensionBinds(record: PerformanceDimensions): unknown[] {
-  return [
-    record.hour,
-    record.metricScope,
-    record.keyId,
-    record.model,
-    record.upstream,
-    record.modelKey,
-    record.sourceApi,
-    record.targetApi,
-    record.stream ? 1 : 0,
-    record.runtimeLocation,
-  ];
+  return [record.hour, record.metricScope, record.keyId, record.model, record.upstream, record.modelKey, record.sourceApi, record.targetApi, record.stream ? 1 : 0, record.runtimeLocation];
 }
 
-function comparePerformanceTelemetryRecords(
-  a: PerformanceTelemetryRecord,
-  b: PerformanceTelemetryRecord,
-): number {
-  return a.hour.localeCompare(b.hour) ||
+function comparePerformanceTelemetryRecords(a: PerformanceTelemetryRecord, b: PerformanceTelemetryRecord): number {
+  return (
+    a.hour.localeCompare(b.hour) ||
     a.metricScope.localeCompare(b.metricScope) ||
     a.keyId.localeCompare(b.keyId) ||
     a.model.localeCompare(b.model) ||
-    (a.upstream ?? "").localeCompare(b.upstream ?? "") ||
+    (a.upstream ?? '').localeCompare(b.upstream ?? '') ||
     a.modelKey.localeCompare(b.modelKey) ||
     a.sourceApi.localeCompare(b.sourceApi) ||
     a.targetApi.localeCompare(b.targetApi) ||
     Number(a.stream) - Number(b.stream) ||
-    a.runtimeLocation.localeCompare(b.runtimeLocation);
+    a.runtimeLocation.localeCompare(b.runtimeLocation)
+  );
 }
 
-function toSearchUsageRecord(
-  row: {
-    provider: string;
-    key_id: string;
-    hour: string;
-    requests: number;
-  },
-): SearchUsageRecord {
+function toSearchUsageRecord(row: { provider: string; key_id: string; hour: string; requests: number }): SearchUsageRecord {
   return {
     provider: assertWebSearchProviderName(row.provider),
     keyId: row.key_id,
@@ -905,28 +713,20 @@ class D1CacheRepo implements CacheRepo {
   constructor(private db: D1Database) {}
 
   async get(key: string): Promise<string | null> {
-    const row = await this.db.prepare("SELECT value FROM config WHERE key = ?")
-      .bind(key).first<{ value: string }>();
+    const row = await this.db.prepare('SELECT value FROM config WHERE key = ?').bind(key).first<{ value: string }>();
     return row?.value ?? null;
   }
 
   async set(key: string, value: string): Promise<void> {
-    await this.db
-      .prepare(
-        "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-      )
-      .bind(key, value)
-      .run();
+    await this.db.prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').bind(key, value).run();
   }
 
   async delete(key: string): Promise<void> {
-    await this.db.prepare("DELETE FROM config WHERE key = ?").bind(key).run();
+    await this.db.prepare('DELETE FROM config WHERE key = ?').bind(key).run();
   }
 
   async deletePrefix(prefix: string): Promise<void> {
-    await this.db.prepare("DELETE FROM config WHERE key >= ? AND key < ?")
-      .bind(prefix, `${prefix}\uffff`)
-      .run();
+    await this.db.prepare('DELETE FROM config WHERE key >= ? AND key < ?').bind(prefix, `${prefix}\uffff`).run();
   }
 }
 
@@ -934,10 +734,7 @@ class D1SearchConfigRepo implements SearchConfigRepo {
   constructor(private db: D1Database) {}
 
   async get(): Promise<unknown | null> {
-    const row = await this.db
-      .prepare("SELECT value FROM config WHERE key = ?")
-      .bind(SEARCH_CONFIG_KEY)
-      .first<{ value: string }>();
+    const row = await this.db.prepare('SELECT value FROM config WHERE key = ?').bind(SEARCH_CONFIG_KEY).first<{ value: string }>();
 
     if (!row?.value) {
       return null;
@@ -966,18 +763,14 @@ class D1UpstreamConfigRepo implements UpstreamConfigRepo {
 
   async list(): Promise<UpstreamConfig[]> {
     const { results } = await this.db
-      .prepare(
-        "SELECT id, name, base_url, bearer_token, supported_endpoints, enabled, sort_order, created_at, enabled_fixes, path_overrides FROM upstream_configs ORDER BY sort_order, created_at",
-      )
+      .prepare('SELECT id, name, base_url, bearer_token, supported_endpoints, enabled, sort_order, created_at, enabled_fixes, path_overrides FROM upstream_configs ORDER BY sort_order, created_at')
       .all<UpstreamConfigRow>();
     return results.map(toUpstreamConfig);
   }
 
   async getById(id: string): Promise<UpstreamConfig | null> {
     const row = await this.db
-      .prepare(
-        "SELECT id, name, base_url, bearer_token, supported_endpoints, enabled, sort_order, created_at, enabled_fixes, path_overrides FROM upstream_configs WHERE id = ?",
-      )
+      .prepare('SELECT id, name, base_url, bearer_token, supported_endpoints, enabled, sort_order, created_at, enabled_fixes, path_overrides FROM upstream_configs WHERE id = ?')
       .bind(id)
       .first<UpstreamConfigRow>();
     return row ? toUpstreamConfig(row) : null;
@@ -1013,15 +806,12 @@ class D1UpstreamConfigRepo implements UpstreamConfigRepo {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db
-      .prepare("DELETE FROM upstream_configs WHERE id = ?")
-      .bind(id)
-      .run();
-    return (result.meta.changes as number ?? 0) > 0;
+    const result = await this.db.prepare('DELETE FROM upstream_configs WHERE id = ?').bind(id).run();
+    return ((result.meta.changes as number) ?? 0) > 0;
   }
 
   async deleteAll(): Promise<void> {
-    await this.db.prepare("DELETE FROM upstream_configs").run();
+    await this.db.prepare('DELETE FROM upstream_configs').run();
   }
 }
 
@@ -1043,27 +833,23 @@ function toUpstreamConfig(row: UpstreamConfigRow): UpstreamConfig {
   try {
     const parsed = JSON.parse(row.supported_endpoints);
     if (Array.isArray(parsed)) {
-      supportedEndpoints = parsed.filter((v): v is string =>
-        typeof v === "string"
-      );
+      supportedEndpoints = parsed.filter((v): v is string => typeof v === 'string');
     }
   } catch {
     // Stored value is malformed; treat as empty so upstream is not picked.
   }
 
-  let pathOverrides: UpstreamConfig["pathOverrides"];
+  let pathOverrides: UpstreamConfig['pathOverrides'];
   if (row.path_overrides) {
     try {
       const parsed = JSON.parse(row.path_overrides);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const result: Record<string, string> = {};
-        for (
-          const [k, v] of Object.entries(parsed as Record<string, unknown>)
-        ) {
-          if (typeof v === "string") result[k] = v;
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof v === 'string') result[k] = v;
         }
         if (Object.keys(result).length > 0) {
-          pathOverrides = result as UpstreamConfig["pathOverrides"];
+          pathOverrides = result as UpstreamConfig['pathOverrides'];
         }
       }
     } catch {
@@ -1084,7 +870,7 @@ function toUpstreamConfig(row: UpstreamConfigRow): UpstreamConfig {
       if (Array.isArray(parsed)) {
         const seen = new Set<string>();
         for (const v of parsed) {
-          if (typeof v === "string") seen.add(v);
+          if (typeof v === 'string') seen.add(v);
         }
         enabledFixes = [...seen].sort();
       }

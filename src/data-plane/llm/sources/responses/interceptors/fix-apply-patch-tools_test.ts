@@ -1,23 +1,22 @@
-import { test } from "vitest";
-import { assertEquals, assertFalse } from "../../../../../test-assert.ts";
-import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
-import type { ResponsesExchangeContext } from "../../../interceptors.ts";
-import { eventResult } from "../../../shared/errors/result.ts";
-import { fixApplyPatchTools } from "./fix-apply-patch-tools.ts";
+import { test } from 'vitest';
+
+import { fixApplyPatchTools } from './fix-apply-patch-tools.ts';
+import { assertEquals, assertFalse } from '../../../../../test-assert.ts';
+import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
+import type { ResponsesExchangeContext } from '../../../interceptors.ts';
+import { eventResult } from '../../../shared/errors/result.ts';
 
 const testTelemetryModelIdentity = {
-  model: "test-model",
-  upstream: "test-upstream",
-  modelKey: "test-model-key",
+  model: 'test-model',
+  upstream: 'test-upstream',
+  modelKey: 'test-model-key',
 };
 
-const exchangeContext = (
-  payload: ResponsesPayload,
-): ResponsesExchangeContext => ({
-  sourceApi: "responses",
-  targetApi: "responses",
+const exchangeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
+  sourceApi: 'responses',
+  targetApi: 'responses',
   model: payload.model,
-  upstream: "test-upstream",
+  upstream: 'test-upstream',
   upstreamModel: {} as never,
   provider: {} as never,
   enabledFixes: new Set(),
@@ -25,91 +24,79 @@ const exchangeContext = (
 });
 
 const run = async (payload: ResponsesPayload): Promise<ResponsesPayload> => {
-  await fixApplyPatchTools(
-    exchangeContext(payload),
-    () =>
-      Promise.resolve(eventResult(
-        (async function* () {})(),
-        testTelemetryModelIdentity,
-      )),
-  );
+  await fixApplyPatchTools(exchangeContext(payload), () => Promise.resolve(eventResult((async function* () {})(), testTelemetryModelIdentity)));
   return payload;
 };
 
-test("fixApplyPatchTools rewrites the apply_patch custom tool to a function tool", async () => {
+test('fixApplyPatchTools rewrites the apply_patch custom tool to a function tool', async () => {
   const payload = await run({
-    model: "gpt-test",
-    input: "edit",
+    model: 'gpt-test',
+    input: 'edit',
     tools: [
       {
-        type: "custom",
-        name: "apply_patch",
-        description: "raw",
-        format: { type: "freeform", syntax: "v4a", definition: "..." },
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'raw',
+        format: { type: 'freeform', syntax: 'v4a', definition: '...' },
       },
     ],
   } as ResponsesPayload);
 
   assertEquals(payload.tools?.length, 1);
   const tool = payload.tools?.[0];
-  assertEquals(tool?.type, "function");
-  assertEquals(tool?.name, "apply_patch");
-  assertEquals(
-    (tool as { parameters?: { required?: string[] } }).parameters?.required,
-    ["input"],
-  );
+  assertEquals(tool?.type, 'function');
+  assertEquals(tool?.name, 'apply_patch');
+  assertEquals((tool as { parameters?: { required?: string[] } }).parameters?.required, ['input']);
 });
 
-test("fixApplyPatchTools leaves non-apply_patch custom tools untouched", async () => {
+test('fixApplyPatchTools leaves non-apply_patch custom tools untouched', async () => {
   // strip-unsupported-tools removes them after this interceptor runs; this
   // test pins the responsibility split.
   const payload = await run({
-    model: "gpt-test",
-    input: "edit",
-    tools: [
-      { type: "custom", name: "freeform_other", description: "x" },
-    ],
+    model: 'gpt-test',
+    input: 'edit',
+    tools: [{ type: 'custom', name: 'freeform_other', description: 'x' }],
   } as ResponsesPayload);
 
   assertEquals(payload.tools?.length, 1);
-  assertEquals(payload.tools?.[0].type, "custom");
+  assertEquals(payload.tools?.[0].type, 'custom');
 });
 
-test("fixApplyPatchTools rewrites a forced apply_patch custom tool_choice", async () => {
+test('fixApplyPatchTools rewrites a forced apply_patch custom tool_choice', async () => {
   const payload = await run({
-    model: "gpt-test",
-    input: "edit",
+    model: 'gpt-test',
+    input: 'edit',
     tools: [
       {
-        type: "function",
-        name: "apply_patch",
+        type: 'function',
+        name: 'apply_patch',
         parameters: {},
         strict: false,
       },
     ],
-    tool_choice: { type: "custom", name: "apply_patch" },
+    tool_choice: { type: 'custom', name: 'apply_patch' },
   } as ResponsesPayload);
 
-  assertEquals(payload.tool_choice, { type: "function", name: "apply_patch" });
+  assertEquals(payload.tool_choice, { type: 'function', name: 'apply_patch' });
 });
 
-test("fixApplyPatchTools is a no-op when no apply_patch tool is present", async () => {
+test('fixApplyPatchTools is a no-op when no apply_patch tool is present', async () => {
   const payload = await run({
-    model: "gpt-test",
-    input: "edit",
+    model: 'gpt-test',
+    input: 'edit',
     tools: [
       {
-        type: "function",
-        name: "lookup",
+        type: 'function',
+        name: 'lookup',
         parameters: {},
         strict: false,
       },
     ],
-    tool_choice: "auto",
+    tool_choice: 'auto',
   } as ResponsesPayload);
 
   assertEquals(payload.tools?.length, 1);
-  assertEquals(payload.tools?.[0].name, "lookup");
-  assertEquals(payload.tool_choice, "auto");
+  assertEquals(payload.tools?.[0].name, 'lookup');
+  assertEquals(payload.tool_choice, 'auto');
   assertFalse(Array.isArray(payload.tool_choice));
 });

@@ -1,43 +1,30 @@
-import type {
-  ChatCompletionChunk,
-  ChatCompletionResponse,
-  ChatReasoningItem,
-  ChoiceNonStreaming,
-  ToolCall,
-} from "../../../../shared/protocol/chat-completions.ts";
-import { chatCompletionsErrorPayloadMessage } from "../../../../shared/protocol/chat-completions-errors.ts";
-import { type ProtocolFrame } from "../../../shared/stream/types.ts";
-import { CHAT_COMPLETIONS_MISSING_DONE_MESSAGE } from "./protocol.ts";
+import { CHAT_COMPLETIONS_MISSING_DONE_MESSAGE } from './protocol.ts';
+import { chatCompletionsErrorPayloadMessage } from '../../../../shared/protocol/chat-completions-errors.ts';
+import type { ChatCompletionChunk, ChatCompletionResponse, ChatReasoningItem, ChoiceNonStreaming, ToolCall } from '../../../../shared/protocol/chat-completions.ts';
+import { type ProtocolFrame } from '../../../shared/stream/types.ts';
 
-const chatCompletionEventsUntilDone = async function* (
-  frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
-): AsyncGenerator<ChatCompletionChunk> {
+const chatCompletionEventsUntilDone = async function* (frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>): AsyncGenerator<ChatCompletionChunk> {
   for await (const frame of frames) {
-    if (frame.type === "done") return;
+    if (frame.type === 'done') return;
     yield frame.event;
   }
 
   throw new Error(CHAT_COMPLETIONS_MISSING_DONE_MESSAGE);
 };
 
-export async function reassembleChatCompletionChunks(
-  chunks: AsyncIterable<ChatCompletionChunk>,
-): Promise<ChatCompletionResponse> {
-  let id = "";
-  let model = "";
+export async function reassembleChatCompletionChunks(chunks: AsyncIterable<ChatCompletionChunk>): Promise<ChatCompletionResponse> {
+  let id = '';
+  let model = '';
   let created = 0;
-  let content = "";
-  let reasoningText = "";
-  let reasoningOpaque = "";
+  let content = '';
+  let reasoningText = '';
+  let reasoningOpaque = '';
   let hasReasoningOpaque = false;
   const reasoningItems: ChatReasoningItem[] = [];
-  let finishReason: ChoiceNonStreaming["finish_reason"] = "stop";
-  let lastUsage: ChatCompletionResponse["usage"] | undefined;
+  let finishReason: ChoiceNonStreaming['finish_reason'] = 'stop';
+  let lastUsage: ChatCompletionResponse['usage'] | undefined;
 
-  const toolCallsMap = new Map<
-    number,
-    { id: string; name: string; arguments: string }
-  >();
+  const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
 
   for await (const chunk of chunks) {
     const errorMessage = chatCompletionsErrorPayloadMessage(chunk);
@@ -52,47 +39,39 @@ export async function reassembleChatCompletionChunks(
     }
 
     if (chunk.usage) {
-      lastUsage = chunk.usage as ChatCompletionResponse["usage"];
+      lastUsage = chunk.usage as ChatCompletionResponse['usage'];
     }
 
-    const choices = chunk.choices as unknown as
-      | Array<Record<string, unknown>>
-      | undefined;
+    const choices = chunk.choices as unknown as Array<Record<string, unknown>> | undefined;
     if (!choices) continue;
 
     for (const choice of choices) {
       const delta = choice.delta as Record<string, unknown> | undefined;
       if (!delta) continue;
 
-      if (typeof delta.content === "string") {
+      if (typeof delta.content === 'string') {
         content += delta.content;
       }
-      if (typeof delta.reasoning_text === "string") {
+      if (typeof delta.reasoning_text === 'string') {
         reasoningText += delta.reasoning_text;
       }
-      if (typeof delta.reasoning_opaque === "string") {
+      if (typeof delta.reasoning_opaque === 'string') {
         reasoningOpaque += delta.reasoning_opaque;
         hasReasoningOpaque = true;
       }
       if (Array.isArray(delta.reasoning_items)) {
-        reasoningItems.push(...delta.reasoning_items as ChatReasoningItem[]);
+        reasoningItems.push(...(delta.reasoning_items as ChatReasoningItem[]));
       }
 
       if (Array.isArray(delta.tool_calls)) {
-        for (
-          const toolCall of delta.tool_calls as Array<Record<string, unknown>>
-        ) {
+        for (const toolCall of delta.tool_calls as Array<Record<string, unknown>>) {
           const idx = toolCall.index as number;
           const existing = toolCallsMap.get(idx);
           if (!existing) {
             toolCallsMap.set(idx, {
-              id: (toolCall.id as string) ?? "",
-              name: (toolCall.function as Record<string, unknown>)
-                ?.name as string ??
-                "",
-              arguments: (toolCall.function as Record<string, unknown>)
-                ?.arguments as string ??
-                "",
+              id: (toolCall.id as string) ?? '',
+              name: ((toolCall.function as Record<string, unknown>)?.name as string) ?? '',
+              arguments: ((toolCall.function as Record<string, unknown>)?.arguments as string) ?? '',
             });
           } else {
             if (toolCall.id) existing.id = toolCall.id as string;
@@ -106,8 +85,7 @@ export async function reassembleChatCompletionChunks(
       }
 
       if (choice.finish_reason) {
-        finishReason = choice
-          .finish_reason as ChoiceNonStreaming["finish_reason"];
+        finishReason = choice.finish_reason as ChoiceNonStreaming['finish_reason'];
       }
     }
   }
@@ -118,13 +96,13 @@ export async function reassembleChatCompletionChunks(
     const toolCall = toolCallsMap.get(idx)!;
     toolCalls.push({
       id: toolCall.id,
-      type: "function",
+      type: 'function',
       function: { name: toolCall.name, arguments: toolCall.arguments },
     });
   }
 
-  const message: ChoiceNonStreaming["message"] = {
-    role: "assistant",
+  const message: ChoiceNonStreaming['message'] = {
+    role: 'assistant',
     content: content || null,
     ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
     ...(reasoningText && { reasoning_text: reasoningText }),
@@ -134,24 +112,22 @@ export async function reassembleChatCompletionChunks(
 
   const result: ChatCompletionResponse = {
     id,
-    object: "chat.completion",
+    object: 'chat.completion',
     created,
     model,
-    choices: [{
-      index: 0,
-      message,
-      finish_reason: finishReason,
-    }],
+    choices: [
+      {
+        index: 0,
+        message,
+        finish_reason: finishReason,
+      },
+    ],
     ...(lastUsage && { usage: lastUsage }),
   };
 
   return result;
 }
 
-export const collectChatProtocolEventsToCompletion = async (
-  frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>,
-): Promise<ChatCompletionResponse> => {
-  return await reassembleChatCompletionChunks(
-    chatCompletionEventsUntilDone(frames),
-  );
+export const collectChatProtocolEventsToCompletion = async (frames: AsyncIterable<ProtocolFrame<ChatCompletionChunk>>): Promise<ChatCompletionResponse> => {
+  return await reassembleChatCompletionChunks(chatCompletionEventsUntilDone(frames));
 };

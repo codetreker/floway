@@ -12,7 +12,7 @@ export interface ModelsResponse {
 
 export interface AnthropicModelInfo {
   id: string;
-  type: "model";
+  type: 'model';
   display_name: string;
   created_at?: string;
 }

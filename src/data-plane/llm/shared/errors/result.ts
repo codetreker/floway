@@ -1,10 +1,10 @@
-import type { InternalDebugError } from "./internal-debug-error.ts";
-import type { ProtocolFrame } from "../stream/types.ts";
-import type { PerformanceTelemetryContext } from "../../../shared/telemetry/performance.ts";
-import type { TelemetryModelIdentity } from "../../../../repo/types.ts";
+import type { InternalDebugError } from './internal-debug-error.ts';
+import type { TelemetryModelIdentity } from '../../../../repo/types.ts';
+import type { PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
+import type { ProtocolFrame } from '../stream/types.ts';
 
 export interface EventResult<T> {
-  type: "events";
+  type: 'events';
   events: AsyncIterable<T>;
   modelIdentity: TelemetryModelIdentity;
   performance?: PerformanceTelemetryContext;
@@ -17,7 +17,7 @@ export interface EventResultMetadata {
 }
 
 export interface UpstreamErrorResult {
-  type: "upstream-error";
+  type: 'upstream-error';
   status: number;
   headers: Headers;
   body: Uint8Array;
@@ -25,16 +25,13 @@ export interface UpstreamErrorResult {
 }
 
 export interface InternalErrorResult {
-  type: "internal-error";
+  type: 'internal-error';
   status: number;
   error: InternalDebugError;
   performance?: PerformanceTelemetryContext;
 }
 
-export type ExecuteResult<T> =
-  | EventResult<T>
-  | UpstreamErrorResult
-  | InternalErrorResult;
+export type ExecuteResult<T> = EventResult<T> | UpstreamErrorResult | InternalErrorResult;
 
 export type StreamExecuteResult<TEvent> = ExecuteResult<ProtocolFrame<TEvent>>;
 
@@ -44,7 +41,7 @@ export const eventResult = <T>(
   performance?: PerformanceTelemetryContext,
   finalMetadata?: Promise<EventResultMetadata>,
 ): EventResult<T> => {
-  const result: EventResult<T> = { type: "events", events, modelIdentity };
+  const result: EventResult<T> = { type: 'events', events, modelIdentity };
   if (performance !== undefined) {
     result.performance = performance;
   }
@@ -52,12 +49,8 @@ export const eventResult = <T>(
   return result;
 };
 
-export const internalErrorResult = (
-  status: number,
-  error: InternalDebugError,
-  performance?: PerformanceTelemetryContext,
-): InternalErrorResult => ({
-  type: "internal-error",
+export const internalErrorResult = (status: number, error: InternalDebugError, performance?: PerformanceTelemetryContext): InternalErrorResult => ({
+  type: 'internal-error',
   status,
   error,
   ...(performance ? { performance } : {}),

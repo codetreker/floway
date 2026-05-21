@@ -1,12 +1,10 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../test-assert.ts";
-import { initRepo } from "../../../repo/index.ts";
-import { InMemoryRepo } from "../../../repo/memory.ts";
-import { stubProvider, stubUpstreamModel } from "../../../test-helpers.ts";
-import {
-  recordUpstreamHttpFailure,
-  withUpstreamTelemetry,
-} from "./telemetry.ts";
+import { test } from 'vitest';
+
+import { recordUpstreamHttpFailure, withUpstreamTelemetry } from './telemetry.ts';
+import { initRepo } from '../../../repo/index.ts';
+import { InMemoryRepo } from '../../../repo/memory.ts';
+import { assertEquals } from '../../../test-assert.ts';
+import { stubProvider, stubUpstreamModel } from '../../../test-helpers.ts';
 
 interface TelemetryHarness {
   repo: InMemoryRepo;
@@ -20,51 +18,51 @@ const setup = (): TelemetryHarness => {
 };
 
 const testTelemetryModelIdentity = {
-  model: "claude-test",
-  upstream: "copilot:1",
-  modelKey: "claude-test-raw",
+  model: 'claude-test',
+  upstream: 'copilot:1',
+  modelKey: 'claude-test-raw',
 };
 
 const baseInput = (
   harness: TelemetryHarness,
   overrides: {
-    sourceApi?: "messages" | "responses" | "chat-completions";
-    targetApi?: "messages" | "responses" | "chat-completions";
+    sourceApi?: 'messages' | 'responses' | 'chat-completions';
+    targetApi?: 'messages' | 'responses' | 'chat-completions';
     model?: string;
     stream?: boolean;
     downstreamAbortSignal?: AbortSignal;
   } = {},
 ) =>
   ({
-    sourceApi: overrides.sourceApi ?? "messages",
-    targetApi: overrides.targetApi ?? overrides.sourceApi ?? "messages",
-    model: overrides.model ?? "claude-test",
-    upstream: "copilot:1",
+    sourceApi: overrides.sourceApi ?? 'messages',
+    targetApi: overrides.targetApi ?? overrides.sourceApi ?? 'messages',
+    model: overrides.model ?? 'claude-test',
+    upstream: 'copilot:1',
     payload: {
-      model: overrides.model ?? "claude-test",
+      model: overrides.model ?? 'claude-test',
       stream: overrides.stream ?? true,
     },
     provider: stubProvider(),
     upstreamModel: stubUpstreamModel(),
     enabledFixes: new Set<string>(),
-    apiKeyId: "key_a",
+    apiKeyId: 'key_a',
     clientStream: overrides.stream ?? true,
-    runtimeLocation: "SJC",
+    runtimeLocation: 'SJC',
     downstreamAbortSignal: overrides.downstreamAbortSignal,
     scheduleBackground: (promise: Promise<unknown>) => {
       harness.background.push(promise);
     },
-  }) as const;
+  } as const);
 
-test("withUpstreamTelemetry records EOF-without-terminal as upstream failure", async () => {
+test('withUpstreamTelemetry records EOF-without-terminal as upstream failure', async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"message_start"}' };
+      yield { type: 'sse' as const, data: '{"type":"message_start"}' };
     })(),
     baseInput(harness),
-    "messages",
+    'messages',
     performance.now(),
     testTelemetryModelIdentity,
   );
@@ -76,21 +74,21 @@ test("withUpstreamTelemetry records EOF-without-terminal as upstream failure", a
 
   const rows = await harness.repo.performance.listAll();
   assertEquals(rows.length, 1);
-  assertEquals(rows[0].metricScope, "upstream_success");
+  assertEquals(rows[0].metricScope, 'upstream_success');
   assertEquals(rows[0].requests, 0);
   assertEquals(rows[0].errors, 1);
 });
 
-test("withUpstreamTelemetry records upstream-thrown stream errors as upstream failure", async () => {
+test('withUpstreamTelemetry records upstream-thrown stream errors as upstream failure', async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"message_start"}' };
-      throw new Error("stream failed");
+      yield { type: 'sse' as const, data: '{"type":"message_start"}' };
+      throw new Error('stream failed');
     })(),
     baseInput(harness),
-    "messages",
+    'messages',
     performance.now(),
     testTelemetryModelIdentity,
   );
@@ -105,23 +103,23 @@ test("withUpstreamTelemetry records upstream-thrown stream errors as upstream fa
   }
   await Promise.all(harness.background);
 
-  assertEquals((thrown as Error)?.message, "stream failed");
+  assertEquals((thrown as Error)?.message, 'stream failed');
   const rows = await harness.repo.performance.listAll();
   assertEquals(rows.length, 1);
   assertEquals(rows[0].errors, 1);
   assertEquals(rows[0].requests, 0);
 });
 
-test("withUpstreamTelemetry does not record consumer-cancelled streams", async () => {
+test('withUpstreamTelemetry does not record consumer-cancelled streams', async () => {
   const harness = setup();
 
   const iterator = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"message_start"}' };
-      yield { type: "sse" as const, data: '{"type":"content_block_delta"}' };
+      yield { type: 'sse' as const, data: '{"type":"message_start"}' };
+      yield { type: 'sse' as const, data: '{"type":"content_block_delta"}' };
     })(),
     baseInput(harness),
-    "messages",
+    'messages',
     performance.now(),
     testTelemetryModelIdentity,
   )[Symbol.asyncIterator]();
@@ -133,7 +131,7 @@ test("withUpstreamTelemetry does not record consumer-cancelled streams", async (
   assertEquals(await harness.repo.performance.listAll(), []);
 });
 
-test("withUpstreamTelemetry does not record downstream-signal-aborted streams", async () => {
+test('withUpstreamTelemetry does not record downstream-signal-aborted streams', async () => {
   const harness = setup();
   const downstreamAbortController = new AbortController();
 
@@ -145,7 +143,7 @@ test("withUpstreamTelemetry does not record downstream-signal-aborted streams", 
     baseInput(harness, {
       downstreamAbortSignal: downstreamAbortController.signal,
     }),
-    "messages",
+    'messages',
     performance.now(),
     testTelemetryModelIdentity,
   );
@@ -158,30 +156,30 @@ test("withUpstreamTelemetry does not record downstream-signal-aborted streams", 
   assertEquals(await harness.repo.performance.listAll(), []);
 });
 
-test("withUpstreamTelemetry records failed Responses JSON as upstream failure", async () => {
+test('withUpstreamTelemetry records failed Responses JSON as upstream failure', async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
     (async function* () {
       yield {
-        type: "json" as const,
+        type: 'json' as const,
         data: {
-          id: "resp_failed",
-          object: "response",
-          model: "gpt-failed-json",
-          status: "failed",
+          id: 'resp_failed',
+          object: 'response',
+          model: 'gpt-failed-json',
+          status: 'failed',
           output: [],
-          output_text: "",
-          error: { type: "server_error", message: "failed" },
+          output_text: '',
+          error: { type: 'server_error', message: 'failed' },
         },
       };
     })(),
     baseInput(harness, {
-      sourceApi: "responses",
-      model: "gpt-failed-json",
+      sourceApi: 'responses',
+      model: 'gpt-failed-json',
       stream: false,
     }),
-    "responses",
+    'responses',
     performance.now(),
     testTelemetryModelIdentity,
   );
@@ -193,26 +191,25 @@ test("withUpstreamTelemetry records failed Responses JSON as upstream failure", 
 
   const rows = await harness.repo.performance.listAll();
   assertEquals(rows.length, 1);
-  assertEquals(rows[0].metricScope, "upstream_success");
+  assertEquals(rows[0].metricScope, 'upstream_success');
   assertEquals(rows[0].errors, 1);
   assertEquals(rows[0].requests, 0);
 });
 
-test("withUpstreamTelemetry records Messages SSE error event as upstream failure", async () => {
+test('withUpstreamTelemetry records Messages SSE error event as upstream failure', async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"message_start"}' };
+      yield { type: 'sse' as const, data: '{"type":"message_start"}' };
       yield {
-        type: "sse" as const,
-        event: "error",
-        data:
-          '{"type":"error","error":{"type":"overloaded_error","message":"slow down"}}',
+        type: 'sse' as const,
+        event: 'error',
+        data: '{"type":"error","error":{"type":"overloaded_error","message":"slow down"}}',
       };
     })(),
     baseInput(harness),
-    "messages",
+    'messages',
     performance.now(),
     testTelemetryModelIdentity,
   );
@@ -228,19 +225,19 @@ test("withUpstreamTelemetry records Messages SSE error event as upstream failure
   assertEquals(rows[0].requests, 0);
 });
 
-test("withUpstreamTelemetry records Responses SSE failure event as upstream failure", async () => {
+test('withUpstreamTelemetry records Responses SSE failure event as upstream failure', async () => {
   const harness = setup();
 
   const events = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"response.created"}' };
+      yield { type: 'sse' as const, data: '{"type":"response.created"}' };
       yield {
-        type: "sse" as const,
+        type: 'sse' as const,
         data: '{"type":"response.failed","response":{"status":"failed"}}',
       };
     })(),
-    baseInput(harness, { sourceApi: "responses", model: "gpt-failed-stream" }),
-    "responses",
+    baseInput(harness, { sourceApi: 'responses', model: 'gpt-failed-stream' }),
+    'responses',
     performance.now(),
     testTelemetryModelIdentity,
   );
@@ -256,13 +253,13 @@ test("withUpstreamTelemetry records Responses SSE failure event as upstream fail
   assertEquals(rows[0].requests, 0);
 });
 
-test("withUpstreamTelemetry treats DONE as terminal only for chat-completions", async () => {
-  for (const targetApi of ["messages", "responses"] as const) {
+test('withUpstreamTelemetry treats DONE as terminal only for chat-completions', async () => {
+  for (const targetApi of ['messages', 'responses'] as const) {
     const harness = setup();
 
     const events = withUpstreamTelemetry(
       (async function* () {
-        yield { type: "sse" as const, data: "[DONE]" };
+        yield { type: 'sse' as const, data: '[DONE]' };
       })(),
       baseInput(harness, {
         sourceApi: targetApi,
@@ -287,72 +284,68 @@ test("withUpstreamTelemetry treats DONE as terminal only for chat-completions", 
   }
 });
 
-test("withUpstreamTelemetry snapshots duration when the success frame arrives", async () => {
+test('withUpstreamTelemetry snapshots duration when the success frame arrives', async () => {
   const harness = setup();
   const startedAt = performance.now();
 
   const iterator = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"message_stop"}' };
+      yield { type: 'sse' as const, data: '{"type":"message_stop"}' };
     })(),
-    baseInput(harness, { model: "claude-timing" }),
-    "messages",
+    baseInput(harness, { model: 'claude-timing' }),
+    'messages',
     startedAt,
     testTelemetryModelIdentity,
   )[Symbol.asyncIterator]();
 
   assertEquals((await iterator.next()).done, false);
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  await new Promise(resolve => setTimeout(resolve, 80));
   assertEquals((await iterator.next()).done, true);
   await Promise.all(harness.background);
 
   const rows = await harness.repo.performance.listAll();
   assertEquals(rows.length, 1);
-  assertEquals(rows[0].metricScope, "upstream_success");
+  assertEquals(rows[0].metricScope, 'upstream_success');
   assertEquals(rows[0].requests, 1);
   assertEquals(rows[0].errors, 0);
   assertEquals(rows[0].totalMsSum < 40, true);
 });
 
-test("recordUpstreamHttpFailure records a single error for non-2xx responses", async () => {
+test('recordUpstreamHttpFailure records a single error for non-2xx responses', async () => {
   const harness = setup();
-  recordUpstreamHttpFailure(
-    baseInput(harness, { sourceApi: "messages" }),
-    "messages",
-    testTelemetryModelIdentity,
-  );
+  recordUpstreamHttpFailure(baseInput(harness, { sourceApi: 'messages' }), 'messages', testTelemetryModelIdentity);
   await Promise.all(harness.background);
 
   const rows = await harness.repo.performance.listAll();
   assertEquals(rows.length, 1);
-  assertEquals(rows[0].metricScope, "upstream_success");
+  assertEquals(rows[0].metricScope, 'upstream_success');
   assertEquals(rows[0].errors, 1);
   assertEquals(rows[0].requests, 0);
 });
 
-test("withUpstreamTelemetry skips recording when apiKeyId is absent", async () => {
+test('withUpstreamTelemetry skips recording when apiKeyId is absent', async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   const background: Promise<unknown>[] = [];
 
   const events = withUpstreamTelemetry(
     (async function* () {
-      yield { type: "sse" as const, data: '{"type":"message_stop"}' };
+      yield { type: 'sse' as const, data: '{"type":"message_stop"}' };
     })(),
     {
-      sourceApi: "messages",
-      targetApi: "messages",
-      model: "claude-anon",
-      upstream: "test-upstream",
-      payload: { model: "claude-anon", stream: true },
+      sourceApi: 'messages',
+      targetApi: 'messages',
+      model: 'claude-anon',
+      upstream: 'test-upstream',
+      payload: { model: 'claude-anon', stream: true },
       provider: stubProvider(),
       upstreamModel: stubUpstreamModel(),
       enabledFixes: new Set<string>(),
       clientStream: true,
-      runtimeLocation: "SJC",
-      scheduleBackground: (promise) => background.push(promise),
+      runtimeLocation: 'SJC',
+      scheduleBackground: promise => background.push(promise),
     },
-    "messages",
+    'messages',
     performance.now(),
     testTelemetryModelIdentity,
   );

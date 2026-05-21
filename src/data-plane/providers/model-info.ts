@@ -1,19 +1,17 @@
-import type { CachedModelInfo } from "./upstream-model-cache.ts";
-import type { ModelMetadata } from "./types.ts";
+import type { ModelMetadata } from './types.ts';
+import type { CachedModelInfo } from './upstream-model-cache.ts';
 
 export type RawModelMetadata = CachedModelInfo;
 
-export const withModelInfoDefaults = (
-  model: RawModelMetadata,
-): ModelMetadata => {
+export const withModelInfoDefaults = (model: RawModelMetadata): ModelMetadata => {
   const metadata: ModelMetadata = {
-    object: model.object ?? "model",
+    object: model.object ?? 'model',
     id: model.id,
     name: model.name ?? model.id,
     version: model.version ?? model.id,
     capabilities: {
       family: model.capabilities?.family ?? model.id,
-      type: model.capabilities?.type ?? "chat",
+      type: model.capabilities?.type ?? 'chat',
       limits: model.capabilities?.limits ?? {},
       supports: model.capabilities?.supports ?? {},
     },

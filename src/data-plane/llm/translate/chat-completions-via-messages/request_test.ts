@@ -1,10 +1,8 @@
-import { test } from "vitest";
-import { assertEquals, assertExists, assertRejects } from "../../../../test-assert.ts";
-import {
-  type RemoteImageLoader,
-  translateChatCompletionsToMessages,
-} from "./request.ts";
-import type { ChatCompletionsPayload } from "../../../shared/protocol/chat-completions.ts";
+import { test } from 'vitest';
+
+import { type RemoteImageLoader, translateChatCompletionsToMessages } from './request.ts';
+import { assertEquals, assertExists, assertRejects } from '../../../../test-assert.ts';
+import type { ChatCompletionsPayload } from '../../../shared/protocol/chat-completions.ts';
 import {
   MESSAGES_FALLBACK_MAX_TOKENS,
   type MessagesAssistantContentBlock,
@@ -16,173 +14,188 @@ import {
   type MessagesToolResultBlock,
   type MessagesToolUseBlock,
   type MessagesUserContentBlock,
-} from "../../../shared/protocol/messages.ts";
+} from '../../../shared/protocol/messages.ts';
 
 // ── Helpers ──
 
 function mkPayload(
   overrides: Partial<ChatCompletionsPayload> & {
-    messages: ChatCompletionsPayload["messages"];
+    messages: ChatCompletionsPayload['messages'];
   },
 ): ChatCompletionsPayload {
-  return { model: "claude-sonnet-4", ...overrides };
+  return { model: 'claude-sonnet-4', ...overrides };
 }
 
-function assistantBlocks(
-  result: MessagesPayload,
-  msgIndex = 0,
-): MessagesAssistantContentBlock[] {
+function assistantBlocks(result: MessagesPayload, msgIndex = 0): MessagesAssistantContentBlock[] {
   const msg = result.messages[msgIndex];
-  assertEquals(msg.role, "assistant");
+  assertEquals(msg.role, 'assistant');
   return msg.content as MessagesAssistantContentBlock[];
 }
 
-function userBlocks(
-  result: MessagesPayload,
-  msgIndex = 0,
-): MessagesUserContentBlock[] {
+function userBlocks(result: MessagesPayload, msgIndex = 0): MessagesUserContentBlock[] {
   const msg = result.messages[msgIndex];
-  assertEquals(msg.role, "user");
-  return Array.isArray(msg.content)
-    ? msg.content as MessagesUserContentBlock[]
-    : [{ type: "text", text: msg.content as string }];
+  assertEquals(msg.role, 'user');
+  return Array.isArray(msg.content) ? (msg.content as MessagesUserContentBlock[]) : [{ type: 'text', text: msg.content as string }];
 }
 
-function stubRemoteImageLoader(
-  result: Awaited<ReturnType<RemoteImageLoader>>,
-): RemoteImageLoader {
+function stubRemoteImageLoader(result: Awaited<ReturnType<RemoteImageLoader>>): RemoteImageLoader {
   return () => Promise.resolve(result);
 }
 
 // ── System / Developer messages ──
 
-test("system message extracted to system field", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "system", content: "You are helpful." },
-      { role: "user", content: "Hi" },
-    ],
-  }));
-  assertEquals(result.system, "You are helpful.");
+test('system message extracted to system field', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
+  assertEquals(result.system, 'You are helpful.');
   assertEquals(result.messages.length, 1);
-  assertEquals(result.messages[0].role, "user");
+  assertEquals(result.messages[0].role, 'user');
 });
 
-test("developer message treated same as system", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "developer", content: "Dev instructions" },
-      { role: "user", content: "Hi" },
-    ],
-  }));
-  assertEquals(result.system, "Dev instructions");
+test('developer message treated same as system', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'developer', content: 'Dev instructions' },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
+  assertEquals(result.system, 'Dev instructions');
 });
 
-test("multiple system messages joined with double newline", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "system", content: "First" },
-      { role: "developer", content: "Second" },
-      { role: "user", content: "Hi" },
-    ],
-  }));
-  assertEquals(result.system, "First\n\nSecond");
+test('multiple system messages joined with double newline', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'system', content: 'First' },
+        { role: 'developer', content: 'Second' },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
+  assertEquals(result.system, 'First\n\nSecond');
 });
 
-test("empty system content is skipped", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "system", content: "" },
-      { role: "user", content: "Hi" },
-    ],
-  }));
+test('empty system content is skipped', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'system', content: '' },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
   assertEquals(result.system, undefined);
 });
 
-test("system with ContentPart array extracts text parts", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      {
-        role: "system",
-        content: [{ type: "text", text: "A" }, { type: "text", text: "B" }],
-      },
-      { role: "user", content: "Hi" },
-    ],
-  }));
-  assertEquals(result.system, "AB");
+test('system with ContentPart array extracts text parts', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        {
+          role: 'system',
+          content: [
+            { type: 'text', text: 'A' },
+            { type: 'text', text: 'B' },
+          ],
+        },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
+  assertEquals(result.system, 'AB');
 });
 
 // ── Basic message mapping ──
 
-test("simple user message → string content", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hello" }],
-  }));
+test('simple user message → string content', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hello' }],
+    }),
+  );
   assertEquals(result.messages.length, 1);
-  assertEquals(result.messages[0].role, "user");
-  assertEquals(result.messages[0].content, "Hello");
+  assertEquals(result.messages[0].role, 'user');
+  assertEquals(result.messages[0].content, 'Hello');
 });
 
-test("simple assistant message → text block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: "Hello!" },
-    ],
-  }));
+test('simple assistant message → text block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: 'Hello!' },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
-  assertEquals((blocks[0] as MessagesTextBlock).text, "Hello!");
+  assertEquals(blocks[0].type, 'text');
+  assertEquals((blocks[0] as MessagesTextBlock).text, 'Hello!');
 });
 
-test("assistant with null content → empty text block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: null },
-    ],
-  }));
+test('assistant with null content → empty text block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: null },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
-  assertEquals((blocks[0] as MessagesTextBlock).text, "");
+  assertEquals(blocks[0].type, 'text');
+  assertEquals((blocks[0] as MessagesTextBlock).text, '');
 });
 
-test("user with null content → empty text block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: null }],
-  }));
+test('user with null content → empty text block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: null }],
+    }),
+  );
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 1);
-  assertEquals((blocks[0] as MessagesTextBlock).text, "");
+  assertEquals((blocks[0] as MessagesTextBlock).text, '');
 });
 
 // ── User/user merge ──
 
-test("consecutive user messages merged", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "First" },
-      { role: "user", content: "Second" },
-    ],
-  }));
+test('consecutive user messages merged', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'First' },
+        { role: 'user', content: 'Second' },
+      ],
+    }),
+  );
   assertEquals(result.messages.length, 1);
-  assertEquals(result.messages[0].role, "user");
+  assertEquals(result.messages[0].role, 'user');
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 2);
-  assertEquals((blocks[0] as MessagesTextBlock).text, "First");
-  assertEquals((blocks[1] as MessagesTextBlock).text, "Second");
+  assertEquals((blocks[0] as MessagesTextBlock).text, 'First');
+  assertEquals((blocks[1] as MessagesTextBlock).text, 'Second');
 });
 
-test("three consecutive users all merged into one", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "A" },
-      { role: "user", content: "B" },
-      { role: "user", content: "C" },
-    ],
-  }));
+test('three consecutive users all merged into one', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'A' },
+        { role: 'user', content: 'B' },
+        { role: 'user', content: 'C' },
+      ],
+    }),
+  );
   assertEquals(result.messages.length, 1);
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 3);
@@ -190,362 +203,408 @@ test("three consecutive users all merged into one", async () => {
 
 // ── Tool messages ──
 
-test("tool message creates user with tool_result block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: "",
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "f", arguments: "{}" },
-        }],
-      },
-      { role: "tool", content: "result", tool_call_id: "tc1" },
-    ],
-  }));
+test('tool message creates user with tool_result block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'f', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'result', tool_call_id: 'tc1' },
+      ],
+    }),
+  );
   assertEquals(result.messages.length, 3);
-  assertEquals(result.messages[2].role, "user");
+  assertEquals(result.messages[2].role, 'user');
   const blocks = result.messages[2].content as MessagesUserContentBlock[];
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "tool_result");
-  assertEquals((blocks[0] as MessagesToolResultBlock).tool_use_id, "tc1");
-  assertEquals((blocks[0] as MessagesToolResultBlock).content, "result");
+  assertEquals(blocks[0].type, 'tool_result');
+  assertEquals((blocks[0] as MessagesToolResultBlock).tool_use_id, 'tc1');
+  assertEquals((blocks[0] as MessagesToolResultBlock).content, 'result');
 });
 
-test("multiple tool messages after assistant merged into one user", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [
-          {
-            id: "tc1",
-            type: "function",
-            function: { name: "f1", arguments: "{}" },
-          },
-          {
-            id: "tc2",
-            type: "function",
-            function: { name: "f2", arguments: "{}" },
-          },
-        ],
-      },
-      { role: "tool", content: "r1", tool_call_id: "tc1" },
-      { role: "tool", content: "r2", tool_call_id: "tc2" },
-    ],
-  }));
+test('multiple tool messages after assistant merged into one user', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'f1', arguments: '{}' },
+            },
+            {
+              id: 'tc2',
+              type: 'function',
+              function: { name: 'f2', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'r1', tool_call_id: 'tc1' },
+        { role: 'tool', content: 'r2', tool_call_id: 'tc2' },
+      ],
+    }),
+  );
   assertEquals(result.messages.length, 3);
-  assertEquals(result.messages[2].role, "user");
+  assertEquals(result.messages[2].role, 'user');
   const blocks = result.messages[2].content as MessagesUserContentBlock[];
   assertEquals(blocks.length, 2);
-  assertEquals((blocks[0] as MessagesToolResultBlock).tool_use_id, "tc1");
-  assertEquals((blocks[1] as MessagesToolResultBlock).tool_use_id, "tc2");
+  assertEquals((blocks[0] as MessagesToolResultBlock).tool_use_id, 'tc1');
+  assertEquals((blocks[1] as MessagesToolResultBlock).tool_use_id, 'tc2');
 });
 
-test("tool + user merged: tool_results + text in same user msg", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "f", arguments: "{}" },
-        }],
-      },
-      { role: "tool", content: "result", tool_call_id: "tc1" },
-      { role: "user", content: "thanks" },
-    ],
-  }));
+test('tool + user merged: tool_results + text in same user msg', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'f', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', content: 'result', tool_call_id: 'tc1' },
+        { role: 'user', content: 'thanks' },
+      ],
+    }),
+  );
   assertEquals(result.messages.length, 3);
   const blocks = result.messages[2].content as MessagesUserContentBlock[];
   assertEquals(blocks.length, 2);
-  assertEquals(blocks[0].type, "tool_result");
-  assertEquals(blocks[1].type, "text");
-  assertEquals((blocks[1] as MessagesTextBlock).text, "thanks");
+  assertEquals(blocks[0].type, 'tool_result');
+  assertEquals(blocks[1].type, 'text');
+  assertEquals((blocks[1] as MessagesTextBlock).text, 'thanks');
 });
 
-test("tool message without tool_call_id is rejected", async () => {
+test('tool message without tool_call_id is rejected', async () => {
   await assertRejects(
     () =>
-      translateChatCompletionsToMessages(mkPayload({
-        messages: [
-          { role: "user", content: "Hi" },
-          {
-            role: "assistant",
-            content: null,
-            tool_calls: [{
-              id: "tc1",
-              type: "function",
-              function: { name: "f", arguments: "{}" },
-            }],
-          },
-          { role: "tool", content: "result" },
-        ],
-      })),
+      translateChatCompletionsToMessages(
+        mkPayload({
+          messages: [
+            { role: 'user', content: 'Hi' },
+            {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'tc1',
+                  type: 'function',
+                  function: { name: 'f', arguments: '{}' },
+                },
+              ],
+            },
+            { role: 'tool', content: 'result' },
+          ],
+        }),
+      ),
     Error,
-    "tool_call_id",
+    'tool_call_id',
   );
 });
 
 // ── Assistant content block ordering ──
 
-test("assistant blocks ordered: thinking → text → tool_use", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: "response text",
-        reasoning_text: "I think...",
-        reasoning_opaque: "sig123",
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "search", arguments: '{"q":"x"}' },
-        }],
-      },
-    ],
-  }));
+test('assistant blocks ordered: thinking → text → tool_use', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: 'response text',
+          reasoning_text: 'I think...',
+          reasoning_opaque: 'sig123',
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'search', arguments: '{"q":"x"}' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 3);
-  assertEquals(blocks[0].type, "thinking");
-  assertEquals(blocks[1].type, "text");
-  assertEquals(blocks[2].type, "tool_use");
+  assertEquals(blocks[0].type, 'thinking');
+  assertEquals(blocks[1].type, 'text');
+  assertEquals(blocks[2].type, 'tool_use');
 });
 
-test("assistant with only tool_calls, no content", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "f", arguments: '{"a":1}' },
-        }],
-      },
-    ],
-  }));
+test('assistant with only tool_calls, no content', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'f', arguments: '{"a":1}' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "tool_use");
-  assertEquals((blocks[0] as MessagesToolUseBlock).name, "f");
+  assertEquals(blocks[0].type, 'tool_use');
+  assertEquals((blocks[0] as MessagesToolUseBlock).name, 'f');
   assertEquals((blocks[0] as MessagesToolUseBlock).input, { a: 1 });
 });
 
-test("assistant with multiple tool_calls", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [
-          {
-            id: "tc1",
-            type: "function",
-            function: { name: "f1", arguments: '{"x":1}' },
-          },
-          {
-            id: "tc2",
-            type: "function",
-            function: { name: "f2", arguments: '{"y":2}' },
-          },
-        ],
-      },
-    ],
-  }));
+test('assistant with multiple tool_calls', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'f1', arguments: '{"x":1}' },
+            },
+            {
+              id: 'tc2',
+              type: 'function',
+              function: { name: 'f2', arguments: '{"y":2}' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 2);
-  assertEquals(blocks[0].type, "tool_use");
-  assertEquals(blocks[1].type, "tool_use");
-  assertEquals((blocks[0] as MessagesToolUseBlock).id, "tc1");
-  assertEquals((blocks[1] as MessagesToolUseBlock).id, "tc2");
+  assertEquals(blocks[0].type, 'tool_use');
+  assertEquals(blocks[1].type, 'tool_use');
+  assertEquals((blocks[0] as MessagesToolUseBlock).id, 'tc1');
+  assertEquals((blocks[1] as MessagesToolUseBlock).id, 'tc2');
 });
 
-test("assistant tool_calls with invalid JSON arguments → raw_arguments fallback", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "f", arguments: "not json" },
-        }],
-      },
-    ],
-  }));
+test('assistant tool_calls with invalid JSON arguments → raw_arguments fallback', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'f', arguments: 'not json' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals((blocks[0] as MessagesToolUseBlock).input, {
-    raw_arguments: "not json",
+    raw_arguments: 'not json',
   });
 });
 
 // ── Thinking / Redacted thinking ──
 
-test("reasoning_text + reasoning_opaque → thinking block with signature", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: "resp",
-        reasoning_text: "My thoughts",
-        reasoning_opaque: "sig",
-      },
-    ],
-  }));
+test('reasoning_text + reasoning_opaque → thinking block with signature', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: 'resp',
+          reasoning_text: 'My thoughts',
+          reasoning_opaque: 'sig',
+        },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   const thinking = blocks[0] as MessagesThinkingBlock;
-  assertEquals(thinking.type, "thinking");
-  assertEquals(thinking.thinking, "My thoughts");
-  assertEquals(thinking.signature, "sig");
+  assertEquals(thinking.type, 'thinking');
+  assertEquals(thinking.thinking, 'My thoughts');
+  assertEquals(thinking.signature, 'sig');
 });
 
-test("reasoning_text only → thinking block without signature", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: "resp", reasoning_text: "My thoughts" },
-    ],
-  }));
+test('reasoning_text only → thinking block without signature', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: 'resp', reasoning_text: 'My thoughts' },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   const thinking = blocks[0] as MessagesThinkingBlock;
-  assertEquals(thinking.type, "thinking");
-  assertEquals(thinking.thinking, "My thoughts");
+  assertEquals(thinking.type, 'thinking');
+  assertEquals(thinking.thinking, 'My thoughts');
   assertEquals(thinking.signature, undefined);
 });
 
-test("reasoning_opaque only → redacted_thinking block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: "resp", reasoning_opaque: "opaque_data" },
-    ],
-  }));
+test('reasoning_opaque only → redacted_thinking block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: 'resp', reasoning_opaque: 'opaque_data' },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   const redacted = blocks[0] as MessagesRedactedThinkingBlock;
-  assertEquals(redacted.type, "redacted_thinking");
-  assertEquals(redacted.data, "opaque_data");
+  assertEquals(redacted.type, 'redacted_thinking');
+  assertEquals(redacted.data, 'opaque_data');
 });
 
-test("no reasoning fields → no thinking block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: "resp" },
-    ],
-  }));
+test('no reasoning fields → no thinking block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: 'resp' },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
+  assertEquals(blocks[0].type, 'text');
 });
 
-test("null reasoning fields → no thinking block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Hi" },
-      {
-        role: "assistant",
-        content: "resp",
-        reasoning_text: null,
-        reasoning_opaque: null,
-      },
-    ],
-  }));
+test('null reasoning fields → no thinking block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Hi' },
+        {
+          role: 'assistant',
+          content: 'resp',
+          reasoning_text: null,
+          reasoning_opaque: null,
+        },
+      ],
+    }),
+  );
   const blocks = assistantBlocks(result, 1);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
+  assertEquals(blocks[0].type, 'text');
 });
 
 // ── Image handling ──
 
-test("image_url with data URL → base64 image block", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: "What is this?" },
-        {
-          type: "image_url",
-          image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
-        },
-      ],
-    }],
-  }));
-  const blocks = userBlocks(result, 0);
-  assertEquals(blocks.length, 2);
-  assertEquals(blocks[0].type, "text");
-  assertEquals(blocks[1].type, "image");
-  const img = blocks[1] as {
-    type: "image";
-    source: { type: string; media_type: string; data: string };
-  };
-  assertEquals(img.source.type, "base64");
-  assertEquals(img.source.media_type, "image/png");
-  assertEquals(img.source.data, "iVBORw0KGgo=");
-});
-
-test("image_url with remote image loader → base64 image block", async () => {
+test('image_url with data URL → base64 image block', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: "What is this?" },
-          {
-            type: "image_url",
-            image_url: { url: "https://example.com/image.png" },
-          },
-        ],
-      }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is this?' },
+            {
+              type: 'image_url',
+              image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const blocks = userBlocks(result, 0);
+  assertEquals(blocks.length, 2);
+  assertEquals(blocks[0].type, 'text');
+  assertEquals(blocks[1].type, 'image');
+  const img = blocks[1] as {
+    type: 'image';
+    source: { type: string; media_type: string; data: string };
+  };
+  assertEquals(img.source.type, 'base64');
+  assertEquals(img.source.media_type, 'image/png');
+  assertEquals(img.source.data, 'iVBORw0KGgo=');
+});
+
+test('image_url with remote image loader → base64 image block', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What is this?' },
+            {
+              type: 'image_url',
+              image_url: { url: 'https://example.com/image.png' },
+            },
+          ],
+        },
+      ],
     }),
     {
       loadRemoteImage: stubRemoteImageLoader({
-        mediaType: "image/png",
+        mediaType: 'image/png',
         data: new Uint8Array([1, 2, 3]),
       }),
     },
   );
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 2);
-  assertEquals(blocks[0].type, "text");
-  assertEquals(blocks[1].type, "image");
+  assertEquals(blocks[0].type, 'text');
+  assertEquals(blocks[1].type, 'image');
   const img = blocks[1] as {
-    type: "image";
+    type: 'image';
     source: { type: string; media_type: string; data: string };
   };
-  assertEquals(img.source.type, "base64");
-  assertEquals(img.source.media_type, "image/png");
-  assertEquals(img.source.data, "AQID");
+  assertEquals(img.source.type, 'base64');
+  assertEquals(img.source.media_type, 'image/png');
+  assertEquals(img.source.data, 'AQID');
 });
 
-test("image_url with remote image loader failure → gracefully skipped", async () => {
+test('image_url with remote image loader failure → gracefully skipped', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: "What?" },
-          {
-            type: "image_url",
-            image_url: { url: "https://example.com/nonexistent.png" },
-          },
-        ],
-      }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'What?' },
+            {
+              type: 'image_url',
+              image_url: { url: 'https://example.com/nonexistent.png' },
+            },
+          ],
+        },
+      ],
     }),
     {
       loadRemoteImage: stubRemoteImageLoader(null),
@@ -553,78 +612,85 @@ test("image_url with remote image loader failure → gracefully skipped", async 
   );
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
+  assertEquals(blocks[0].type, 'text');
 });
 
-test("image with jpeg media type", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{
-      role: "user",
-      content: [
+test('image with jpeg media type', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
         {
-          type: "image_url",
-          image_url: { url: "data:image/jpeg;base64,/9j/4AAQ=" },
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { url: 'data:image/jpeg;base64,/9j/4AAQ=' },
+            },
+          ],
         },
       ],
-    }],
-  }));
+    }),
+  );
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 1);
-  const img = blocks[0] as { type: "image"; source: { media_type: string } };
-  assertEquals(img.source.media_type, "image/jpeg");
+  const img = blocks[0] as { type: 'image'; source: { media_type: string } };
+  assertEquals(img.source.media_type, 'image/jpeg');
 });
 
-test("data URL with unsupported media type → skipped", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: "data:image/bmp;base64,Qk0=" } },
+test('data URL with unsupported media type → skipped', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'image_url', image_url: { url: 'data:image/bmp;base64,Qk0=' } }],
+        },
       ],
-    }],
-  }));
+    }),
+  );
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
-  assertEquals((blocks[0] as MessagesTextBlock).text, "");
+  assertEquals(blocks[0].type, 'text');
+  assertEquals((blocks[0] as MessagesTextBlock).text, '');
 });
 
-test("content with only non-parseable image → empty text fallback", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: "not-a-url-at-all" } },
+test('content with only non-parseable image → empty text fallback', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'image_url', image_url: { url: 'not-a-url-at-all' } }],
+        },
       ],
-    }],
-  }));
+    }),
+  );
   const blocks = userBlocks(result, 0);
   assertEquals(blocks.length, 1);
-  assertEquals(blocks[0].type, "text");
-  assertEquals((blocks[0] as MessagesTextBlock).text, "");
+  assertEquals(blocks[0].type, 'text');
+  assertEquals((blocks[0] as MessagesTextBlock).text, '');
 });
 
 // ── Field mapping ──
 
-test("max_tokens defaults to MESSAGES_FALLBACK_MAX_TOKENS when neither payload nor fallbackMaxOutputTokens supply one", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-  }));
+test('max_tokens defaults to MESSAGES_FALLBACK_MAX_TOKENS when neither payload nor fallbackMaxOutputTokens supply one', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+    }),
+  );
   assertEquals(result.max_tokens, MESSAGES_FALLBACK_MAX_TOKENS);
 });
 
-test("max_tokens uses fallbackMaxOutputTokens over the gateway const when the payload omits it", async () => {
-  const result = await translateChatCompletionsToMessages(
-    mkPayload({ messages: [{ role: "user", content: "Hi" }] }),
-    { fallbackMaxOutputTokens: 6144 },
-  );
+test('max_tokens uses fallbackMaxOutputTokens over the gateway const when the payload omits it', async () => {
+  const result = await translateChatCompletionsToMessages(mkPayload({ messages: [{ role: 'user', content: 'Hi' }] }), { fallbackMaxOutputTokens: 6144 });
   assertEquals(result.max_tokens, 6144);
 });
 
-test("max_tokens passed through when provided, overriding fallbackMaxOutputTokens", async () => {
+test('max_tokens passed through when provided, overriding fallbackMaxOutputTokens', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
-      messages: [{ role: "user", content: "Hi" }],
+      messages: [{ role: 'user', content: 'Hi' }],
       max_tokens: 1024,
     }),
     { fallbackMaxOutputTokens: 6144 },
@@ -632,278 +698,326 @@ test("max_tokens passed through when provided, overriding fallbackMaxOutputToken
   assertEquals(result.max_tokens, 1024);
 });
 
-test("temperature mapped", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    temperature: 0.7,
-  }));
+test('temperature mapped', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      temperature: 0.7,
+    }),
+  );
   assertEquals(result.temperature, 0.7);
 });
 
-test("temperature 0 is mapped (not treated as falsy)", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    temperature: 0,
-  }));
+test('temperature 0 is mapped (not treated as falsy)', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      temperature: 0,
+    }),
+  );
   assertEquals(result.temperature, 0);
 });
 
-test("top_p mapped", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    top_p: 0.9,
-  }));
+test('top_p mapped', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      top_p: 0.9,
+    }),
+  );
   assertEquals(result.top_p, 0.9);
 });
 
-test("null temperature/top_p not included", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    temperature: null,
-    top_p: null,
-  }));
+test('null temperature/top_p not included', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      temperature: null,
+      top_p: null,
+    }),
+  );
   assertEquals(result.temperature, undefined);
   assertEquals(result.top_p, undefined);
 });
 
-test("stop string → stop_sequences array", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    stop: "END",
-  }));
-  assertEquals(result.stop_sequences, ["END"]);
+test('stop string → stop_sequences array', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      stop: 'END',
+    }),
+  );
+  assertEquals(result.stop_sequences, ['END']);
 });
 
-test("stop array → stop_sequences array", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    stop: ["END", "STOP"],
-  }));
-  assertEquals(result.stop_sequences, ["END", "STOP"]);
+test('stop array → stop_sequences array', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      stop: ['END', 'STOP'],
+    }),
+  );
+  assertEquals(result.stop_sequences, ['END', 'STOP']);
 });
 
-test("stream flag passed through", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    stream: true,
-  }));
+test('stream flag passed through', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      stream: true,
+    }),
+  );
   assertEquals(result.stream, true);
 });
 
-test("stream false → not set", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    stream: false,
-  }));
+test('stream false → not set', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      stream: false,
+    }),
+  );
   assertEquals(result.stream, undefined);
 });
 
 // ── Tool choice mapping ──
 
-test("tool_choice auto → { type: auto }", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [{ type: "function", function: { name: "f", parameters: {} } }],
-    tool_choice: "auto",
-  }));
-  assertEquals(result.tool_choice, { type: "auto" });
+test('tool_choice auto → { type: auto }', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [{ type: 'function', function: { name: 'f', parameters: {} } }],
+      tool_choice: 'auto',
+    }),
+  );
+  assertEquals(result.tool_choice, { type: 'auto' });
 });
 
-test("tool_choice none → { type: none }", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tool_choice: "none",
-  }));
-  assertEquals(result.tool_choice, { type: "none" });
+test('tool_choice none → { type: none }', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tool_choice: 'none',
+    }),
+  );
+  assertEquals(result.tool_choice, { type: 'none' });
 });
 
-test("tool_choice required → { type: any }", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [{ type: "function", function: { name: "f", parameters: {} } }],
-    tool_choice: "required",
-  }));
-  assertEquals(result.tool_choice, { type: "any" });
+test('tool_choice required → { type: any }', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [{ type: 'function', function: { name: 'f', parameters: {} } }],
+      tool_choice: 'required',
+    }),
+  );
+  assertEquals(result.tool_choice, { type: 'any' });
 });
 
-test("tool_choice specific function → { type: tool, name }", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [{
-      type: "function",
-      function: { name: "get_weather", parameters: {} },
-    }],
-    tool_choice: { type: "function", function: { name: "get_weather" } },
-  }));
-  assertEquals(result.tool_choice, { type: "tool", name: "get_weather" });
+test('tool_choice specific function → { type: tool, name }', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [
+        {
+          type: 'function',
+          function: { name: 'get_weather', parameters: {} },
+        },
+      ],
+      tool_choice: { type: 'function', function: { name: 'get_weather' } },
+    }),
+  );
+  assertEquals(result.tool_choice, { type: 'tool', name: 'get_weather' });
 });
 
-test("null tool_choice → not set", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tool_choice: null,
-  }));
+test('null tool_choice → not set', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tool_choice: null,
+    }),
+  );
   assertEquals(result.tool_choice, undefined);
 });
 
 // ── Tools mapping ──
 
-test("tools translated correctly", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [{
-      type: "function",
-      function: {
-        name: "get_weather",
-        description: "Get weather",
-        parameters: {
-          type: "object",
-          properties: { city: { type: "string" } },
+test('tools translated correctly', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: 'Get weather',
+            parameters: {
+              type: 'object',
+              properties: { city: { type: 'string' } },
+            },
+          },
         },
-      },
-    }],
-  }));
+      ],
+    }),
+  );
   assertExists(result.tools);
   assertEquals(result.tools!.length, 1);
   const [tool] = result.tools!;
-  if (!("input_schema" in tool)) {
-    throw new Error("expected translated client tool");
+  if (!('input_schema' in tool)) {
+    throw new Error('expected translated client tool');
   }
-  assertEquals(tool.name, "get_weather");
-  assertEquals(tool.description, "Get weather");
+  assertEquals(tool.name, 'get_weather');
+  assertEquals(tool.description, 'Get weather');
   assertEquals(tool.input_schema, {
-    type: "object",
-    properties: { city: { type: "string" } },
+    type: 'object',
+    properties: { city: { type: 'string' } },
   });
 });
 
-test("tools preserve explicit strict values", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "strict_tool",
-          parameters: { type: "object" },
-          strict: true,
+test('tools preserve explicit strict values', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'strict_tool',
+            parameters: { type: 'object' },
+            strict: true,
+          },
         },
-      },
-      {
-        type: "function",
-        function: {
-          name: "non_strict_tool",
-          parameters: { type: "object" },
-          strict: false,
+        {
+          type: 'function',
+          function: {
+            name: 'non_strict_tool',
+            parameters: { type: 'object' },
+            strict: false,
+          },
         },
-      },
-    ],
-  }));
+      ],
+    }),
+  );
 
   assertEquals(
-    (result.tools as MessagesClientTool[] | undefined)?.map((tool) =>
-      tool.strict
-    ),
+    (result.tools as MessagesClientTool[] | undefined)?.map(tool => tool.strict),
     [true, false],
   );
 });
 
-test("tools omit strict when Chat omitted strict", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [{
-      type: "function",
-      function: {
-        name: "default_tool",
-        parameters: { type: "object" },
-      },
-    }],
-  }));
+test('tools omit strict when Chat omitted strict', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'default_tool',
+            parameters: { type: 'object' },
+          },
+        },
+      ],
+    }),
+  );
 
   const tool = result.tools?.[0] as MessagesClientTool | undefined;
   assertEquals(tool?.strict, undefined);
-  assertEquals("strict" in result.tools![0], false);
+  assertEquals('strict' in result.tools![0], false);
 });
 
-test("empty tools array → not set", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [{ role: "user", content: "Hi" }],
-    tools: [],
-  }));
+test('empty tools array → not set', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [],
+    }),
+  );
   assertEquals(result.tools, undefined);
 });
 
 // ── Model passthrough ──
 
-test("model name passed through", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    model: "claude-opus-4",
-    messages: [{ role: "user", content: "Hi" }],
-  }));
-  assertEquals(result.model, "claude-opus-4");
+test('model name passed through', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      model: 'claude-opus-4',
+      messages: [{ role: 'user', content: 'Hi' }],
+    }),
+  );
+  assertEquals(result.model, 'claude-opus-4');
 });
 
 // ── Complex multi-turn conversations ──
 
-test("full tool use round-trip conversation", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "system", content: "You are helpful." },
-      { role: "user", content: "What is the weather?" },
-      {
-        role: "assistant",
-        content: "Let me check.",
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "get_weather", arguments: '{"city":"Tokyo"}' },
-        }],
-      },
-      { role: "tool", content: '{"temp":20}', tool_call_id: "tc1" },
-      { role: "assistant", content: "It's 20 degrees in Tokyo." },
-    ],
-  }));
-  assertEquals(result.system, "You are helpful.");
+test('full tool use round-trip conversation', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: 'What is the weather?' },
+        {
+          role: 'assistant',
+          content: 'Let me check.',
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'get_weather', arguments: '{"city":"Tokyo"}' },
+            },
+          ],
+        },
+        { role: 'tool', content: '{"temp":20}', tool_call_id: 'tc1' },
+        { role: 'assistant', content: "It's 20 degrees in Tokyo." },
+      ],
+    }),
+  );
+  assertEquals(result.system, 'You are helpful.');
   assertEquals(result.messages.length, 4);
-  assertEquals(result.messages[0].role, "user");
-  assertEquals(result.messages[1].role, "assistant");
-  assertEquals(result.messages[2].role, "user");
-  assertEquals(result.messages[3].role, "assistant");
+  assertEquals(result.messages[0].role, 'user');
+  assertEquals(result.messages[1].role, 'assistant');
+  assertEquals(result.messages[2].role, 'user');
+  assertEquals(result.messages[3].role, 'assistant');
   const trBlocks = result.messages[2].content as MessagesUserContentBlock[];
-  assertEquals(trBlocks[0].type, "tool_result");
+  assertEquals(trBlocks[0].type, 'tool_result');
 });
 
-test("interleaved thinking round-trip", async () => {
-  const result = await translateChatCompletionsToMessages(mkPayload({
-    messages: [
-      { role: "user", content: "Solve this." },
-      {
-        role: "assistant",
-        content: null,
-        reasoning_text: "thinking1",
-        reasoning_opaque: "sig1",
-        tool_calls: [{
-          id: "tc1",
-          type: "function",
-          function: { name: "calc", arguments: '{"x":1}' },
-        }],
-      },
-      { role: "tool", content: "42", tool_call_id: "tc1" },
-      {
-        role: "assistant",
-        content: "The answer is 42.",
-        reasoning_text: "thinking2",
-        reasoning_opaque: "sig2",
-      },
-    ],
-  }));
+test('interleaved thinking round-trip', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'user', content: 'Solve this.' },
+        {
+          role: 'assistant',
+          content: null,
+          reasoning_text: 'thinking1',
+          reasoning_opaque: 'sig1',
+          tool_calls: [
+            {
+              id: 'tc1',
+              type: 'function',
+              function: { name: 'calc', arguments: '{"x":1}' },
+            },
+          ],
+        },
+        { role: 'tool', content: '42', tool_call_id: 'tc1' },
+        {
+          role: 'assistant',
+          content: 'The answer is 42.',
+          reasoning_text: 'thinking2',
+          reasoning_opaque: 'sig2',
+        },
+      ],
+    }),
+  );
   assertEquals(result.messages.length, 4);
 
   const a1 = assistantBlocks(result, 1);
-  assertEquals(a1[0].type, "thinking");
-  assertEquals(a1[1].type, "tool_use");
+  assertEquals(a1[0].type, 'thinking');
+  assertEquals(a1[1].type, 'tool_use');
 
   const a2 = assistantBlocks(result, 3);
-  assertEquals(a2[0].type, "thinking");
-  assertEquals(a2[1].type, "text");
+  assertEquals(a2[0].type, 'thinking');
+  assertEquals(a2[1].type, 'text');
 });

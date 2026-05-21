@@ -1,49 +1,46 @@
-import { test } from "vitest";
-import { assertEquals, assertStringIncludes } from "../../../../../test-assert.ts";
-import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
-import type { ResponsesExchangeContext } from "../../../../llm/interceptors.ts";
-import { initRepo } from "../../../../../repo/index.ts";
-import { InMemoryRepo } from "../../../../../repo/memory.ts";
-import {
-  stubProvider,
-  stubUpstreamModel,
-  testTelemetryModelIdentity,
-} from "../../../../../test-helpers.ts";
-import { eventResult } from "../../../../llm/shared/errors/result.ts";
-import { eventFrame } from "../../../../llm/shared/stream/types.ts";
-import { withConnectionMismatchRetried } from "./retry-connection-mismatch.ts";
+import { test } from 'vitest';
 
-const exchangeContext = (
-  payload: ResponsesPayload,
-): ResponsesExchangeContext => ({
-  sourceApi: "responses",
-  targetApi: "responses",
+import { withConnectionMismatchRetried } from './retry-connection-mismatch.ts';
+import { initRepo } from '../../../../../repo/index.ts';
+import { InMemoryRepo } from '../../../../../repo/memory.ts';
+import { assertEquals, assertStringIncludes } from '../../../../../test-assert.ts';
+import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
+import type { ResponsesExchangeContext } from '../../../../llm/interceptors.ts';
+import { eventResult } from '../../../../llm/shared/errors/result.ts';
+import { eventFrame } from '../../../../llm/shared/stream/types.ts';
+import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
+
+const exchangeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
+  sourceApi: 'responses',
+  targetApi: 'responses',
   model: payload.model,
-  upstream: "test-upstream",
+  upstream: 'test-upstream',
   payload,
   provider: stubProvider(),
   upstreamModel: stubUpstreamModel(),
   enabledFixes: new Set<string>(),
 });
 
-test("withConnectionMismatchRetried does not retry unrelated upstream errors", async () => {
+test('withConnectionMismatchRetried does not retry unrelated upstream errors', async () => {
   initRepo(new InMemoryRepo());
 
-  const originalId = btoa("0123456789abcdefghij");
+  const originalId = btoa('0123456789abcdefghij');
   const payload = {
-    model: "gpt-test",
-    input: [{
-      type: "message",
-      id: originalId,
-      role: "user",
-      content: "Hi",
-    }] as unknown as ResponsesPayload["input"],
+    model: 'gpt-test',
+    input: [
+      {
+        type: 'message',
+        id: originalId,
+        role: 'user',
+        content: 'Hi',
+      },
+    ] as unknown as ResponsesPayload['input'],
     instructions: null,
     temperature: 1,
     top_p: null,
     max_output_tokens: 32,
     tools: null,
-    tool_choice: "auto",
+    tool_choice: 'auto',
     metadata: null,
     stream: false,
     store: false,
@@ -52,50 +49,44 @@ test("withConnectionMismatchRetried does not retry unrelated upstream errors", a
 
   let attempts = 0;
 
-  const result = await withConnectionMismatchRetried(
-    exchangeContext(payload),
-    () => {
-      attempts += 1;
-      return Promise.resolve({
-        type: "upstream-error" as const,
-        status: 400,
-        headers: new Headers(),
-        body: new TextEncoder().encode(
-          JSON.stringify({ error: { message: "different upstream problem" } }),
-        ),
-      });
-    },
-  );
+  const result = await withConnectionMismatchRetried(exchangeContext(payload), () => {
+    attempts += 1;
+    return Promise.resolve({
+      type: 'upstream-error' as const,
+      status: 400,
+      headers: new Headers(),
+      body: new TextEncoder().encode(JSON.stringify({ error: { message: 'different upstream problem' } })),
+    });
+  });
 
   assertEquals(attempts, 1);
-  assertEquals(
-    (payload.input as unknown as Array<Record<string, unknown>>)[0].id,
-    originalId,
-  );
-  assertEquals(result.type, "upstream-error");
+  assertEquals((payload.input as unknown as Array<Record<string, unknown>>)[0].id, originalId);
+  assertEquals(result.type, 'upstream-error');
 });
 
-test("withConnectionMismatchRetried rewrites already-spotted ids before the first attempt", async () => {
+test('withConnectionMismatchRetried rewrites already-spotted ids before the first attempt', async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
-  const originalId = btoa("abcdefghij0123456789");
-  await repo.cache.set(`spotted_invalid_id:${originalId}`, "1", 3600_000);
+  const originalId = btoa('abcdefghij0123456789');
+  await repo.cache.set(`spotted_invalid_id:${originalId}`, '1', 3600_000);
 
   const payload = {
-    model: "gpt-test",
-    input: [{
-      type: "message",
-      id: originalId,
-      role: "user",
-      content: "Hi",
-    }] as unknown as ResponsesPayload["input"],
+    model: 'gpt-test',
+    input: [
+      {
+        type: 'message',
+        id: originalId,
+        role: 'user',
+        content: 'Hi',
+      },
+    ] as unknown as ResponsesPayload['input'],
     instructions: null,
     temperature: 1,
     top_p: null,
     max_output_tokens: 32,
     tools: null,
-    tool_choice: "auto",
+    tool_choice: 'auto',
     metadata: null,
     stream: false,
     store: false,
@@ -103,36 +94,34 @@ test("withConnectionMismatchRetried rewrites already-spotted ids before the firs
   } satisfies ResponsesPayload;
 
   let attempts = 0;
-  let seenId = "";
+  let seenId = '';
 
-  const result = await withConnectionMismatchRetried(
-    exchangeContext(payload),
-    () => {
-      attempts += 1;
-      seenId = (payload.input as unknown as Array<Record<string, unknown>>)[0]
-        .id as string;
+  const result = await withConnectionMismatchRetried(exchangeContext(payload), () => {
+    attempts += 1;
+    seenId = (payload.input as unknown as Array<Record<string, unknown>>)[0].id as string;
 
-      return Promise.resolve(eventResult(
+    return Promise.resolve(
+      eventResult(
         (async function* () {
           yield eventFrame({
-            type: "response.completed",
+            type: 'response.completed',
             response: {
-              id: "resp_ok",
-              object: "response",
-              model: "gpt-test",
-              status: "completed",
-              output_text: "ok",
+              id: 'resp_ok',
+              object: 'response',
+              model: 'gpt-test',
+              status: 'completed',
+              output_text: 'ok',
               output: [],
               usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
             },
           });
         })(),
         testTelemetryModelIdentity,
-      ));
-    },
-  );
+      ),
+    );
+  });
 
   assertEquals(attempts, 1);
-  assertStringIncludes(seenId, "msg_");
-  assertEquals(result.type, "events");
+  assertStringIncludes(seenId, 'msg_');
+  assertEquals(result.type, 'events');
 });

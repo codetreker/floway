@@ -109,13 +109,15 @@ export/import.
 
 ```bash
 pnpm install
+pnpm run lint
 pnpm run test
 pnpm run typecheck
 pnpm run dev
 ```
 
 Wrangler commands should be run through the local dependency with `pnpm wrangler`
-or through package scripts. Test coverage uses Vitest.
+or through package scripts. ESLint owns code style and import ordering; use
+`pnpm run lint:fix` for mechanical cleanup. Test coverage uses Vitest.
 
 ## Architecture
 

@@ -19,9 +19,9 @@ import type {
   UpstreamConfigRepo,
   UsageRecord,
   UsageRepo,
-} from "./types.ts";
-import { assertWebSearchProviderName } from "../shared/web-search-providers.ts";
-import { latencyBucketForMs } from "../shared/performance-histogram.ts";
+} from './types.ts';
+import { latencyBucketForMs } from '../shared/performance-histogram.ts';
+import { assertWebSearchProviderName } from '../shared/web-search-providers.ts';
 
 class MemoryApiKeyRepo implements ApiKeyRepo {
   private store = new Map<string, ApiKey>();
@@ -62,13 +62,7 @@ class MemoryGitHubRepo implements GitHubRepo {
 
   listAccounts(): Promise<GitHubAccount[]> {
     const rank = new Map(this.order.map((id, index) => [id, index]));
-    return Promise.resolve(
-      [...this.accounts.values()].sort((a, b) =>
-        (rank.get(a.user.id) ?? Number.MAX_SAFE_INTEGER) -
-          (rank.get(b.user.id) ?? Number.MAX_SAFE_INTEGER) ||
-        a.user.id - b.user.id
-      ),
-    );
+    return Promise.resolve([...this.accounts.values()].sort((a, b) => (rank.get(a.user.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.user.id) ?? Number.MAX_SAFE_INTEGER) || a.user.id - b.user.id));
   }
 
   getAccount(userId: number): Promise<GitHubAccount | null> {
@@ -83,20 +77,18 @@ class MemoryGitHubRepo implements GitHubRepo {
 
   deleteAccount(userId: number): Promise<void> {
     this.accounts.delete(userId);
-    this.order = this.order.filter((id) => id !== userId);
+    this.order = this.order.filter(id => id !== userId);
     return Promise.resolve();
   }
 
   setOrder(userIds: number[]): Promise<void> {
     const seen = new Set<number>();
-    const ordered = userIds.filter((id) => {
+    const ordered = userIds.filter(id => {
       if (!this.accounts.has(id) || seen.has(id)) return false;
       seen.add(id);
       return true;
     });
-    const rest = [...this.accounts.keys()]
-      .filter((id) => !seen.has(id))
-      .sort((a, b) => a - b);
+    const rest = [...this.accounts.keys()].filter(id => !seen.has(id)).sort((a, b) => a - b);
     this.order = [...ordered, ...rest];
     return Promise.resolve();
   }
@@ -111,20 +103,8 @@ class MemoryGitHubRepo implements GitHubRepo {
 class MemoryUsageRepo implements UsageRepo {
   private store = new Map<string, UsageRecord>();
 
-  private key(r: {
-    keyId: string;
-    model: string;
-    upstream: string | null;
-    modelKey: string;
-    hour: string;
-  }): string {
-    return [
-      r.keyId,
-      r.model,
-      r.upstream ?? "",
-      r.modelKey,
-      r.hour,
-    ].join("\0");
+  private key(r: { keyId: string; model: string; upstream: string | null; modelKey: string; hour: string }): string {
+    return [r.keyId, r.model, r.upstream ?? '', r.modelKey, r.hour].join('\0');
   }
 
   private normalize(record: UsageRecord): UsageRecord {
@@ -154,10 +134,8 @@ class MemoryUsageRepo implements UsageRepo {
       existing.requests += requests;
       existing.inputTokens += inputTokens;
       existing.outputTokens += outputTokens;
-      existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) +
-        cacheReadTokens;
-      existing.cacheCreationTokens = (existing.cacheCreationTokens ?? 0) +
-        cacheCreationTokens;
+      existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + cacheReadTokens;
+      existing.cacheCreationTokens = (existing.cacheCreationTokens ?? 0) + cacheCreationTokens;
     } else {
       this.store.set(
         k,
@@ -178,26 +156,20 @@ class MemoryUsageRepo implements UsageRepo {
     return Promise.resolve();
   }
 
-  query(
-    opts: { keyId?: string; start: string; end: string },
-  ): Promise<UsageRecord[]> {
+  query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]> {
     return Promise.resolve(
       [...this.store.values()]
-        .filter((r) => {
+        .filter(r => {
           if (opts.keyId && r.keyId !== opts.keyId) return false;
           return r.hour >= opts.start && r.hour < opts.end;
         })
-        .map((r) => this.normalize(r))
+        .map(r => this.normalize(r))
         .sort((a, b) => a.hour.localeCompare(b.hour)),
     );
   }
 
   listAll(): Promise<UsageRecord[]> {
-    return Promise.resolve(
-      [...this.store.values()]
-        .map((r) => this.normalize(r))
-        .sort((a, b) => a.hour.localeCompare(b.hour)),
-    );
+    return Promise.resolve([...this.store.values()].map(r => this.normalize(r)).sort((a, b) => a.hour.localeCompare(b.hour)));
   }
 
   set(record: UsageRecord): Promise<void> {
@@ -214,20 +186,11 @@ class MemoryUsageRepo implements UsageRepo {
 class MemorySearchUsageRepo implements SearchUsageRepo {
   private store = new Map<string, SearchUsageRecord>();
 
-  private key(r: {
-    provider: SearchUsageRecord["provider"];
-    keyId: string;
-    hour: string;
-  }): string {
+  private key(r: { provider: SearchUsageRecord['provider']; keyId: string; hour: string }): string {
     return `${r.provider}\0${r.keyId}\0${r.hour}`;
   }
 
-  record(
-    provider: SearchUsageRecord["provider"],
-    keyId: string,
-    hour: string,
-    requests: number,
-  ): Promise<void> {
+  record(provider: SearchUsageRecord['provider'], keyId: string, hour: string, requests: number): Promise<void> {
     return Promise.resolve().then(() => {
       const validProvider = assertWebSearchProviderName(provider);
       const k = this.key({ provider: validProvider, keyId, hour });
@@ -240,33 +203,20 @@ class MemorySearchUsageRepo implements SearchUsageRepo {
     });
   }
 
-  query(
-    opts: {
-      provider?: SearchUsageRecord["provider"];
-      keyId?: string;
-      start: string;
-      end: string;
-    },
-  ): Promise<SearchUsageRecord[]> {
+  query(opts: { provider?: SearchUsageRecord['provider']; keyId?: string; start: string; end: string }): Promise<SearchUsageRecord[]> {
     return Promise.resolve().then(() => {
-      const provider = opts.provider
-        ? assertWebSearchProviderName(opts.provider)
-        : undefined;
+      const provider = opts.provider ? assertWebSearchProviderName(opts.provider) : undefined;
       return [...this.store.values()]
-        .filter((r) => !provider || r.provider === provider)
-        .filter((r) => !opts.keyId || r.keyId === opts.keyId)
-        .filter((r) => r.hour >= opts.start && r.hour < opts.end)
-        .map((r) => ({ ...r }))
+        .filter(r => !provider || r.provider === provider)
+        .filter(r => !opts.keyId || r.keyId === opts.keyId)
+        .filter(r => r.hour >= opts.start && r.hour < opts.end)
+        .map(r => ({ ...r }))
         .sort((a, b) => a.hour.localeCompare(b.hour));
     });
   }
 
   listAll(): Promise<SearchUsageRecord[]> {
-    return Promise.resolve(
-      [...this.store.values()]
-        .map((r) => ({ ...r }))
-        .sort((a, b) => a.hour.localeCompare(b.hour)),
-    );
+    return Promise.resolve([...this.store.values()].map(r => ({ ...r })).sort((a, b) => a.hour.localeCompare(b.hour)));
   }
 
   set(record: SearchUsageRecord): Promise<void> {
@@ -287,18 +237,7 @@ class MemoryPerformanceRepo implements PerformanceRepo {
   private summaries = new Map<string, PerformanceTelemetryRecord>();
 
   private key(r: PerformanceDimensions): string {
-    return [
-      r.hour,
-      r.metricScope,
-      r.keyId,
-      r.model,
-      r.upstream ?? "",
-      r.modelKey,
-      r.sourceApi,
-      r.targetApi,
-      r.stream ? "1" : "0",
-      r.runtimeLocation,
-    ].join("\0");
+    return [r.hour, r.metricScope, r.keyId, r.model, r.upstream ?? '', r.modelKey, r.sourceApi, r.targetApi, r.stream ? '1' : '0', r.runtimeLocation].join('\0');
   }
 
   private summary(sample: PerformanceDimensions): PerformanceTelemetryRecord {
@@ -333,16 +272,12 @@ class MemoryPerformanceRepo implements PerformanceRepo {
     record.totalMsSum += durationMs;
 
     const bucket = latencyBucketForMs(durationMs);
-    const existing = record.buckets.find((b) =>
-      b.lowerMs === bucket.lowerMs && b.upperMs === bucket.upperMs
-    );
+    const existing = record.buckets.find(b => b.lowerMs === bucket.lowerMs && b.upperMs === bucket.upperMs);
     if (existing) {
       existing.count += 1;
     } else {
       record.buckets.push({ ...bucket, count: 1 });
-      record.buckets.sort((a, b) =>
-        a.upperMs - b.upperMs || a.lowerMs - b.lowerMs
-      );
+      record.buckets.sort((a, b) => a.upperMs - b.upperMs || a.lowerMs - b.lowerMs);
     }
     return Promise.resolve();
   }
@@ -352,36 +287,25 @@ class MemoryPerformanceRepo implements PerformanceRepo {
     return Promise.resolve();
   }
 
-  query(opts: {
-    keyId?: string;
-    metricScope?: PerformanceTelemetryRecord["metricScope"];
-    start: string;
-    end: string;
-  }): Promise<PerformanceTelemetryRecord[]> {
+  query(opts: { keyId?: string; metricScope?: PerformanceTelemetryRecord['metricScope']; start: string; end: string }): Promise<PerformanceTelemetryRecord[]> {
     return Promise.resolve(
       [...this.summaries.values()]
-        .filter((r) => r.hour >= opts.start && r.hour < opts.end)
-        .filter((r) => !opts.keyId || r.keyId === opts.keyId)
-        .filter((r) => !opts.metricScope || r.metricScope === opts.metricScope)
-        .map((r) => ({ ...r, buckets: r.buckets.map((b) => ({ ...b })) }))
+        .filter(r => r.hour >= opts.start && r.hour < opts.end)
+        .filter(r => !opts.keyId || r.keyId === opts.keyId)
+        .filter(r => !opts.metricScope || r.metricScope === opts.metricScope)
+        .map(r => ({ ...r, buckets: r.buckets.map(b => ({ ...b })) }))
         .sort(comparePerformanceTelemetryRecords),
     );
   }
 
   listAll(): Promise<PerformanceTelemetryRecord[]> {
-    return Promise.resolve(
-      [...this.summaries.values()]
-        .map((r) => ({ ...r, buckets: r.buckets.map((b) => ({ ...b })) }))
-        .sort(comparePerformanceTelemetryRecords),
-    );
+    return Promise.resolve([...this.summaries.values()].map(r => ({ ...r, buckets: r.buckets.map(b => ({ ...b })) })).sort(comparePerformanceTelemetryRecords));
   }
 
   set(record: PerformanceTelemetryRecord): Promise<void> {
     this.summaries.set(this.key(record), {
       ...record,
-      buckets: record.buckets
-        .map((bucket) => ({ ...bucket }))
-        .sort((a, b) => a.upperMs - b.upperMs || a.lowerMs - b.lowerMs),
+      buckets: record.buckets.map(bucket => ({ ...bucket })).sort((a, b) => a.upperMs - b.upperMs || a.lowerMs - b.lowerMs),
     });
     return Promise.resolve();
   }
@@ -392,20 +316,19 @@ class MemoryPerformanceRepo implements PerformanceRepo {
   }
 }
 
-function comparePerformanceTelemetryRecords(
-  a: PerformanceTelemetryRecord,
-  b: PerformanceTelemetryRecord,
-): number {
-  return a.hour.localeCompare(b.hour) ||
+function comparePerformanceTelemetryRecords(a: PerformanceTelemetryRecord, b: PerformanceTelemetryRecord): number {
+  return (
+    a.hour.localeCompare(b.hour) ||
     a.metricScope.localeCompare(b.metricScope) ||
     a.keyId.localeCompare(b.keyId) ||
     a.model.localeCompare(b.model) ||
-    (a.upstream ?? "").localeCompare(b.upstream ?? "") ||
+    (a.upstream ?? '').localeCompare(b.upstream ?? '') ||
     a.modelKey.localeCompare(b.modelKey) ||
     a.sourceApi.localeCompare(b.sourceApi) ||
     a.targetApi.localeCompare(b.targetApi) ||
     Number(a.stream) - Number(b.stream) ||
-    a.runtimeLocation.localeCompare(b.runtimeLocation);
+    a.runtimeLocation.localeCompare(b.runtimeLocation)
+  );
 }
 
 class MemoryCacheRepo implements CacheRepo {
@@ -424,10 +347,7 @@ class MemoryCacheRepo implements CacheRepo {
   }
 
   set(key: string, value: string, ttlMs?: number): Promise<void> {
-    this.store.set(
-      key,
-      ttlMs ? { value, expiresAt: Date.now() + ttlMs } : { value },
-    );
+    this.store.set(key, ttlMs ? { value, expiresAt: Date.now() + ttlMs } : { value });
 
     return Promise.resolve();
   }
@@ -449,9 +369,7 @@ class MemorySearchConfigRepo implements SearchConfigRepo {
   private config: unknown | null = null;
 
   get(): Promise<unknown | null> {
-    return Promise.resolve(
-      this.config === null ? null : structuredClone(this.config),
-    );
+    return Promise.resolve(this.config === null ? null : structuredClone(this.config));
   }
 
   save(config: unknown): Promise<void> {
@@ -464,13 +382,7 @@ class MemoryUpstreamConfigRepo implements UpstreamConfigRepo {
   private store = new Map<string, UpstreamConfig>();
 
   list(): Promise<UpstreamConfig[]> {
-    return Promise.resolve(
-      [...this.store.values()]
-        .map(cloneUpstreamConfig)
-        .sort((a, b) =>
-          a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
-        ),
-    );
+    return Promise.resolve([...this.store.values()].map(cloneUpstreamConfig).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)));
   }
 
   getById(id: string): Promise<UpstreamConfig | null> {
@@ -497,9 +409,7 @@ const cloneUpstreamConfig = (config: UpstreamConfig): UpstreamConfig => ({
   ...config,
   supportedEndpoints: [...config.supportedEndpoints],
   enabledFixes: [...config.enabledFixes],
-  ...(config.pathOverrides
-    ? { pathOverrides: { ...config.pathOverrides } }
-    : {}),
+  ...(config.pathOverrides ? { pathOverrides: { ...config.pathOverrides } } : {}),
 });
 
 export class InMemoryRepo implements Repo {

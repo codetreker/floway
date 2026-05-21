@@ -11,32 +11,24 @@
  */
 const MAX_CONSECUTIVE_WHITESPACE = 20;
 
-export const parseToolArgumentsObject = (
-  argumentsJson: string,
-): Record<string, unknown> => {
+export const parseToolArgumentsObject = (argumentsJson: string): Record<string, unknown> => {
   try {
     const parsed = JSON.parse(argumentsJson);
-    return typeof parsed === "object" && parsed !== null &&
-        !Array.isArray(parsed)
-      ? parsed
-      : { raw_arguments: argumentsJson };
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : { raw_arguments: argumentsJson };
   } catch {
     return { raw_arguments: argumentsJson };
   }
 };
 
-export function checkWhitespaceOverflow(
-  text: string,
-  currentCount: number,
-): { count: number; exceeded: boolean } {
+export function checkWhitespaceOverflow(text: string, currentCount: number): { count: number; exceeded: boolean } {
   let wsCount = currentCount;
   for (const ch of text) {
-    if (ch === "\r" || ch === "\n" || ch === "\t") {
+    if (ch === '\r' || ch === '\n' || ch === '\t') {
       wsCount++;
       if (wsCount > MAX_CONSECUTIVE_WHITESPACE) {
         return { count: wsCount, exceeded: true };
       }
-    } else if (ch !== " ") {
+    } else if (ch !== ' ') {
       wsCount = 0;
     }
   }

@@ -1,21 +1,13 @@
 // Data transfer routes — export/import all database data as JSON
 
-import type { Context } from "hono";
-import { normalizeSearchConfig } from "../../data-plane/tools/web-search/search-config.ts";
-import type { SearchConfig } from "../../data-plane/tools/web-search/types.ts";
-import { isWebSearchProviderName } from "../../shared/web-search-providers.ts";
-import { invalidateUpstreamModels } from "../../data-plane/providers/upstream-model-cache.ts";
-import { getRepo } from "../../repo/index.ts";
-import type {
-  ApiKey,
-  GitHubAccount,
-  PerformanceApiName,
-  PerformanceMetricScope,
-  PerformanceTelemetryRecord,
-  SearchUsageRecord,
-  UpstreamConfig,
-  UsageRecord,
-} from "../../repo/types.ts";
+import type { Context } from 'hono';
+
+import { invalidateUpstreamModels } from '../../data-plane/providers/upstream-model-cache.ts';
+import { normalizeSearchConfig } from '../../data-plane/tools/web-search/search-config.ts';
+import type { SearchConfig } from '../../data-plane/tools/web-search/types.ts';
+import { getRepo } from '../../repo/index.ts';
+import type { ApiKey, GitHubAccount, PerformanceApiName, PerformanceMetricScope, PerformanceTelemetryRecord, SearchUsageRecord, UpstreamConfig, UsageRecord } from '../../repo/types.ts';
+import { isWebSearchProviderName } from '../../shared/web-search-providers.ts';
 
 interface ExportPayload {
   version: 1;
@@ -33,33 +25,19 @@ interface ExportPayload {
 }
 
 const SEARCH_USAGE_HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
-const PERFORMANCE_METRIC_SCOPES = new Set<PerformanceMetricScope>([
-  "request_total",
-  "upstream_success",
-]);
-const PERFORMANCE_API_NAMES = new Set<PerformanceApiName>([
-  "messages",
-  "responses",
-  "chat-completions",
-  "gemini",
-  "embeddings",
-]);
+const PERFORMANCE_METRIC_SCOPES = new Set<PerformanceMetricScope>(['request_total', 'upstream_success']);
+const PERFORMANCE_API_NAMES = new Set<PerformanceApiName>(['messages', 'responses', 'chat-completions', 'gemini', 'embeddings']);
 
-const hasOwn = (value: object, key: string) =>
-  Object.prototype.hasOwnProperty.call(value, key);
+const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 
-const parseSearchUsageRecords = (
-  value: unknown,
-):
-  | { type: "ok"; records: SearchUsageRecord[] }
-  | { type: "invalid"; index: number } => {
-  if (!Array.isArray(value)) return { type: "ok", records: [] };
+const parseSearchUsageRecords = (value: unknown): { type: 'ok'; records: SearchUsageRecord[] } | { type: 'invalid'; index: number } => {
+  if (!Array.isArray(value)) return { type: 'ok', records: [] };
 
   const records: SearchUsageRecord[] = [];
   for (let i = 0; i < value.length; i++) {
     const record = value[i];
-    if (!record || typeof record !== "object") {
-      return { type: "invalid", index: i };
+    if (!record || typeof record !== 'object') {
+      return { type: 'invalid', index: i };
     }
 
     const item = record as Record<string, unknown>;
@@ -69,15 +47,15 @@ const parseSearchUsageRecords = (
     const requests = item.requests;
     if (
       !isWebSearchProviderName(provider) ||
-      typeof keyId !== "string" ||
+      typeof keyId !== 'string' ||
       keyId.length === 0 ||
-      typeof hour !== "string" ||
+      typeof hour !== 'string' ||
       !SEARCH_USAGE_HOUR_PATTERN.test(hour) ||
-      typeof requests !== "number" ||
+      typeof requests !== 'number' ||
       !Number.isSafeInteger(requests) ||
       requests < 0
     ) {
-      return { type: "invalid", index: i };
+      return { type: 'invalid', index: i };
     }
 
     records.push({
@@ -88,61 +66,52 @@ const parseSearchUsageRecords = (
     });
   }
 
-  return { type: "ok", records };
+  return { type: 'ok', records };
 };
 
-const parsePerformanceRecords = (
-  value: unknown,
-):
-  | { type: "ok"; records: PerformanceTelemetryRecord[] }
-  | { type: "invalid"; index: number } => {
-  if (!Array.isArray(value)) return { type: "ok", records: [] };
+const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: PerformanceTelemetryRecord[] } | { type: 'invalid'; index: number } => {
+  if (!Array.isArray(value)) return { type: 'ok', records: [] };
 
   const records: PerformanceTelemetryRecord[] = [];
   for (let i = 0; i < value.length; i++) {
     const record = value[i];
-    if (!record || typeof record !== "object") {
-      return { type: "invalid", index: i };
+    if (!record || typeof record !== 'object') {
+      return { type: 'invalid', index: i };
     }
 
     const item = record as Record<string, unknown>;
     if (
-      typeof item.hour !== "string" ||
+      typeof item.hour !== 'string' ||
       !SEARCH_USAGE_HOUR_PATTERN.test(item.hour) ||
       !isPerformanceMetricScope(item.metricScope) ||
-      typeof item.keyId !== "string" ||
+      typeof item.keyId !== 'string' ||
       item.keyId.length === 0 ||
-      typeof item.model !== "string" ||
+      typeof item.model !== 'string' ||
       item.model.length === 0 ||
-      (item.upstream !== null && typeof item.upstream !== "string") ||
-      typeof item.modelKey !== "string" ||
+      (item.upstream !== null && typeof item.upstream !== 'string') ||
+      typeof item.modelKey !== 'string' ||
       item.modelKey.length === 0 ||
       !isPerformanceApiName(item.sourceApi) ||
       !isPerformanceApiName(item.targetApi) ||
-      typeof item.stream !== "boolean" ||
-      typeof item.runtimeLocation !== "string" ||
+      typeof item.stream !== 'boolean' ||
+      typeof item.runtimeLocation !== 'string' ||
       item.runtimeLocation.length === 0 ||
       !isNonNegativeSafeInteger(item.requests) ||
       !isNonNegativeSafeInteger(item.errors) ||
       !isNonNegativeSafeInteger(item.totalMsSum) ||
       !Array.isArray(item.buckets)
     ) {
-      return { type: "invalid", index: i };
+      return { type: 'invalid', index: i };
     }
 
     const buckets = [];
     for (const bucket of item.buckets) {
-      if (!bucket || typeof bucket !== "object") {
-        return { type: "invalid", index: i };
+      if (!bucket || typeof bucket !== 'object') {
+        return { type: 'invalid', index: i };
       }
       const bucketItem = bucket as Record<string, unknown>;
-      if (
-        !isNonNegativeSafeInteger(bucketItem.lowerMs) ||
-        !isNonNegativeSafeInteger(bucketItem.upperMs) ||
-        !isNonNegativeSafeInteger(bucketItem.count) ||
-        bucketItem.upperMs <= bucketItem.lowerMs
-      ) {
-        return { type: "invalid", index: i };
+      if (!isNonNegativeSafeInteger(bucketItem.lowerMs) || !isNonNegativeSafeInteger(bucketItem.upperMs) || !isNonNegativeSafeInteger(bucketItem.count) || bucketItem.upperMs <= bucketItem.lowerMs) {
+        return { type: 'invalid', index: i };
       }
       buckets.push({
         lowerMs: bucketItem.lowerMs,
@@ -169,36 +138,21 @@ const parsePerformanceRecords = (
     });
   }
 
-  return { type: "ok", records };
+  return { type: 'ok', records };
 };
 
-const isNonNegativeSafeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isNonNegativeSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
-const isPerformanceMetricScope = (
-  value: unknown,
-): value is PerformanceMetricScope =>
-  typeof value === "string" &&
-  PERFORMANCE_METRIC_SCOPES.has(value as PerformanceMetricScope);
+const isPerformanceMetricScope = (value: unknown): value is PerformanceMetricScope => typeof value === 'string' && PERFORMANCE_METRIC_SCOPES.has(value as PerformanceMetricScope);
 
-const isPerformanceApiName = (value: unknown): value is PerformanceApiName =>
-  typeof value === "string" &&
-  PERFORMANCE_API_NAMES.has(value as PerformanceApiName);
+const isPerformanceApiName = (value: unknown): value is PerformanceApiName => typeof value === 'string' && PERFORMANCE_API_NAMES.has(value as PerformanceApiName);
 
 /** GET /api/export — dump all data as JSON */
 export const exportData = async (c: Context) => {
   const repo = getRepo();
-  const includePerformance = c.req.query("include_performance") === "1";
+  const includePerformance = c.req.query('include_performance') === '1';
 
-  const [
-    apiKeys,
-    githubAccounts,
-    usage,
-    searchUsage,
-    performance,
-    rawSearchConfig,
-    upstreamConfigs,
-  ] = await Promise.all([
+  const [apiKeys, githubAccounts, usage, searchUsage, performance, rawSearchConfig, upstreamConfigs] = await Promise.all([
     repo.apiKeys.list(),
     repo.github.listAccounts(),
     repo.usage.listAll(),
@@ -231,59 +185,49 @@ export const importData = async (c: Context) => {
   const body = await c.req.json<{ mode: string; data: any }>();
   const { mode, data } = body;
 
-  if (mode !== "merge" && mode !== "replace") {
+  if (mode !== 'merge' && mode !== 'replace') {
     return c.json({ error: "mode must be 'merge' or 'replace'" }, 400);
   }
-  if (!data || typeof data !== "object") {
-    return c.json({ error: "data is required" }, 400);
+  if (!data || typeof data !== 'object') {
+    return c.json({ error: 'data is required' }, 400);
   }
 
   const repo = getRepo();
   const apiKeys: ApiKey[] = Array.isArray(data.apiKeys) ? data.apiKeys : [];
-  const githubAccounts: GitHubAccount[] = Array.isArray(data.githubAccounts)
-    ? data.githubAccounts
-    : [];
+  const githubAccounts: GitHubAccount[] = Array.isArray(data.githubAccounts) ? data.githubAccounts : [];
   const usage: UsageRecord[] = Array.isArray(data.usage) ? data.usage : [];
-  const upstreamConfigs: UpstreamConfig[] = Array.isArray(data.upstreamConfigs)
-    ? data.upstreamConfigs
-    : [];
+  const upstreamConfigs: UpstreamConfig[] = Array.isArray(data.upstreamConfigs) ? data.upstreamConfigs : [];
   const searchUsageResult = parseSearchUsageRecords(data.searchUsage);
-  if (searchUsageResult.type === "invalid") {
-    return c.json({
-      error: `invalid searchUsage record at index ${searchUsageResult.index}`,
-    }, 400);
+  if (searchUsageResult.type === 'invalid') {
+    return c.json(
+      {
+        error: `invalid searchUsage record at index ${searchUsageResult.index}`,
+      },
+      400,
+    );
   }
   const searchUsage = searchUsageResult.records;
   const performanceIncluded = shouldImportPerformance(data);
-  const performanceResult = performanceIncluded
-    ? parsePerformanceRecords(data.performance)
-    : { type: "ok" as const, records: [] };
-  if (performanceResult.type === "invalid") {
-    return c.json({
-      error: `invalid performance record at index ${performanceResult.index}`,
-    }, 400);
+  const performanceResult = performanceIncluded ? parsePerformanceRecords(data.performance) : { type: 'ok' as const, records: [] };
+  if (performanceResult.type === 'invalid') {
+    return c.json(
+      {
+        error: `invalid performance record at index ${performanceResult.index}`,
+      },
+      400,
+    );
   }
   const performance = performanceResult.records;
-  if (mode === "replace") {
+  if (mode === 'replace') {
     // Collect existing upstream IDs before deletion so their stale model caches
     // can be invalidated — otherwise the L1/L2 models:<id> entries linger up to
     // HARD_TTL and feed routing and /v1/models with data from the old config.
     const existingUpstreams = await repo.upstreamConfigs.list();
-    const deletes = [
-      repo.apiKeys.deleteAll(),
-      repo.github.deleteAllAccounts(),
-      repo.usage.deleteAll(),
-      repo.searchUsage.deleteAll(),
-      repo.upstreamConfigs.deleteAll(),
-    ];
+    const deletes = [repo.apiKeys.deleteAll(), repo.github.deleteAllAccounts(), repo.usage.deleteAll(), repo.searchUsage.deleteAll(), repo.upstreamConfigs.deleteAll()];
     if (performanceIncluded) deletes.push(repo.performance.deleteAll());
     await Promise.all(deletes);
-    await Promise.all(
-      existingUpstreams.map((cfg) => invalidateUpstreamModels(cfg.id)),
-    );
-    await Promise.all([
-      repo.searchConfig.save(normalizeSearchConfig(data.searchConfig)),
-    ]);
+    await Promise.all(existingUpstreams.map(cfg => invalidateUpstreamModels(cfg.id)));
+    await Promise.all([repo.searchConfig.save(normalizeSearchConfig(data.searchConfig))]);
   }
 
   // Import API keys
@@ -317,11 +261,7 @@ export const importData = async (c: Context) => {
     await repo.performance.set(record);
   }
 
-  if (
-    mode !== "replace" &&
-    typeof data.searchConfig === "object" &&
-    data.searchConfig !== null
-  ) {
+  if (mode !== 'replace' && typeof data.searchConfig === 'object' && data.searchConfig !== null) {
     await repo.searchConfig.save(normalizeSearchConfig(data.searchConfig));
   }
 
@@ -340,7 +280,7 @@ export const importData = async (c: Context) => {
 
 function shouldImportPerformance(data: Record<string, unknown>): boolean {
   if (data.performanceIncluded === true) return true;
-  if (!hasOwn(data, "performance")) return false;
+  if (!hasOwn(data, 'performance')) return false;
 
   // Performance export is opt-in because the histogram history can be large.
   // Before that intent was explicit, default exports wrote `performance: []`;

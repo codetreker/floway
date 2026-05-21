@@ -1,8 +1,9 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../test-assert.ts";
-import { mapChatCompletionsUsageToMessagesUsage } from "./result.ts";
+import { test } from 'vitest';
 
-test("mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to cache_read_input_tokens", () => {
+import { mapChatCompletionsUsageToMessagesUsage } from './result.ts';
+import { assertEquals } from '../../../../test-assert.ts';
+
+test('mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to cache_read_input_tokens', () => {
   const usage = mapChatCompletionsUsageToMessagesUsage({
     prompt_tokens: 100,
     completion_tokens: 20,
@@ -13,7 +14,7 @@ test("mapChatCompletionsUsageToMessagesUsage maps OpenAI cached_tokens to cache_
   assertEquals(usage.cache_read_input_tokens, 60);
 });
 
-test("mapChatCompletionsUsageToMessagesUsage omits cache_read_input_tokens when no cache field", () => {
+test('mapChatCompletionsUsageToMessagesUsage omits cache_read_input_tokens when no cache field', () => {
   const usage = mapChatCompletionsUsageToMessagesUsage({
     prompt_tokens: 100,
     completion_tokens: 20,

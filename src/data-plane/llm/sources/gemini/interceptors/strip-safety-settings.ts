@@ -1,4 +1,4 @@
-import type { GeminiInterceptor } from "../../../interceptors.ts";
+import type { GeminiInterceptor } from '../../../interceptors.ts';
 
 /**
  * Gemini safety controls are source-specific and have no matching control on

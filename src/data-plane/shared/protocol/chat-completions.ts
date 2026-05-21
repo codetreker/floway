@@ -22,18 +22,13 @@ export interface ChatCompletionsPayload {
   safety_identifier?: string | null;
   service_tier?: string | null;
   tools?: Tool[] | null;
-  tool_choice?:
-    | "none"
-    | "auto"
-    | "required"
-    | { type: "function"; function: { name: string } }
-    | null;
+  tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; function: { name: string } } | null;
   /** Request usage stats in streaming responses */
   stream_options?: { include_usage: boolean } | null;
 }
 
 export interface Tool {
-  type: "function";
+  type: 'function';
   function: {
     name: string;
     description?: string;
@@ -43,7 +38,7 @@ export interface Tool {
 }
 
 export interface Message {
-  role: "user" | "assistant" | "system" | "tool" | "developer";
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'developer';
   content: string | ContentPart[] | null;
   name?: string;
   tool_calls?: ToolCall[];
@@ -56,35 +51,35 @@ export interface Message {
 }
 
 export interface ChatReasoningItem {
-  type: "reasoning";
+  type: 'reasoning';
   id?: string;
-  summary?: { type: "summary_text"; text: string }[];
+  summary?: { type: 'summary_text'; text: string }[];
   encrypted_content?: string;
 }
 
 export interface ToolCall {
   id: string;
-  type: "function";
+  type: 'function';
   function: { name: string; arguments: string };
 }
 
 export type ContentPart = TextPart | ImagePart;
 
 interface TextPart {
-  type: "text";
+  type: 'text';
   text: string;
 }
 
 interface ImagePart {
-  type: "image_url";
-  image_url: { url: string; detail?: "low" | "high" | "auto" };
+  type: 'image_url';
+  image_url: { url: string; detail?: 'low' | 'high' | 'auto' };
 }
 
 // Response types
 
 export interface ChatCompletionResponse {
   id: string;
-  object: "chat.completion";
+  object: 'chat.completion';
   created: number;
   model: string;
   choices: ChoiceNonStreaming[];
@@ -93,7 +88,7 @@ export interface ChatCompletionResponse {
 
 export interface ChatCompletionChunk {
   id: string;
-  object: "chat.completion.chunk";
+  object: 'chat.completion.chunk';
   created: number;
   model: string;
   choices: ChoiceStreaming[];
@@ -115,20 +110,20 @@ interface Usage {
 export interface ChoiceNonStreaming {
   index: number;
   message: {
-    role: "assistant";
+    role: 'assistant';
     content: string | null;
     tool_calls?: ToolCall[];
     reasoning_text?: string | null;
     reasoning_opaque?: string | null;
     reasoning_items?: ChatReasoningItem[] | null;
   };
-  finish_reason: "stop" | "length" | "tool_calls" | "content_filter";
+  finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter';
 }
 
 interface ChoiceStreaming {
   index: number;
   delta: Delta;
-  finish_reason: "stop" | "length" | "tool_calls" | "content_filter" | null;
+  finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null;
 }
 
 export interface Delta {
@@ -137,7 +132,7 @@ export interface Delta {
   tool_calls?: {
     index: number;
     id?: string;
-    type?: "function";
+    type?: 'function';
     function?: { name?: string; arguments?: string };
   }[];
   /** Human-readable reasoning text delta */

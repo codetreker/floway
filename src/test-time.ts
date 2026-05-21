@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi } from 'vitest';
 
 export class FakeTime {
   constructor(now: number | Date = 0) {

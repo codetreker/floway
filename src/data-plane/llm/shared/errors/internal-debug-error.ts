@@ -1,8 +1,8 @@
-type SourceApi = "messages" | "responses" | "chat-completions" | "gemini";
-type TargetApi = "messages" | "responses" | "chat-completions";
+type SourceApi = 'messages' | 'responses' | 'chat-completions' | 'gemini';
+type TargetApi = 'messages' | 'responses' | 'chat-completions';
 
 export interface InternalDebugError {
-  type: "internal_error";
+  type: 'internal_error';
   name: string;
   message: string;
   stack?: string;
@@ -22,15 +22,11 @@ const serializeCause = (cause: unknown): unknown => {
   };
 };
 
-export const toInternalDebugError = (
-  error: unknown,
-  sourceApi: SourceApi,
-  targetApi?: TargetApi,
-): InternalDebugError => {
+export const toInternalDebugError = (error: unknown, sourceApi: SourceApi, targetApi?: TargetApi): InternalDebugError => {
   const known = error instanceof Error ? error : new Error(String(error));
 
   return {
-    type: "internal_error",
+    type: 'internal_error',
     name: known.name,
     message: known.message,
     stack: known.stack,

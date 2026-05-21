@@ -1,11 +1,12 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../test-assert.ts";
-import { FakeTime } from "../../../../test-time.ts";
-import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
-import { parseSSEStream } from "./parse-sse.ts";
-import { writeSSEFrames } from "./proxy-sse.ts";
-import { sseCommentFrame, type SseFrame, sseFrame } from "./types.ts";
+import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
+import { test } from 'vitest';
+
+import { parseSSEStream } from './parse-sse.ts';
+import { writeSSEFrames } from './proxy-sse.ts';
+import { sseCommentFrame, type SseFrame, sseFrame } from './types.ts';
+import { assertEquals } from '../../../../test-assert.ts';
+import { FakeTime } from '../../../../test-time.ts';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -57,60 +58,46 @@ const createIdleSSEEvents = () => {
   };
 };
 
-const waitForIteratorStart = async (
-  events: ReturnType<typeof createIdleSSEEvents>,
-) => {
+const waitForIteratorStart = async (events: ReturnType<typeof createIdleSSEEvents>) => {
   for (let i = 0; i < 10; i++) {
     if (events.hasPendingNext()) return;
     await Promise.resolve();
   }
 
-  throw new Error("SSE iterator did not start");
+  throw new Error('SSE iterator did not start');
 };
 
-const waitForIteratorReturn = async (
-  events: ReturnType<typeof createIdleSSEEvents>,
-) => {
+const waitForIteratorReturn = async (events: ReturnType<typeof createIdleSSEEvents>) => {
   for (let i = 0; i < 10; i++) {
     if (events.returnCalled()) return;
     await Promise.resolve();
   }
 
-  throw new Error("SSE iterator was not stopped");
+  throw new Error('SSE iterator was not stopped');
 };
 
-const requestProxySSE = async (
-  events: AsyncIterable<SseFrame>,
-  options: NonNullable<Parameters<typeof writeSSEFrames>[2]>,
-): Promise<Response> => {
+const requestProxySSE = async (events: AsyncIterable<SseFrame>, options: NonNullable<Parameters<typeof writeSSEFrames>[2]>): Promise<Response> => {
   const app = new Hono();
-  app.get(
-    "/",
-    (c) =>
-      streamSSE(c, async (stream) => {
-        await writeSSEFrames(stream, events, options);
-      }),
-  );
-  return await app.request("/");
+  app.get('/', c =>
+    streamSSE(c, async stream => {
+      await writeSSEFrames(stream, events, options);
+    }));
+  return await app.request('/');
 };
 
-const decodeChunk = (value: Uint8Array | undefined): string =>
-  new TextDecoder().decode(value);
+const decodeChunk = (value: Uint8Array | undefined): string => new TextDecoder().decode(value);
 
 const waitForMicrotasks = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-const cancelStateWithin = async (
-  promise: Promise<void>,
-  timeoutMs: number,
-): Promise<"canceled" | "pending"> => {
+const cancelStateWithin = async (promise: Promise<void>, timeoutMs: number): Promise<'canceled' | 'pending'> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      promise.then(() => "canceled" as const),
-      new Promise<"pending">((resolve) => {
-        timeoutId = setTimeout(() => resolve("pending"), timeoutMs);
+      promise.then(() => 'canceled' as const),
+      new Promise<'pending'>(resolve => {
+        timeoutId = setTimeout(() => resolve('pending'), timeoutMs);
       }),
     ]);
   } finally {
@@ -118,13 +105,13 @@ const cancelStateWithin = async (
   }
 };
 
-test("writeSSEFrames emits SSE comment keepalive frames while idle", async () => {
+test('writeSSEFrames emits SSE comment keepalive frames while idle', async () => {
   const time = new FakeTime();
   const idle = createIdleSSEEvents();
 
   try {
     const response = await requestProxySSE(idle.events, {
-      keepAlive: { intervalMs: 1_000, frame: sseCommentFrame("keepalive") },
+      keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
     });
     const reader = response.body!.getReader();
 
@@ -133,7 +120,7 @@ test("writeSSEFrames emits SSE comment keepalive frames while idle", async () =>
     await time.tickAsync(1_000);
 
     const chunk = await read;
-    assertEquals(decodeChunk(chunk.value), ": keepalive\n\n");
+    assertEquals(decodeChunk(chunk.value), ': keepalive\n\n');
 
     await reader.cancel();
   } finally {
@@ -141,7 +128,7 @@ test("writeSSEFrames emits SSE comment keepalive frames while idle", async () =>
   }
 });
 
-test("writeSSEFrames emits Messages ping keepalive frames while idle", async () => {
+test('writeSSEFrames emits Messages ping keepalive frames while idle', async () => {
   const time = new FakeTime();
   const idle = createIdleSSEEvents();
 
@@ -149,7 +136,7 @@ test("writeSSEFrames emits Messages ping keepalive frames while idle", async () 
     const response = await requestProxySSE(idle.events, {
       keepAlive: {
         intervalMs: 1_000,
-        frame: sseFrame(JSON.stringify({ type: "ping" }), "ping"),
+        frame: sseFrame(JSON.stringify({ type: 'ping' }), 'ping'),
       },
     });
     const reader = response.body!.getReader();
@@ -159,10 +146,7 @@ test("writeSSEFrames emits Messages ping keepalive frames while idle", async () 
     await time.tickAsync(1_000);
 
     const chunk = await read;
-    assertEquals(
-      decodeChunk(chunk.value),
-      'event: ping\ndata: {"type":"ping"}\n\n',
-    );
+    assertEquals(decodeChunk(chunk.value), 'event: ping\ndata: {"type":"ping"}\n\n');
 
     await reader.cancel();
   } finally {
@@ -170,27 +154,24 @@ test("writeSSEFrames emits Messages ping keepalive frames while idle", async () 
   }
 });
 
-test("writeSSEFrames does not emit keepalive before ready events", async () => {
+test('writeSSEFrames does not emit keepalive before ready events', async () => {
   const response = await requestProxySSE(
     (async function* () {
-      yield sseFrame("{}", "response.completed");
+      yield sseFrame('{}', 'response.completed');
     })(),
-    { keepAlive: { intervalMs: 1_000, frame: sseCommentFrame("keepalive") } },
+    { keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') } },
   );
 
-  assertEquals(
-    await response.text(),
-    "event: response.completed\ndata: {}\n\n",
-  );
+  assertEquals(await response.text(), 'event: response.completed\ndata: {}\n\n');
 });
 
-test("writeSSEFrames stops idle iterator and timer when the response is canceled", async () => {
+test('writeSSEFrames stops idle iterator and timer when the response is canceled', async () => {
   const time = new FakeTime();
   const idle = createIdleSSEEvents();
 
   try {
     const response = await requestProxySSE(idle.events, {
-      keepAlive: { intervalMs: 1_000, frame: sseCommentFrame("keepalive") },
+      keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
     });
     const reader = response.body!.getReader();
 
@@ -205,22 +186,22 @@ test("writeSSEFrames stops idle iterator and timer when the response is canceled
   }
 });
 
-test("writeSSEFrames handles pending iterator errors after the response is canceled", async () => {
+test('writeSSEFrames handles pending iterator errors after the response is canceled', async () => {
   const idle = createIdleSSEEvents();
   const response = await requestProxySSE(idle.events, {
-    keepAlive: { intervalMs: 1_000, frame: sseCommentFrame("keepalive") },
+    keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
   });
   const reader = response.body!.getReader();
 
   await waitForIteratorStart(idle);
   await reader.cancel();
-  idle.rejectNext(new Error("late upstream stream failure"));
+  idle.rejectNext(new Error('late upstream stream failure'));
   await waitForIteratorReturn(idle);
 
   assertEquals(idle.returnCalled(), true);
 });
 
-test("writeSSEFrames aborts a pending upstream SSE reader when the downstream response is canceled", async () => {
+test('writeSSEFrames aborts a pending upstream SSE reader when the downstream response is canceled', async () => {
   const upstreamCanceled = deferred<void>();
   let upstreamController!: ReadableStreamDefaultController<Uint8Array>;
   const downstreamAbortController = new AbortController();
@@ -237,7 +218,7 @@ test("writeSSEFrames aborts a pending upstream SSE reader when the downstream re
       signal: downstreamAbortController.signal,
     }),
     {
-      keepAlive: { intervalMs: 1_000, frame: sseCommentFrame("keepalive") },
+      keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
       downstreamAbortController,
     },
   );
@@ -251,7 +232,7 @@ test("writeSSEFrames aborts a pending upstream SSE reader when the downstream re
 
     const cancelState = await cancelStateWithin(upstreamCanceled.promise, 20);
 
-    assertEquals(cancelState, "canceled");
+    assertEquals(cancelState, 'canceled');
   } finally {
     try {
       upstreamController.close();

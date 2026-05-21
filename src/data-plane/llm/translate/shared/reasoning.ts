@@ -1,2 +1,1 @@
-export const makeResponsesReasoningId = (index: number): string =>
-  `rs_${index}`;
+export const makeResponsesReasoningId = (index: number): string => `rs_${index}`;

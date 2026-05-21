@@ -1,38 +1,25 @@
-import type {
-  ChatCompletionResponse,
-  ToolCall,
-} from "../../../shared/protocol/chat-completions.ts";
-import type { ResponsesResult } from "../../../shared/protocol/responses.ts";
-import {
-  addResponseReasoningToChatProjection,
-  chatReasoningProjectionFields,
-  createChatReasoningProjection,
-} from "../shared/chat-responses-reasoning.ts";
+import type { ChatCompletionResponse, ToolCall } from '../../../shared/protocol/chat-completions.ts';
+import type { ResponsesResult } from '../../../shared/protocol/responses.ts';
+import { addResponseReasoningToChatProjection, chatReasoningProjectionFields, createChatReasoningProjection } from '../shared/chat-responses-reasoning.ts';
 
-export const mapResponsesFinishReasonToChatCompletionsFinishReason = (
-  response: ResponsesResult,
-): ChatCompletionResponse["choices"][0]["finish_reason"] =>
-  response.status === "incomplete" &&
-    response.incomplete_details?.reason === "max_output_tokens"
-    ? "length"
-    : response.status === "completed" &&
-        response.output.some((item) => item.type === "function_call")
-    ? "tool_calls"
-    : "stop";
+export const mapResponsesFinishReasonToChatCompletionsFinishReason = (response: ResponsesResult): ChatCompletionResponse['choices'][0]['finish_reason'] =>
+  response.status === 'incomplete' && response.incomplete_details?.reason === 'max_output_tokens'
+    ? 'length'
+    : response.status === 'completed' && response.output.some(item => item.type === 'function_call')
+      ? 'tool_calls'
+      : 'stop';
 
-export const translateResponsesToChatCompletion = (
-  response: ResponsesResult,
-): ChatCompletionResponse => {
-  let content = "";
+export const translateResponsesToChatCompletion = (response: ResponsesResult): ChatCompletionResponse => {
+  let content = '';
   const toolCalls: ToolCall[] = [];
   const reasoning = createChatReasoningProjection();
 
   // Preserve every reasoning item, and expose only the first scalar group through
   // legacy `reasoning_text` / `reasoning_opaque` fields.
   for (const item of response.output) {
-    if (item.type === "message") {
+    if (item.type === 'message') {
       for (const block of item.content) {
-        if (block.type === "output_text") {
+        if (block.type === 'output_text') {
           content += block.text;
           continue;
         }
@@ -45,10 +32,10 @@ export const translateResponsesToChatCompletion = (
       continue;
     }
 
-    if (item.type === "function_call") {
+    if (item.type === 'function_call') {
       toolCalls.push({
         id: item.call_id,
-        type: "function",
+        type: 'function',
         function: { name: item.name, arguments: item.arguments },
       });
       continue;
@@ -67,28 +54,26 @@ export const translateResponsesToChatCompletion = (
 
   return {
     id: response.id,
-    object: "chat.completion",
+    object: 'chat.completion',
     created: Math.floor(Date.now() / 1000),
     model: response.model,
-    choices: [{
-      index: 0,
-      message: {
-        role: "assistant",
-        content: content || null,
-        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-        ...chatReasoningProjectionFields(reasoning),
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: content || null,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          ...chatReasoningProjectionFields(reasoning),
+        },
+        finish_reason: mapResponsesFinishReasonToChatCompletionsFinishReason(response),
       },
-      finish_reason: mapResponsesFinishReasonToChatCompletionsFinishReason(
-        response,
-      ),
-    }],
+    ],
     usage: {
       prompt_tokens: inputTokens,
       completion_tokens: outputTokens,
       total_tokens: inputTokens + outputTokens,
-      ...(cachedTokens !== undefined
-        ? { prompt_tokens_details: { cached_tokens: cachedTokens } }
-        : {}),
+      ...(cachedTokens !== undefined ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {}),
     },
   };
 };

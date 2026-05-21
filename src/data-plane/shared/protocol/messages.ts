@@ -18,7 +18,7 @@
  */
 export const MESSAGES_FALLBACK_MAX_TOKENS = 8192;
 
-export type MessagesThinkingDisplay = "omitted" | "summarized" | "full";
+export type MessagesThinkingDisplay = 'omitted' | 'summarized' | 'full';
 
 export interface MessagesPayload {
   model: string;
@@ -33,20 +33,20 @@ export interface MessagesPayload {
   top_k?: number;
   tools?: MessagesTool[];
   tool_choice?: {
-    type: "auto" | "any" | "tool" | "none";
+    type: 'auto' | 'any' | 'tool' | 'none';
     name?: string;
   };
   thinking?: {
-    type: "enabled" | "adaptive" | "disabled";
+    type: 'enabled' | 'adaptive' | 'disabled';
     budget_tokens?: number;
     display?: MessagesThinkingDisplay;
   };
   output_config?: { effort?: string };
-  service_tier?: "auto" | "standard_only";
+  service_tier?: 'auto' | 'standard_only';
 }
 
 export interface MessagesSearchResultLocationCitation {
-  type: "search_result_location";
+  type: 'search_result_location';
   url: string;
   title: string;
   search_result_index: number;
@@ -56,34 +56,32 @@ export interface MessagesSearchResultLocationCitation {
 }
 
 export interface MessagesWebSearchResultLocation {
-  type: "web_search_result_location";
+  type: 'web_search_result_location';
   url: string;
   title: string;
   encrypted_index: string;
   cited_text?: string;
 }
 
-export type MessagesTextCitation =
-  | MessagesSearchResultLocationCitation
-  | MessagesWebSearchResultLocation;
+export type MessagesTextCitation = MessagesSearchResultLocationCitation | MessagesWebSearchResultLocation;
 
 export interface MessagesTextBlock {
-  type: "text";
+  type: 'text';
   text: string;
   citations?: MessagesTextCitation[];
 }
 
 export interface MessagesImageBlock {
-  type: "image";
+  type: 'image';
   source: {
-    type: "base64";
-    media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+    type: 'base64';
+    media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
     data: string;
   };
 }
 
 export interface MessagesSearchResultBlock {
-  type: "search_result";
+  type: 'search_result';
   source: string;
   title: string;
   content: MessagesTextBlock[];
@@ -91,78 +89,65 @@ export interface MessagesSearchResultBlock {
 }
 
 export interface MessagesWebSearchResultBlock {
-  type: "web_search_result";
+  type: 'web_search_result';
   url: string;
   title: string;
   encrypted_content: string;
   page_age?: string;
 }
 
-export type MessagesToolResultContentBlock =
-  | MessagesTextBlock
-  | MessagesSearchResultBlock;
+export type MessagesToolResultContentBlock = MessagesTextBlock | MessagesSearchResultBlock;
 
 export interface MessagesToolResultBlock {
-  type: "tool_result";
+  type: 'tool_result';
   tool_use_id: string;
   content: string | MessagesToolResultContentBlock[];
   is_error?: boolean;
 }
 
 export interface MessagesToolUseBlock {
-  type: "tool_use";
+  type: 'tool_use';
   id: string;
   name: string;
   input: Record<string, unknown>;
-  caller?: { type: "direct" };
+  caller?: { type: 'direct' };
 }
 
 export interface MessagesServerToolUseBlock {
-  type: "server_tool_use";
+  type: 'server_tool_use';
   id: string;
   name: string;
   input: { query: string };
 }
 
-export const MESSAGES_WEB_SEARCH_ERROR_CODES = [
-  "too_many_requests",
-  "invalid_tool_input",
-  "max_uses_exceeded",
-  "query_too_long",
-  "request_too_large",
-  "unavailable",
-] as const;
+export const MESSAGES_WEB_SEARCH_ERROR_CODES = ['too_many_requests', 'invalid_tool_input', 'max_uses_exceeded', 'query_too_long', 'request_too_large', 'unavailable'] as const;
 
-export type MessagesWebSearchErrorCode =
-  typeof MESSAGES_WEB_SEARCH_ERROR_CODES[number];
+export type MessagesWebSearchErrorCode = (typeof MESSAGES_WEB_SEARCH_ERROR_CODES)[number];
 
 export interface MessagesWebSearchToolResultError {
-  type: "web_search_tool_result_error";
+  type: 'web_search_tool_result_error';
   error_code: MessagesWebSearchErrorCode;
 }
 
 export interface MessagesWebSearchToolResultBlock {
-  type: "web_search_tool_result";
+  type: 'web_search_tool_result';
   tool_use_id: string;
   content: MessagesWebSearchResultBlock[] | MessagesWebSearchToolResultError;
-  caller?: { type: "direct" };
+  caller?: { type: 'direct' };
 }
 
 export interface MessagesThinkingBlock {
-  type: "thinking";
+  type: 'thinking';
   thinking: string;
   signature?: string;
 }
 
 export interface MessagesRedactedThinkingBlock {
-  type: "redacted_thinking";
+  type: 'redacted_thinking';
   data: string;
 }
 
-export type MessagesUserContentBlock =
-  | MessagesTextBlock
-  | MessagesImageBlock
-  | MessagesToolResultBlock;
+export type MessagesUserContentBlock = MessagesTextBlock | MessagesImageBlock | MessagesToolResultBlock;
 
 export type MessagesAssistantContentBlock =
   | MessagesTextBlock
@@ -173,19 +158,19 @@ export type MessagesAssistantContentBlock =
   | MessagesRedactedThinkingBlock;
 
 export interface MessagesUserMessage {
-  role: "user";
+  role: 'user';
   content: string | MessagesUserContentBlock[];
 }
 
 export interface MessagesAssistantMessage {
-  role: "assistant";
+  role: 'assistant';
   content: string | MessagesAssistantContentBlock[];
 }
 
 export type MessagesMessage = MessagesUserMessage | MessagesAssistantMessage;
 
 export interface MessagesClientTool {
-  type?: "custom";
+  type?: 'custom';
   name: string;
   description?: string;
   input_schema: Record<string, unknown>;
@@ -193,13 +178,13 @@ export interface MessagesClientTool {
 }
 
 export interface MessagesNativeWebSearchTool {
-  type: "web_search_20250305" | "web_search_20260209";
+  type: 'web_search_20250305' | 'web_search_20260209';
   name?: string;
   max_uses?: number;
   allowed_domains?: string[];
   blocked_domains?: string[];
   user_location?: {
-    type: "approximate";
+    type: 'approximate';
     city?: string;
     region?: string;
     country?: string;
@@ -218,24 +203,17 @@ export interface MessagesUsage {
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
-  service_tier?: "standard" | "priority" | "batch";
+  service_tier?: 'standard' | 'priority' | 'batch';
   server_tool_use?: MessagesUsageServerToolUse;
 }
 
 export interface MessagesResponse {
   id: string;
-  type: "message";
-  role: "assistant";
+  type: 'message';
+  role: 'assistant';
   content: MessagesAssistantContentBlock[];
   model: string;
-  stop_reason:
-    | "end_turn"
-    | "max_tokens"
-    | "stop_sequence"
-    | "tool_use"
-    | "pause_turn"
-    | "refusal"
-    | null;
+  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn' | 'refusal' | null;
   stop_sequence: string | null;
   usage: MessagesUsage;
 }
@@ -251,50 +229,48 @@ export type MessagesStreamEventData =
   | MessagesErrorEvent;
 
 export interface MessagesMessageStartEvent {
-  type: "message_start";
-  message:
-    & Omit<MessagesResponse, "content" | "stop_reason" | "stop_sequence">
-    & {
-      content: [];
-      stop_reason: null;
-      stop_sequence: null;
-    };
+  type: 'message_start';
+  message: Omit<MessagesResponse, 'content' | 'stop_reason' | 'stop_sequence'> & {
+    content: [];
+    stop_reason: null;
+    stop_sequence: null;
+  };
 }
 
 export interface MessagesContentBlockStartEvent {
-  type: "content_block_start";
+  type: 'content_block_start';
   index: number;
   content_block:
-    | { type: "text"; text: string; citations?: MessagesTextCitation[] }
-    | (Omit<MessagesToolUseBlock, "input"> & {
+    | { type: 'text'; text: string; citations?: MessagesTextCitation[] }
+    | (Omit<MessagesToolUseBlock, 'input'> & {
       input: Record<string, unknown>;
     })
     | MessagesServerToolUseBlock
     | MessagesWebSearchToolResultBlock
-    | { type: "thinking"; thinking: string }
-    | { type: "redacted_thinking"; data: string };
+    | { type: 'thinking'; thinking: string }
+    | { type: 'redacted_thinking'; data: string };
 }
 
 export interface MessagesContentBlockDeltaEvent {
-  type: "content_block_delta";
+  type: 'content_block_delta';
   index: number;
   delta:
-    | { type: "text_delta"; text: string; citations?: MessagesTextCitation[] }
-    | { type: "citations_delta"; citation: MessagesTextCitation }
-    | { type: "input_json_delta"; partial_json: string }
-    | { type: "thinking_delta"; thinking: string }
-    | { type: "signature_delta"; signature: string };
+    | { type: 'text_delta'; text: string; citations?: MessagesTextCitation[] }
+    | { type: 'citations_delta'; citation: MessagesTextCitation }
+    | { type: 'input_json_delta'; partial_json: string }
+    | { type: 'thinking_delta'; thinking: string }
+    | { type: 'signature_delta'; signature: string };
 }
 
 export interface MessagesContentBlockStopEvent {
-  type: "content_block_stop";
+  type: 'content_block_stop';
   index: number;
 }
 
 export interface MessagesMessageDeltaEvent {
-  type: "message_delta";
+  type: 'message_delta';
   delta: {
-    stop_reason?: MessagesResponse["stop_reason"];
+    stop_reason?: MessagesResponse['stop_reason'];
     stop_sequence?: string | null;
   };
   usage?: {
@@ -307,15 +283,15 @@ export interface MessagesMessageDeltaEvent {
 }
 
 interface MessagesMessageStopEvent {
-  type: "message_stop";
+  type: 'message_stop';
 }
 
 interface MessagesPingEvent {
-  type: "ping";
+  type: 'ping';
 }
 
 export interface MessagesErrorEvent {
-  type: "error";
+  type: 'error';
   error: {
     type: string;
     message: string;

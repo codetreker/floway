@@ -1,5 +1,5 @@
-import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
-import type { ResponsesInterceptor } from "../../../interceptors.ts";
+import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
+import type { ResponsesInterceptor } from '../../../interceptors.ts';
 
 // Hosted Responses tool entries and Freeform `custom` tools the gateway has no
 // source-level execution or translation shim for. Codex emits `web_search`,
@@ -21,35 +21,19 @@ import type { ResponsesInterceptor } from "../../../interceptors.ts";
 // - https://platform.openai.com/docs/guides/tools-image-generation
 // - https://github.com/openai/codex/blob/main/codex-rs/tools/src/tool_spec.rs
 // - https://github.com/caozhiyuan/copilot-api/blob/1d21b4aca31f89ad49a0c3bf1a71e3561d445855/src/routes/responses/handler.ts#L167-L184
-const UNSUPPORTED_RESPONSES_TOOL_TYPES = new Set([
-  "image_generation",
-  "web_search",
-  "tool_search",
-  "namespace",
-  "custom",
-]);
+const UNSUPPORTED_RESPONSES_TOOL_TYPES = new Set(['image_generation', 'web_search', 'tool_search', 'namespace', 'custom']);
 
-const isUnsupportedToolType = (type: unknown): type is string =>
-  typeof type === "string" && UNSUPPORTED_RESPONSES_TOOL_TYPES.has(type);
+const isUnsupportedToolType = (type: unknown): type is string => typeof type === 'string' && UNSUPPORTED_RESPONSES_TOOL_TYPES.has(type);
 
-const stripToolChoice = (
-  payload: ResponsesPayload,
-  removedUnsupportedTool: boolean,
-): void => {
+const stripToolChoice = (payload: ResponsesPayload, removedUnsupportedTool: boolean): void => {
   const choice = payload.tool_choice;
 
-  if (
-    choice && typeof choice === "object" &&
-    isUnsupportedToolType(choice.type)
-  ) {
+  if (choice && typeof choice === 'object' && isUnsupportedToolType(choice.type)) {
     delete payload.tool_choice;
     return;
   }
 
-  if (
-    removedUnsupportedTool && choice === "required" &&
-    (!Array.isArray(payload.tools) || payload.tools.length === 0)
-  ) {
+  if (removedUnsupportedTool && choice === 'required' && (!Array.isArray(payload.tools) || payload.tools.length === 0)) {
     delete payload.tool_choice;
   }
 };
@@ -66,13 +50,11 @@ const stripToolChoice = (
  * too — leaving it would force the upstream to invoke a tool that no longer
  * exists.
  */
-export const stripUnsupportedToolsFromPayload = (
-  payload: ResponsesPayload,
-): void => {
+export const stripUnsupportedToolsFromPayload = (payload: ResponsesPayload): void => {
   let removedUnsupportedTool = false;
 
   if (Array.isArray(payload.tools)) {
-    const tools = payload.tools.filter((tool) => {
+    const tools = payload.tools.filter(tool => {
       const unsupported = isUnsupportedToolType(tool.type);
       removedUnsupportedTool ||= unsupported;
       return !unsupported;

@@ -1,11 +1,7 @@
-import { getEnv } from "../../../runtime/env.ts";
-import type { BackgroundScheduler } from "../../../runtime/background.ts";
-import { getRepo } from "../../../repo/index.ts";
-import type {
-  PerformanceApiName,
-  PerformanceDimensions,
-  PerformanceMetricScope,
-} from "../../../repo/types.ts";
+import { getRepo } from '../../../repo/index.ts';
+import type { PerformanceApiName, PerformanceDimensions, PerformanceMetricScope } from '../../../repo/types.ts';
+import type { BackgroundScheduler } from '../../../runtime/background.ts';
+import { getEnv } from '../../../runtime/env.ts';
 
 export interface PerformanceTelemetryContext {
   keyId: string;
@@ -20,24 +16,17 @@ export interface PerformanceTelemetryContext {
   runtimeLocation: string;
 }
 
-export type RecordRequestPerformance = (
-  context: PerformanceTelemetryContext | undefined,
-  failed: boolean,
-  durationMs: number,
-) => void;
+export type RecordRequestPerformance = (context: PerformanceTelemetryContext | undefined, failed: boolean, durationMs: number) => void;
 
 const currentHour = (): string => new Date().toISOString().slice(0, 13);
 
 export function runtimeLocationFromRequest(request: Request): string {
   const cf = (request as Request & { cf?: { colo?: unknown } }).cf;
-  if (typeof cf?.colo === "string" && cf.colo) return cf.colo;
-  return getEnv("RUNTIME_LOCATION") || "unknown";
+  if (typeof cf?.colo === 'string' && cf.colo) return cf.colo;
+  return getEnv('RUNTIME_LOCATION') || 'unknown';
 }
 
-const performanceDimensions = (
-  context: PerformanceTelemetryContext,
-  metricScope: PerformanceMetricScope,
-): PerformanceDimensions => ({
+const performanceDimensions = (context: PerformanceTelemetryContext, metricScope: PerformanceMetricScope): PerformanceDimensions => ({
   hour: currentHour(),
   metricScope,
   keyId: context.keyId,
@@ -50,45 +39,31 @@ const performanceDimensions = (
   runtimeLocation: context.runtimeLocation,
 });
 
-export async function recordPerformanceLatency(
-  context: PerformanceTelemetryContext,
-  metricScope: PerformanceMetricScope,
-  durationMs: number,
-): Promise<void> {
+export async function recordPerformanceLatency(context: PerformanceTelemetryContext, metricScope: PerformanceMetricScope, durationMs: number): Promise<void> {
   try {
     await getRepo().performance.recordLatency({
       ...performanceDimensions(context, metricScope),
       durationMs,
     });
   } catch (error) {
-    console.warn("Failed to record performance latency:", error);
+    console.warn('Failed to record performance latency:', error);
   }
 }
 
-export async function recordPerformanceError(
-  context: PerformanceTelemetryContext,
-  metricScope: PerformanceMetricScope,
-): Promise<void> {
+export async function recordPerformanceError(context: PerformanceTelemetryContext, metricScope: PerformanceMetricScope): Promise<void> {
   try {
-    await getRepo().performance.recordError(
-      performanceDimensions(context, metricScope),
-    );
+    await getRepo().performance.recordError(performanceDimensions(context, metricScope));
   } catch (error) {
-    console.warn("Failed to record performance error:", error);
+    console.warn('Failed to record performance error:', error);
   }
 }
 
-export const recordRequestPerformanceForApiKey = (
-  keyId: string | undefined,
-  scheduler: BackgroundScheduler | undefined,
-): RecordRequestPerformance => {
+export const recordRequestPerformanceForApiKey = (keyId: string | undefined, scheduler: BackgroundScheduler | undefined): RecordRequestPerformance => {
   if (!keyId) return () => {};
   return (context, failed, durationMs) => {
     if (!context) return;
     const keyed = { ...context, keyId };
-    const promise = failed
-      ? recordPerformanceError(keyed, "request_total")
-      : recordPerformanceLatency(keyed, "request_total", durationMs);
+    const promise = failed ? recordPerformanceError(keyed, 'request_total') : recordPerformanceLatency(keyed, 'request_total', durationMs);
     scheduler ? scheduler(promise) : void promise;
   };
 };

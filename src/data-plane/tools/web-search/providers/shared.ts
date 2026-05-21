@@ -1,53 +1,42 @@
-import type { WebSearchProviderResult } from "../types.ts";
+import type { WebSearchProviderResult } from '../types.ts';
 
 const MAX_WEB_SEARCH_QUERY_LENGTH = 1000;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-export type ValidatedWebSearchQuery =
-  | { type: "ok"; query: string }
-  | { type: "error"; result: WebSearchProviderResult };
+export type ValidatedWebSearchQuery = { type: 'ok'; query: string } | { type: 'error'; result: WebSearchProviderResult };
 
-export const validateWebSearchQuery = (
-  query: string,
-): ValidatedWebSearchQuery => {
+export const validateWebSearchQuery = (query: string): ValidatedWebSearchQuery => {
   const normalized = query.trim();
   if (normalized.length === 0) {
     return {
-      type: "error",
+      type: 'error',
       result: {
-        type: "error",
-        errorCode: "invalid_tool_input",
-        message: "Search query must not be empty.",
+        type: 'error',
+        errorCode: 'invalid_tool_input',
+        message: 'Search query must not be empty.',
       },
     };
   }
 
   if (normalized.length > MAX_WEB_SEARCH_QUERY_LENGTH) {
     return {
-      type: "error",
+      type: 'error',
       result: {
-        type: "error",
-        errorCode: "query_too_long",
-        message: "Search query must be at most 1000 characters.",
+        type: 'error',
+        errorCode: 'query_too_long',
+        message: 'Search query must be at most 1000 characters.',
       },
     };
   }
 
-  return { type: "ok", query: normalized };
+  return { type: 'ok', query: normalized };
 };
 
-export const toWebSearchTextBlocks = (
-  content: unknown,
-): Array<{ type: "text"; text: string }> =>
-  typeof content === "string" && content.trim().length > 0
-    ? [{ type: "text", text: content.trim() }]
-    : [];
+export const toWebSearchTextBlocks = (content: unknown): Array<{ type: 'text'; text: string }> =>
+  typeof content === 'string' && content.trim().length > 0 ? [{ type: 'text', text: content.trim() }] : [];
 
-export const extractWebSearchProviderErrorMessage = async (
-  response: Response,
-): Promise<string | undefined> => {
+export const extractWebSearchProviderErrorMessage = async (response: Response): Promise<string | undefined> => {
   const text = await response.text();
   if (text.length === 0) {
     return undefined;
@@ -59,16 +48,16 @@ export const extractWebSearchProviderErrorMessage = async (
       return text;
     }
 
-    if (typeof parsed.detail === "string") {
+    if (typeof parsed.detail === 'string') {
       return parsed.detail;
     }
-    if (typeof parsed.error === "string") {
+    if (typeof parsed.error === 'string') {
       return parsed.error;
     }
-    if (isRecord(parsed.error) && typeof parsed.error.message === "string") {
+    if (isRecord(parsed.error) && typeof parsed.error.message === 'string') {
       return parsed.error.message;
     }
-    if (typeof parsed.message === "string") {
+    if (typeof parsed.message === 'string') {
       return parsed.message;
     }
   } catch {

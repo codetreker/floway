@@ -5,6 +5,6 @@ export function initEnv(fn: (name: string) => string): void {
 }
 
 export function getEnv(name: string): string {
-  if (!_getEnv) throw new Error("Env not initialized - call initEnv() first");
+  if (!_getEnv) throw new Error('Env not initialized - call initEnv() first');
   return _getEnv(name);
 }

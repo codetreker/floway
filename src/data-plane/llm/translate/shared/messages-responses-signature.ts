@@ -1,20 +1,10 @@
-import type {
-  MessagesRedactedThinkingBlock,
-  MessagesThinkingBlock,
-} from "../../../shared/protocol/messages.ts";
-import type {
-  ResponseInputReasoning,
-  ResponseOutputReasoning,
-} from "../../../shared/protocol/responses.ts";
-import { makeResponsesReasoningId } from "./reasoning.ts";
+import { makeResponsesReasoningId } from './reasoning.ts';
+import type { MessagesRedactedThinkingBlock, MessagesThinkingBlock } from '../../../shared/protocol/messages.ts';
+import type { ResponseInputReasoning, ResponseOutputReasoning } from '../../../shared/protocol/responses.ts';
 
-export type MessagesReasoningBlock =
-  | MessagesThinkingBlock
-  | MessagesRedactedThinkingBlock;
+export type MessagesReasoningBlock = MessagesThinkingBlock | MessagesRedactedThinkingBlock;
 
-export type ResponsesReasoningItem =
-  | ResponseInputReasoning
-  | ResponseOutputReasoning;
+export type ResponsesReasoningItem = ResponseInputReasoning | ResponseOutputReasoning;
 
 /**
  * Pack a Responses reasoning item's `id` and `encrypted_content` into an
@@ -43,10 +33,7 @@ export type ResponsesReasoningItem =
  * - https://github.com/caozhiyuan/copilot-api/issues/63
  * - https://github.com/caozhiyuan/copilot-api/issues/73
  */
-export const packReasoningSignature = (
-  id: string,
-  encryptedContent: string,
-): string => `${encryptedContent}@${id}`;
+export const packReasoningSignature = (id: string, encryptedContent: string): string => `${encryptedContent}@${id}`;
 
 /**
  * Inverse of {@link packReasoningSignature}.
@@ -60,10 +47,8 @@ export const packReasoningSignature = (
  * contain `@`, but using `lastIndexOf` matches caozhiyuan's parser and is
  * resilient if the upstream format ever widens.
  */
-export const unpackReasoningSignature = (
-  signature: string,
-): { id: string | null; encryptedContent: string } => {
-  const splitIndex = signature.lastIndexOf("@");
+export const unpackReasoningSignature = (signature: string): { id: string | null; encryptedContent: string } => {
+  const splitIndex = signature.lastIndexOf('@');
   if (splitIndex <= 0 || splitIndex === signature.length - 1) {
     return { id: null, encryptedContent: signature };
   }
@@ -73,30 +58,23 @@ export const unpackReasoningSignature = (
   };
 };
 
-export const messagesReasoningBlockToResponsesReasoning = (
-  block: MessagesReasoningBlock,
-  index: number,
-): ResponseInputReasoning => {
-  if (block.type === "redacted_thinking") {
+export const messagesReasoningBlockToResponsesReasoning = (block: MessagesReasoningBlock, index: number): ResponseInputReasoning => {
+  if (block.type === 'redacted_thinking') {
     const unpacked = unpackReasoningSignature(block.data);
     return {
-      type: "reasoning",
+      type: 'reasoning',
       id: unpacked.id ?? makeResponsesReasoningId(index),
       summary: [],
       encrypted_content: unpacked.encryptedContent,
     };
   }
 
-  const unpacked = typeof block.signature === "string"
-    ? unpackReasoningSignature(block.signature)
-    : null;
+  const unpacked = typeof block.signature === 'string' ? unpackReasoningSignature(block.signature) : null;
 
   return {
-    type: "reasoning",
+    type: 'reasoning',
     id: unpacked?.id ?? makeResponsesReasoningId(index),
-    summary: block.thinking
-      ? [{ type: "summary_text", text: block.thinking }]
-      : [],
+    summary: block.thinking ? [{ type: 'summary_text', text: block.thinking }] : [],
     ...(unpacked ? { encrypted_content: unpacked.encryptedContent } : {}),
   };
 };
@@ -106,26 +84,27 @@ export const messagesReasoningBlockToResponsesReasoning = (
  * that can round-trip it: plaintext summaries as `thinking`, opaque-only blobs
  * as `redacted_thinking`, and empty reasoning as no block.
  */
-export const responsesReasoningToMessagesBlock = (
-  item: ResponsesReasoningItem,
-): MessagesReasoningBlock | null => {
+export const responsesReasoningToMessagesBlock = (item: ResponsesReasoningItem): MessagesReasoningBlock | null => {
   const thinking = item.summary?.length
-    ? item.summary.map((part) => part.text).join("").trim()
-    : "";
+    ? item.summary
+        .map(part => part.text)
+        .join('')
+        .trim()
+    : '';
   const encryptedContent = item.encrypted_content;
 
   if (!thinking) {
-    return encryptedContent === undefined ? null : {
-      type: "redacted_thinking",
-      data: packReasoningSignature(item.id, encryptedContent),
-    };
+    return encryptedContent === undefined
+      ? null
+      : {
+          type: 'redacted_thinking',
+          data: packReasoningSignature(item.id, encryptedContent),
+        };
   }
 
   return {
-    type: "thinking",
+    type: 'thinking',
     thinking,
-    ...(encryptedContent !== undefined
-      ? { signature: packReasoningSignature(item.id, encryptedContent) }
-      : {}),
+    ...(encryptedContent !== undefined ? { signature: packReasoningSignature(item.id, encryptedContent) } : {}),
   };
 };

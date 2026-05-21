@@ -1,8 +1,5 @@
-import type {
-  GeminiGenerateContentRequest,
-  GeminiPart,
-} from "../../../../shared/protocol/gemini.ts";
-import type { GeminiInterceptor } from "../../../interceptors.ts";
+import type { GeminiGenerateContentRequest, GeminiPart } from '../../../../shared/protocol/gemini.ts';
+import type { GeminiInterceptor } from '../../../interceptors.ts';
 
 /**
  * Gemini file/code parts have no current equivalent in the upstream target
@@ -10,23 +7,19 @@ import type { GeminiInterceptor } from "../../../interceptors.ts";
  * parts.
  */
 const stripPartFields = (parts: GeminiPart[]): GeminiPart[] =>
-  parts.filter((part) => {
+  parts.filter(part => {
     delete part.fileData;
     delete part.executableCode;
     delete part.codeExecutionResult;
     return Object.keys(part).length > 0;
   });
 
-export const stripUnsupportedPartFieldsFromPayload = (
-  payload: GeminiGenerateContentRequest,
-): void => {
-  payload.contents?.forEach((content) => {
+export const stripUnsupportedPartFieldsFromPayload = (payload: GeminiGenerateContentRequest): void => {
+  payload.contents?.forEach(content => {
     content.parts = stripPartFields(content.parts);
   });
   if (payload.systemInstruction) {
-    payload.systemInstruction.parts = stripPartFields(
-      payload.systemInstruction.parts,
-    );
+    payload.systemInstruction.parts = stripPartFields(payload.systemInstruction.parts);
   }
 };
 

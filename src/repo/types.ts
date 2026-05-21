@@ -1,5 +1,5 @@
-import type { WebSearchProviderName } from "../shared/web-search-providers.ts";
-import type { HistogramBucket } from "../shared/performance-histogram.ts";
+import type { HistogramBucket } from '../shared/performance-histogram.ts';
+import type { WebSearchProviderName } from '../shared/web-search-providers.ts';
 
 export interface ApiKey {
   id: string;
@@ -53,13 +53,8 @@ export interface SearchUsageRecord {
   requests: number;
 }
 
-export type PerformanceMetricScope = "request_total" | "upstream_success";
-export type PerformanceApiName =
-  | "messages"
-  | "responses"
-  | "chat-completions"
-  | "gemini"
-  | "embeddings";
+export type PerformanceMetricScope = 'request_total' | 'upstream_success';
+export type PerformanceApiName = 'messages' | 'responses' | 'chat-completions' | 'gemini' | 'embeddings';
 
 export interface PerformanceDimensions {
   hour: string;
@@ -118,29 +113,15 @@ export interface UsageRepo {
     cacheReadTokens?: number,
     cacheCreationTokens?: number,
   ): Promise<void>;
-  query(
-    opts: { keyId?: string; start: string; end: string },
-  ): Promise<UsageRecord[]>;
+  query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]>;
   listAll(): Promise<UsageRecord[]>;
   set(record: UsageRecord): Promise<void>;
   deleteAll(): Promise<void>;
 }
 
 export interface SearchUsageRepo {
-  record(
-    provider: WebSearchProviderName,
-    keyId: string,
-    hour: string,
-    requests: number,
-  ): Promise<void>;
-  query(
-    opts: {
-      provider?: WebSearchProviderName;
-      keyId?: string;
-      start: string;
-      end: string;
-    },
-  ): Promise<SearchUsageRecord[]>;
+  record(provider: WebSearchProviderName, keyId: string, hour: string, requests: number): Promise<void>;
+  query(opts: { provider?: WebSearchProviderName; keyId?: string; start: string; end: string }): Promise<SearchUsageRecord[]>;
   listAll(): Promise<SearchUsageRecord[]>;
   set(record: SearchUsageRecord): Promise<void>;
   deleteAll(): Promise<void>;
@@ -149,12 +130,7 @@ export interface SearchUsageRepo {
 export interface PerformanceRepo {
   recordLatency(sample: PerformanceLatencySample): Promise<void>;
   recordError(sample: PerformanceErrorSample): Promise<void>;
-  query(opts: {
-    keyId?: string;
-    metricScope?: PerformanceMetricScope;
-    start: string;
-    end: string;
-  }): Promise<PerformanceTelemetryRecord[]>;
+  query(opts: { keyId?: string; metricScope?: PerformanceMetricScope; start: string; end: string }): Promise<PerformanceTelemetryRecord[]>;
   listAll(): Promise<PerformanceTelemetryRecord[]>;
   set(record: PerformanceTelemetryRecord): Promise<void>;
   deleteAll(): Promise<void>;
@@ -176,13 +152,7 @@ export interface SearchConfigRepo {
 // `messages_count_tokens` is intentionally a logical key: it is a sub-path of
 // `messages` and follows whatever path the admin chose for messages, so the
 // UI never exposes it as a separate configurable endpoint.
-export type EndpointKey =
-  | "chat_completions"
-  | "responses"
-  | "messages"
-  | "messages_count_tokens"
-  | "embeddings"
-  | "models";
+export type EndpointKey = 'chat_completions' | 'responses' | 'messages' | 'messages_count_tokens' | 'embeddings' | 'models';
 
 export interface UpstreamConfig {
   id: string;
@@ -201,9 +171,7 @@ export interface UpstreamConfig {
   // with no automatic `/v1` prefixing — admins enter the exact path the
   // upstream serves. `messages_count_tokens` follows `messages` and is not
   // overridable independently.
-  pathOverrides?: Partial<
-    Record<Exclude<EndpointKey, "messages_count_tokens">, string>
-  >;
+  pathOverrides?: Partial<Record<Exclude<EndpointKey, 'messages_count_tokens'>, string>>;
 }
 
 export interface UpstreamConfigRepo {

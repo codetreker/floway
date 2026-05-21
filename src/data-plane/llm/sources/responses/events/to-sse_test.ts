@@ -1,39 +1,36 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../../test-assert.ts";
-import type { ResponsesStreamEvent } from "../../../shared/protocol/responses.ts";
-import { eventFrame } from "../../../shared/stream/types.ts";
-import { responsesProtocolFrameToSSEFrame } from "./to-sse.ts";
+import { test } from 'vitest';
 
-test("responsesProtocolFrameToSSEFrame serializes events without owning termination", () => {
+import { responsesProtocolFrameToSSEFrame } from './to-sse.ts';
+import { assertEquals } from '../../../../../test-assert.ts';
+import type { ResponsesStreamEvent } from '../../../shared/protocol/responses.ts';
+import { eventFrame } from '../../../shared/stream/types.ts';
+
+test('responsesProtocolFrameToSSEFrame serializes events without owning termination', () => {
   const frames = [
-    eventFrame(
-      {
-        type: "response.completed",
-        sequence_number: 0,
-        response: {
-          id: "resp_done",
-          object: "response",
-          model: "gpt-test",
-          status: "completed",
-          output: [],
-          output_text: "",
-        },
-      } satisfies ResponsesStreamEvent,
-    ),
-    eventFrame(
-      {
-        type: "response.output_text.delta",
-        sequence_number: 1,
-        item_id: "msg_1",
-        output_index: 0,
-        content_index: 0,
-        delta: "still serialized",
-      } satisfies ResponsesStreamEvent,
-    ),
+    eventFrame({
+      type: 'response.completed',
+      sequence_number: 0,
+      response: {
+        id: 'resp_done',
+        object: 'response',
+        model: 'gpt-test',
+        status: 'completed',
+        output: [],
+        output_text: '',
+      },
+    } satisfies ResponsesStreamEvent),
+    eventFrame({
+      type: 'response.output_text.delta',
+      sequence_number: 1,
+      item_id: 'msg_1',
+      output_index: 0,
+      content_index: 0,
+      delta: 'still serialized',
+    } satisfies ResponsesStreamEvent),
   ].map(responsesProtocolFrameToSSEFrame);
 
-  assertEquals(frames.map((frame) => frame?.event), [
-    "response.completed",
-    "response.output_text.delta",
-  ]);
+  assertEquals(
+    frames.map(frame => frame?.event),
+    ['response.completed', 'response.output_text.delta'],
+  );
 });

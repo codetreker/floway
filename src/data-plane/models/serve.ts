@@ -1,23 +1,16 @@
 // GET /v1/models and /models — expose provider registry models in the public
 // protocol shape without leaking provider bindings or raw upstream variants.
 
-import type { Context } from "hono";
-import {
-  ModelsFetchError,
-  ModelsRequestError,
-} from "../providers/upstream-model-cache.ts";
-import { loadAnthropicModels, loadMergedModels } from "./load.ts";
+import type { Context } from 'hono';
 
-const modelListingFailureMessage = "Upstream model listing failed";
+import { loadAnthropicModels, loadMergedModels } from './load.ts';
+import { ModelsFetchError, ModelsRequestError } from '../providers/upstream-model-cache.ts';
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+const modelListingFailureMessage = 'Upstream model listing failed';
 
-const apiErrorResponse = (
-  message: string,
-  status: number,
-): Response =>
-  Response.json({ error: { message, type: "api_error" } }, { status });
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const apiErrorResponse = (message: string, status: number): Response => Response.json({ error: { message, type: 'api_error' } }, { status });
 
 export const models = async (_c: Context) => {
   try {

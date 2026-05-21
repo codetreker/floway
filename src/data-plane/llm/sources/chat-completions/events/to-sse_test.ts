@@ -1,39 +1,39 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../../test-assert.ts";
-import type { ChatCompletionChunk } from "../../../../shared/protocol/chat-completions.ts";
-import { doneFrame, eventFrame } from "../../../shared/stream/types.ts";
-import { chatProtocolFrameToSSEFrame } from "./to-sse.ts";
+import { test } from 'vitest';
+
+import { chatProtocolFrameToSSEFrame } from './to-sse.ts';
+import { assertEquals } from '../../../../../test-assert.ts';
+import type { ChatCompletionChunk } from '../../../../shared/protocol/chat-completions.ts';
+import { doneFrame, eventFrame } from '../../../shared/stream/types.ts';
 
 const includeUsageChunk = { includeUsageChunk: true };
 
-test("chatProtocolFrameToSSEFrame passes through non-chunk JSON payloads", () => {
+test('chatProtocolFrameToSSEFrame passes through non-chunk JSON payloads', () => {
   const payload = {
-    error: { message: "boom" },
+    error: { message: 'boom' },
   } as unknown as ChatCompletionChunk;
 
-  const frame = chatProtocolFrameToSSEFrame(
-    eventFrame(payload),
-    includeUsageChunk,
-  );
+  const frame = chatProtocolFrameToSSEFrame(eventFrame(payload), includeUsageChunk);
 
   assertEquals(frame, {
-    type: "sse",
+    type: 'sse',
     event: undefined,
     data: JSON.stringify(payload),
   });
 });
 
-test("chatProtocolFrameToSSEFrame serializes DONE without owning termination", () => {
+test('chatProtocolFrameToSSEFrame serializes DONE without owning termination', () => {
   const chunk = {
-    id: "chatcmpl_done",
-    object: "chat.completion.chunk",
+    id: 'chatcmpl_done',
+    object: 'chat.completion.chunk',
     created: 123,
-    model: "gpt-test",
-    choices: [{
-      index: 0,
-      delta: { role: "assistant", content: "hello" },
-      finish_reason: null,
-    }],
+    model: 'gpt-test',
+    choices: [
+      {
+        index: 0,
+        delta: { role: 'assistant', content: 'hello' },
+        finish_reason: null,
+      },
+    ],
   } satisfies ChatCompletionChunk;
 
   const frames = [
@@ -41,26 +41,33 @@ test("chatProtocolFrameToSSEFrame serializes DONE without owning termination", (
     doneFrame(),
     eventFrame({
       ...chunk,
-      id: "chatcmpl_after_done",
-      choices: [{
-        index: 0,
-        delta: { content: "ignored" },
-        finish_reason: null,
-      }],
+      id: 'chatcmpl_after_done',
+      choices: [
+        {
+          index: 0,
+          delta: { content: 'ignored' },
+          finish_reason: null,
+        },
+      ],
     }),
-  ].map((frame) => chatProtocolFrameToSSEFrame(frame, includeUsageChunk));
+  ].map(frame => chatProtocolFrameToSSEFrame(frame, includeUsageChunk));
 
-  assertEquals(frames.map((frame) => frame?.data), [
-    JSON.stringify(chunk),
-    "[DONE]",
-    JSON.stringify({
-      ...chunk,
-      id: "chatcmpl_after_done",
-      choices: [{
-        index: 0,
-        delta: { content: "ignored" },
-        finish_reason: null,
-      }],
-    }),
-  ]);
+  assertEquals(
+    frames.map(frame => frame?.data),
+    [
+      JSON.stringify(chunk),
+      '[DONE]',
+      JSON.stringify({
+        ...chunk,
+        id: 'chatcmpl_after_done',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'ignored' },
+            finish_reason: null,
+          },
+        ],
+      }),
+    ],
+  );
 });

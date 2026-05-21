@@ -3,43 +3,46 @@
 // Usage data mirrors token usage visibility: any authenticated user can view
 // aggregate records and key metadata because the dashboard usage tab is shared.
 
-import type { Context } from "hono";
-import { loadSearchConfig } from "../../data-plane/tools/web-search/search-config.ts";
-import { queryWebSearchUsage } from "../../data-plane/tools/web-search/usage.ts";
-import { getRepo } from "../../repo/index.ts";
-import {
-  isWebSearchProviderName,
-  type WebSearchProviderName,
-} from "../../shared/web-search-providers.ts";
-import { USAGE_KEY_COLOR_ORDER } from "../usage-key-colors.ts";
+import type { Context } from 'hono';
 
-const parseProvider = (provider: string | undefined):
-  | { type: "ok"; provider?: WebSearchProviderName }
-  | { type: "invalid" } => {
-  if (provider === undefined) return { type: "ok" };
+import { loadSearchConfig } from '../../data-plane/tools/web-search/search-config.ts';
+import { queryWebSearchUsage } from '../../data-plane/tools/web-search/usage.ts';
+import { getRepo } from '../../repo/index.ts';
+import { isWebSearchProviderName, type WebSearchProviderName } from '../../shared/web-search-providers.ts';
+import { USAGE_KEY_COLOR_ORDER } from '../usage-key-colors.ts';
+
+const parseProvider = (provider: string | undefined): { type: 'ok'; provider?: WebSearchProviderName } | { type: 'invalid' } => {
+  if (provider === undefined) return { type: 'ok' };
   if (isWebSearchProviderName(provider)) {
-    return { type: "ok", provider };
+    return { type: 'ok', provider };
   }
-  return { type: "invalid" };
+  return { type: 'invalid' };
 };
 
 export const searchUsage = async (c: Context) => {
-  const keyId = c.req.query("key_id") || undefined;
-  const start = c.req.query("start") ?? "";
-  const end = c.req.query("end") ?? "";
-  const includeKeyMetadata = c.req.query("include_key_metadata") === "1";
+  const queryKeyId = c.req.query('key_id');
+  const keyId = queryKeyId === '' ? undefined : queryKeyId;
+  const start = c.req.query('start') ?? '';
+  const end = c.req.query('end') ?? '';
+  const includeKeyMetadata = c.req.query('include_key_metadata') === '1';
 
   if (!start || !end) {
-    return c.json({
-      error: "start and end query parameters are required (e.g. 2026-03-09T00)",
-    }, 400);
+    return c.json(
+      {
+        error: 'start and end query parameters are required (e.g. 2026-03-09T00)',
+      },
+      400,
+    );
   }
 
-  const providerResult = parseProvider(c.req.query("provider"));
-  if (providerResult.type === "invalid") {
-    return c.json({
-      error: "provider must be 'tavily' or 'microsoft-grounding'",
-    }, 400);
+  const providerResult = parseProvider(c.req.query('provider'));
+  if (providerResult.type === 'invalid') {
+    return c.json(
+      {
+        error: "provider must be 'tavily' or 'microsoft-grounding'",
+      },
+      400,
+    );
   }
 
   const [records, keys] = await Promise.all([
@@ -52,8 +55,8 @@ export const searchUsage = async (c: Context) => {
     getRepo().apiKeys.list(),
   ]);
 
-  const keyMap = new Map(keys.map((k) => [k.id, k]));
-  const recordsWithKeyMetadata = records.map((r) => ({
+  const keyMap = new Map(keys.map(k => [k.id, k]));
+  const recordsWithKeyMetadata = records.map(r => ({
     ...r,
     keyName: keyMap.get(r.keyId)?.name ?? r.keyId.slice(0, 8),
     keyCreatedAt: keyMap.get(r.keyId)?.createdAt ?? null,
@@ -62,12 +65,7 @@ export const searchUsage = async (c: Context) => {
   if (!includeKeyMetadata) return c.json(recordsWithKeyMetadata);
 
   const searchConfig = await loadSearchConfig();
-  const keyMetadata = keys
-    .map((k) => ({ id: k.id, name: k.name, createdAt: k.createdAt }))
-    .sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt) ||
-      a.id.localeCompare(b.id)
-    );
+  const keyMetadata = keys.map(k => ({ id: k.id, name: k.name, createdAt: k.createdAt })).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 
   return c.json({
     records: recordsWithKeyMetadata,

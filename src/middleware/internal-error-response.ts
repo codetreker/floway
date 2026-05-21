@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import type { Context } from 'hono';
 
 const serializeErrorCause = (cause: unknown): unknown => {
   if (cause instanceof Error) {
@@ -10,10 +10,7 @@ const serializeErrorCause = (cause: unknown): unknown => {
     };
   }
 
-  if (
-    cause === undefined || cause === null || typeof cause === "string" ||
-    typeof cause === "number" || typeof cause === "boolean"
-  ) return cause;
+  if (cause === undefined || cause === null || typeof cause === 'string' || typeof cause === 'number' || typeof cause === 'boolean') return cause;
 
   try {
     JSON.stringify(cause);
@@ -26,15 +23,18 @@ const serializeErrorCause = (cause: unknown): unknown => {
 export const internalErrorResponse = (error: Error, c: Context): Response => {
   console.error(error);
 
-  return c.json({
-    error: {
-      type: "internal_error",
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      cause: serializeErrorCause(error.cause),
-      method: c.req.method,
-      path: c.req.path,
+  return c.json(
+    {
+      error: {
+        type: 'internal_error',
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        cause: serializeErrorCause(error.cause),
+        method: c.req.method,
+        path: c.req.path,
+      },
     },
-  }, 500);
+    500,
+  );
 };

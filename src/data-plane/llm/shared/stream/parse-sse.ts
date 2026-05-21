@@ -1,18 +1,15 @@
-import { type SseFrame, sseFrame } from "./types.ts";
+import { type SseFrame, sseFrame } from './types.ts';
 
 interface ParseSSEStreamOptions {
   signal?: AbortSignal;
 }
 
-export const parseSSEStream = async function* (
-  body: ReadableStream<Uint8Array>,
-  options: ParseSSEStreamOptions = {},
-): AsyncGenerator<SseFrame> {
+export const parseSSEStream = async function* (body: ReadableStream<Uint8Array>, options: ParseSSEStreamOptions = {}): AsyncGenerator<SseFrame> {
   const reader = body.getReader();
   const { signal } = options;
   const decoder = new TextDecoder();
-  let buffer = "";
-  let currentEvent = "";
+  let buffer = '';
+  let currentEvent = '';
   let cancelPromise: Promise<void> | undefined;
 
   const cancelReader = (reason?: unknown): Promise<void> => {
@@ -21,19 +18,19 @@ export const parseSSEStream = async function* (
   };
 
   const cancelReaderOnAbort = () => {
-    cancelReader(signal?.reason);
+    void cancelReader(signal?.reason);
   };
 
   const readLine = (rawLine: string): SseFrame | null => {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    if (line.startsWith("event: ")) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (line.startsWith('event: ')) {
       currentEvent = line.slice(7).trim();
       return null;
     }
 
-    if (line.startsWith("data: ")) {
+    if (line.startsWith('data: ')) {
       const frame = sseFrame(line.slice(6), currentEvent || undefined);
-      currentEvent = "";
+      currentEvent = '';
       return frame;
     }
 
@@ -45,7 +42,7 @@ export const parseSSEStream = async function* (
     return;
   }
 
-  signal?.addEventListener("abort", cancelReaderOnAbort, { once: true });
+  signal?.addEventListener('abort', cancelReaderOnAbort, { once: true });
 
   try {
     while (true) {
@@ -58,8 +55,8 @@ export const parseSSEStream = async function* (
       }
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         const frame = readLine(line);
@@ -68,15 +65,15 @@ export const parseSSEStream = async function* (
     }
 
     if (buffer) {
-      const lines = buffer.split("\n");
-      buffer = "";
+      const lines = buffer.split('\n');
+      buffer = '';
       for (const line of lines) {
         const frame = readLine(line);
         if (frame) yield frame;
       }
     }
   } finally {
-    signal?.removeEventListener("abort", cancelReaderOnAbort);
+    signal?.removeEventListener('abort', cancelReaderOnAbort);
     await (cancelPromise ?? reader.cancel());
   }
 };

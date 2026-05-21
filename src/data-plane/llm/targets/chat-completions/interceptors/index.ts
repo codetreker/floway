@@ -1,10 +1,10 @@
-import type { ChatCompletionsInterceptor } from "../../../interceptors.ts";
-import type { ProviderTargetInterceptors } from "../../../../providers/types.ts";
-import type { OptionalInterceptor } from "../../optional-interceptor.ts";
-import { withReasoningDisabledOnForcedToolChoice } from "./disable-reasoning-on-forced-tool-choice.ts";
-import { withUsageStreamOptionsIncluded } from "./include-usage-stream-options.ts";
-import { withDeepseekReasoningDialect } from "./normalize-reasoning-dialect.ts";
-import { withUsageNormalized } from "./normalize-usage.ts";
+import { withReasoningDisabledOnForcedToolChoice } from './disable-reasoning-on-forced-tool-choice.ts';
+import { withUsageStreamOptionsIncluded } from './include-usage-stream-options.ts';
+import { withDeepseekReasoningDialect } from './normalize-reasoning-dialect.ts';
+import { withUsageNormalized } from './normalize-usage.ts';
+import type { ProviderTargetInterceptors } from '../../../../providers/types.ts';
+import type { ChatCompletionsInterceptor } from '../../../interceptors.ts';
+import type { OptionalInterceptor } from '../../optional-interceptor.ts';
 
 interface ChatCompletionsInterceptorProvider {
   enabledFixes: ReadonlySet<string>;
@@ -20,28 +20,21 @@ interface ChatCompletionsInterceptorProvider {
 //     reads one contract.
 // Turning either off would silently break per-key telemetry, so neither
 // is surfaced as a flag.
-const baseInterceptors = [
-  withUsageStreamOptionsIncluded,
-  withUsageNormalized,
-] as const satisfies readonly ChatCompletionsInterceptor[];
+const baseInterceptors = [withUsageStreamOptionsIncluded, withUsageNormalized] as const satisfies readonly ChatCompletionsInterceptor[];
 
 export const chatCompletionsOptionalInterceptors = [
   {
-    fixId: "deepseek-reasoning-dialect",
+    fixId: 'deepseek-reasoning-dialect',
     run: withDeepseekReasoningDialect,
   },
   {
-    fixId: "disable-reasoning-on-forced-tool-choice",
+    fixId: 'disable-reasoning-on-forced-tool-choice',
     run: withReasoningDisabledOnForcedToolChoice,
   },
 ] as const satisfies readonly OptionalInterceptor<ChatCompletionsInterceptor>[];
 
-export const interceptorsForChatCompletions = (
-  provider: ChatCompletionsInterceptorProvider,
-): readonly ChatCompletionsInterceptor[] => [
+export const interceptorsForChatCompletions = (provider: ChatCompletionsInterceptorProvider): readonly ChatCompletionsInterceptor[] => [
   ...baseInterceptors,
   ...(provider.targetInterceptors?.chatCompletions ?? []),
-  ...chatCompletionsOptionalInterceptors
-    .filter(({ fixId }) => provider.enabledFixes.has(fixId))
-    .map(({ run }) => run),
+  ...chatCompletionsOptionalInterceptors.filter(({ fixId }) => provider.enabledFixes.has(fixId)).map(({ run }) => run),
 ];

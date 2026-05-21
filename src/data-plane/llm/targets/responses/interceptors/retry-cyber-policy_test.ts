@@ -1,35 +1,23 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../../test-assert.ts";
-import type {
-  ResponsesPayload,
-  ResponsesResult,
-} from "../../../../shared/protocol/responses.ts";
-import type {
-  ResponsesExchangeContext,
-  ResponsesExchangeResult,
-} from "../../../interceptors.ts";
-import { eventResult } from "../../../shared/errors/result.ts";
-import {
-  eventFrame,
-  type ProtocolFrame,
-} from "../../../shared/stream/types.ts";
-import type { ResponsesStreamEvent } from "../../../shared/protocol/responses.ts";
-import {
-  stubProvider,
-  stubUpstreamModel,
-  testTelemetryModelIdentity,
-} from "../../../../../test-helpers.ts";
-import { withCyberPolicyRetried } from "./retry-cyber-policy.ts";
+import { test } from 'vitest';
+
+import { withCyberPolicyRetried } from './retry-cyber-policy.ts';
+import { assertEquals } from '../../../../../test-assert.ts';
+import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
+import type { ResponsesPayload, ResponsesResult } from '../../../../shared/protocol/responses.ts';
+import type { ResponsesExchangeContext, ResponsesExchangeResult } from '../../../interceptors.ts';
+import { eventResult } from '../../../shared/errors/result.ts';
+import type { ResponsesStreamEvent } from '../../../shared/protocol/responses.ts';
+import { eventFrame, type ProtocolFrame } from '../../../shared/stream/types.ts';
 
 const makePayload = (): ResponsesPayload => ({
-  model: "gpt-test",
-  input: "hi",
+  model: 'gpt-test',
+  input: 'hi',
   instructions: null,
   temperature: 1,
   top_p: null,
   max_output_tokens: 32,
   tools: null,
-  tool_choice: "auto",
+  tool_choice: 'auto',
   metadata: null,
   stream: true,
   store: false,
@@ -37,112 +25,92 @@ const makePayload = (): ResponsesPayload => ({
 });
 
 const makeContext = (payload: ResponsesPayload): ResponsesExchangeContext => ({
-  sourceApi: "responses",
-  targetApi: "responses",
+  sourceApi: 'responses',
+  targetApi: 'responses',
   model: payload.model,
-  upstream: "test-upstream",
+  upstream: 'test-upstream',
   payload,
   provider: stubProvider(),
   upstreamModel: stubUpstreamModel(),
   enabledFixes: new Set<string>(),
 });
 
-type PromiseState<T> =
-  | { type: "pending" }
-  | { type: "fulfilled"; value: T }
-  | { type: "rejected"; error: unknown };
+type PromiseState<T> = { type: 'pending' } | { type: 'fulfilled'; value: T } | { type: 'rejected'; error: unknown };
 
-const promiseStateAfterMicrotasks = async <T>(
-  promise: Promise<T>,
-): Promise<PromiseState<T>> => {
-  let state: PromiseState<T> = { type: "pending" };
+const promiseStateAfterMicrotasks = async <T>(promise: Promise<T>): Promise<PromiseState<T>> => {
+  let state: PromiseState<T> = { type: 'pending' };
   promise.then(
-    (value) => {
-      state = { type: "fulfilled", value };
+    value => {
+      state = { type: 'fulfilled', value };
     },
-    (error) => {
-      state = { type: "rejected", error };
+    error => {
+      state = { type: 'rejected', error };
     },
   );
 
   for (let i = 0; i < 10; i++) {
     await Promise.resolve();
-    if (state.type !== "pending") return state;
+    if (state.type !== 'pending') return state;
   }
 
   return state;
 };
 
 const completedResponse = (): ResponsesResult => ({
-  id: "resp_ok",
-  object: "response",
-  model: "gpt-test",
-  status: "completed",
-  output_text: "ok",
+  id: 'resp_ok',
+  object: 'response',
+  model: 'gpt-test',
+  status: 'completed',
+  output_text: 'ok',
   output: [],
   usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
 });
 
 const inProgressResponse = (id: string): ResponsesResult => ({
   id,
-  object: "response",
-  model: "gpt-test",
-  status: "in_progress",
-  output_text: "",
+  object: 'response',
+  model: 'gpt-test',
+  status: 'in_progress',
+  output_text: '',
   output: [],
 });
 
 const failedResponse = (id: string, message: string): ResponsesResult => ({
   id,
-  object: "response",
-  model: "gpt-test",
-  status: "failed",
-  output_text: "",
+  object: 'response',
+  model: 'gpt-test',
+  status: 'failed',
+  output_text: '',
   output: [],
   error: {
     message,
-    type: "invalid_request_error",
-    code: "cyber_policy",
+    type: 'invalid_request_error',
+    code: 'cyber_policy',
   },
 });
 
-const completedEvent = (
-  sequence_number = 1,
-): ResponsesStreamEvent => ({
-  type: "response.completed",
+const completedEvent = (sequence_number = 1): ResponsesStreamEvent => ({
+  type: 'response.completed',
   sequence_number,
   response: completedResponse(),
 });
 
-const cyberPolicyEvent = (
-  id: string,
-  sequence_number = 1,
-): ResponsesStreamEvent => ({
-  type: "response.failed",
+const cyberPolicyEvent = (id: string, sequence_number = 1): ResponsesStreamEvent => ({
+  type: 'response.failed',
   sequence_number,
-  response: failedResponse(
-    id,
-    "This request was flagged for cyber policy.",
-  ),
+  response: failedResponse(id, 'This request was flagged for cyber policy.'),
 });
 
-const deltaEvent = (
-  delta: string,
-  sequence_number = 1,
-): ResponsesStreamEvent => ({
-  type: "response.output_text.delta",
+const deltaEvent = (delta: string, sequence_number = 1): ResponsesStreamEvent => ({
+  type: 'response.output_text.delta',
   sequence_number,
-  item_id: "msg_0",
+  item_id: 'msg_0',
   output_index: 0,
   content_index: 0,
   delta,
 });
 
-const protocolResult = (
-  events: readonly ResponsesStreamEvent[],
-  modelIdentity = testTelemetryModelIdentity,
-  performance?: ResponsesExchangeResult["performance"],
-): ResponsesExchangeResult =>
+const protocolResult = (events: readonly ResponsesStreamEvent[], modelIdentity = testTelemetryModelIdentity, performance?: ResponsesExchangeResult['performance']): ResponsesExchangeResult =>
   eventResult(
     (async function* () {
       for (const event of events) yield eventFrame(event);
@@ -151,9 +119,7 @@ const protocolResult = (
     performance,
   );
 
-const collectFrames = async (
-  events: AsyncIterable<ProtocolFrame<ResponsesStreamEvent>>,
-): Promise<ProtocolFrame<ResponsesStreamEvent>[]> => {
+const collectFrames = async (events: AsyncIterable<ProtocolFrame<ResponsesStreamEvent>>): Promise<ProtocolFrame<ResponsesStreamEvent>[]> => {
   const frames: ProtocolFrame<ResponsesStreamEvent>[] = [];
   for await (const frame of events) frames.push(frame);
   return frames;
@@ -165,49 +131,47 @@ const modelIdentityFor = (modelKey: string) => ({
 });
 
 const performanceFor = (modelKey: string) => ({
-  keyId: "key_test",
-  model: "gpt-test",
-  upstream: "test-upstream",
+  keyId: 'key_test',
+  model: 'gpt-test',
+  upstream: 'test-upstream',
   modelKey,
-  sourceApi: "responses" as const,
-  targetApi: "responses" as const,
+  sourceApi: 'responses' as const,
+  targetApi: 'responses' as const,
   stream: true,
-  runtimeLocation: "test",
+  runtimeLocation: 'test',
 });
 
-const upstreamCyberPolicyError = (
-  message: string,
-): ResponsesExchangeResult => ({
-  type: "upstream-error",
+const upstreamCyberPolicyError = (message: string): ResponsesExchangeResult => ({
+  type: 'upstream-error',
   status: 400,
-  headers: new Headers({ "content-type": "application/json" }),
+  headers: new Headers({ 'content-type': 'application/json' }),
   body: new TextEncoder().encode(
     JSON.stringify({
       error: {
         message,
-        type: "invalid_request_error",
-        code: "cyber_policy",
+        type: 'invalid_request_error',
+        code: 'cyber_policy',
       },
     }),
   ),
 });
 
 const upstreamServerError = (message: string): ResponsesExchangeResult => ({
-  type: "upstream-error",
+  type: 'upstream-error',
   status: 500,
-  headers: new Headers({ "content-type": "application/json" }),
+  headers: new Headers({ 'content-type': 'application/json' }),
   body: new TextEncoder().encode(
     JSON.stringify({
       error: {
         message,
-        type: "server_error",
-        code: "upstream_failed",
+        type: 'server_error',
+        code: 'upstream_failed',
       },
     }),
   ),
 });
 
-test("withCyberPolicyRetried retries fatal upstream cyber policy errors before returning success", async () => {
+test('withCyberPolicyRetried retries fatal upstream cyber policy errors before returning success', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -222,10 +186,10 @@ test("withCyberPolicyRetried retries fatal upstream cyber policy errors before r
   });
 
   assertEquals(attempts, 6);
-  assertEquals(result.type, "events");
+  assertEquals(result.type, 'events');
 });
 
-test("withCyberPolicyRetried retries first Responses protocol cyber policy failures before returning success", async () => {
+test('withCyberPolicyRetried retries first Responses protocol cyber policy failures before returning success', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -233,24 +197,22 @@ test("withCyberPolicyRetried retries first Responses protocol cyber policy failu
     attempts += 1;
 
     if (attempts < 3) {
-      return Promise.resolve(
-        protocolResult([cyberPolicyEvent(`resp_blocked_${attempts}`)]),
-      );
+      return Promise.resolve(protocolResult([cyberPolicyEvent(`resp_blocked_${attempts}`)]));
     }
 
     return Promise.resolve(protocolResult([completedEvent()]));
   });
 
   assertEquals(attempts, 1);
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
   assertEquals(attempts, 3);
   assertEquals(frames, [eventFrame(completedEvent())]);
 });
 
-test("withCyberPolicyRetried buffers converted fallback prologue frames before retrying terminal cyber policy failures", async () => {
+test('withCyberPolicyRetried buffers converted fallback prologue frames before retrying terminal cyber policy failures', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -258,33 +220,35 @@ test("withCyberPolicyRetried buffers converted fallback prologue frames before r
     attempts += 1;
 
     if (attempts === 1) {
-      return Promise.resolve(protocolResult([
-        {
-          type: "response.created",
-          sequence_number: 0,
-          response: inProgressResponse("resp_blocked"),
-        },
-        {
-          type: "response.in_progress",
-          sequence_number: 1,
-          response: inProgressResponse("resp_blocked"),
-        },
-        cyberPolicyEvent("resp_blocked", 2),
-      ]));
+      return Promise.resolve(
+        protocolResult([
+          {
+            type: 'response.created',
+            sequence_number: 0,
+            response: inProgressResponse('resp_blocked'),
+          },
+          {
+            type: 'response.in_progress',
+            sequence_number: 1,
+            response: inProgressResponse('resp_blocked'),
+          },
+          cyberPolicyEvent('resp_blocked', 2),
+        ]),
+      );
     }
 
     return Promise.resolve(protocolResult([completedEvent()]));
   });
 
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
   assertEquals(attempts, 2);
   assertEquals(frames, [eventFrame(completedEvent())]);
 });
 
-test("withCyberPolicyRetried attributes streaming retries to the final provider call", async () => {
+test('withCyberPolicyRetried attributes streaming retries to the final provider call', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -292,104 +256,89 @@ test("withCyberPolicyRetried attributes streaming retries to the final provider 
     attempts += 1;
 
     if (attempts === 1) {
-      return Promise.resolve(protocolResult(
-        [cyberPolicyEvent("resp_blocked_first_model_key")],
-        modelIdentityFor("first-model-key"),
-        performanceFor("first-model-key"),
-      ));
+      return Promise.resolve(protocolResult([cyberPolicyEvent('resp_blocked_first_model_key')], modelIdentityFor('first-model-key'), performanceFor('first-model-key')));
     }
 
-    return Promise.resolve(protocolResult(
-      [completedEvent()],
-      modelIdentityFor("final-model-key"),
-      performanceFor("final-model-key"),
-    ));
+    return Promise.resolve(protocolResult([completedEvent()], modelIdentityFor('final-model-key'), performanceFor('final-model-key')));
   });
 
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
-  assertEquals(result.modelIdentity.modelKey, "first-model-key");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
+  assertEquals(result.modelIdentity.modelKey, 'first-model-key');
 
   const frames = await collectFrames(result.events);
 
   assertEquals(frames.length, 1);
-  assertEquals(result.modelIdentity.modelKey, "final-model-key");
-  assertEquals(result.performance?.modelKey, "final-model-key");
+  assertEquals(result.modelIdentity.modelKey, 'final-model-key');
+  assertEquals(result.performance?.modelKey, 'final-model-key');
 });
 
-test("withCyberPolicyRetried returns successful streams without draining them", async () => {
+test('withCyberPolicyRetried returns successful streams without draining them', async () => {
   const payload = makePayload();
   let release!: () => void;
   let markStreamDrained!: () => void;
-  const untilRelease = new Promise<void>((resolve) => release = resolve);
-  const streamDrained = new Promise<"drained">((resolve) => {
-    markStreamDrained = () => resolve("drained");
+  const untilRelease = new Promise<void>(resolve => (release = resolve));
+  const streamDrained = new Promise<'drained'>(resolve => {
+    markStreamDrained = () => resolve('drained');
   });
 
-  const resultPromise = withCyberPolicyRetried(
-    makeContext(payload),
-    () =>
-      Promise.resolve(eventResult(
+  const resultPromise = withCyberPolicyRetried(makeContext(payload), () =>
+    Promise.resolve(
+      eventResult(
         (async function* () {
-          yield eventFrame(deltaEvent("ok"));
+          yield eventFrame(deltaEvent('ok'));
 
           markStreamDrained();
           await untilRelease;
           yield eventFrame(completedEvent(2));
         })(),
         testTelemetryModelIdentity,
-      )),
-  );
+      ),
+    ));
 
-  const firstAction = await Promise.race([
-    resultPromise.then(() => "returned" as const),
-    streamDrained,
-  ]);
+  const firstAction = await Promise.race([resultPromise.then(() => 'returned' as const), streamDrained]);
   release();
 
-  assertEquals(firstAction, "returned");
+  assertEquals(firstAction, 'returned');
   const result = await resultPromise;
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
   assertEquals(frames.length, 2);
 });
 
-test("withCyberPolicyRetried returns streaming results before the first upstream frame arrives", async () => {
+test('withCyberPolicyRetried returns streaming results before the first upstream frame arrives', async () => {
   const payload = makePayload();
   let releaseFirstFrame!: () => void;
-  const firstFrameReady = new Promise<void>((resolve) => {
+  const firstFrameReady = new Promise<void>(resolve => {
     releaseFirstFrame = resolve;
   });
 
-  const resultPromise = withCyberPolicyRetried(
-    makeContext(payload),
-    () =>
-      Promise.resolve(eventResult(
+  const resultPromise = withCyberPolicyRetried(makeContext(payload), () =>
+    Promise.resolve(
+      eventResult(
         (async function* () {
           await firstFrameReady;
           yield eventFrame(completedEvent());
         })(),
         testTelemetryModelIdentity,
-      )),
-  );
+      ),
+    ));
 
   const state = await promiseStateAfterMicrotasks(resultPromise);
   releaseFirstFrame();
   const result = await resultPromise;
 
-  assertEquals(state.type, "fulfilled");
-  assertEquals(result.type, "events");
+  assertEquals(state.type, 'fulfilled');
+  assertEquals(result.type, 'events');
 });
 
-test("withCyberPolicyRetried does not start another streaming retry after downstream abort", async () => {
+test('withCyberPolicyRetried does not start another streaming retry after downstream abort', async () => {
   const payload = makePayload();
   const downstreamAbortController = new AbortController();
   let attempts = 0;
-  const cyberPolicyFrame = eventFrame(
-    cyberPolicyEvent("resp_blocked_after_abort"),
-  );
+  const cyberPolicyFrame = eventFrame(cyberPolicyEvent('resp_blocked_after_abort'));
 
   const result = await withCyberPolicyRetried(
     {
@@ -398,18 +347,20 @@ test("withCyberPolicyRetried does not start another streaming retry after downst
     },
     () => {
       attempts += 1;
-      return Promise.resolve(eventResult(
-        (async function* () {
-          downstreamAbortController.abort();
-          yield cyberPolicyFrame;
-        })(),
-        testTelemetryModelIdentity,
-      ));
+      return Promise.resolve(
+        eventResult(
+          (async function* () {
+            downstreamAbortController.abort();
+            yield cyberPolicyFrame;
+          })(),
+          testTelemetryModelIdentity,
+        ),
+      );
     },
   );
 
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
 
@@ -417,7 +368,7 @@ test("withCyberPolicyRetried does not start another streaming retry after downst
   assertEquals(frames, [cyberPolicyFrame]);
 });
 
-test("withCyberPolicyRetried streams the final HTTP cyber policy failure after a streaming policy failure", async () => {
+test('withCyberPolicyRetried streams the final HTTP cyber policy failure after a streaming policy failure', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -425,39 +376,34 @@ test("withCyberPolicyRetried streams the final HTTP cyber policy failure after a
     attempts += 1;
 
     if (attempts === 1) {
-      return Promise.resolve(
-        protocolResult([cyberPolicyEvent("resp_stream_policy_failure")]),
-      );
+      return Promise.resolve(protocolResult([cyberPolicyEvent('resp_stream_policy_failure')]));
     }
 
     return Promise.resolve(upstreamCyberPolicyError(`blocked ${attempts}`));
   });
 
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
 
   assertEquals(attempts, 11);
   assertEquals(frames.length, 1);
   const finalFrame = frames[0];
-  assertEquals(finalFrame.type, "event");
-  if (finalFrame.type !== "event") throw new Error("expected event frame");
-  assertEquals(finalFrame.event.type, "response.failed");
-  const finalFailure = finalFrame.event as Extract<
-    ResponsesStreamEvent,
-    { type: "response.failed" }
-  >;
-  assertEquals(finalFailure.response.status, "failed");
-  assertEquals(finalFailure.response.model, "gpt-test");
+  assertEquals(finalFrame.type, 'event');
+  if (finalFrame.type !== 'event') throw new Error('expected event frame');
+  assertEquals(finalFrame.event.type, 'response.failed');
+  const finalFailure = finalFrame.event as Extract<ResponsesStreamEvent, { type: 'response.failed' }>;
+  assertEquals(finalFailure.response.status, 'failed');
+  assertEquals(finalFailure.response.model, 'gpt-test');
   assertEquals(finalFailure.response.error as Record<string, unknown>, {
-    message: "blocked 11",
-    type: "invalid_request_error",
-    code: "cyber_policy",
+    message: 'blocked 11',
+    type: 'invalid_request_error',
+    code: 'cyber_policy',
   });
 });
 
-test("withCyberPolicyRetried streams a later HTTP upstream failure after a streaming policy failure", async () => {
+test('withCyberPolicyRetried streams a later HTTP upstream failure after a streaming policy failure', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -465,37 +411,32 @@ test("withCyberPolicyRetried streams a later HTTP upstream failure after a strea
     attempts += 1;
 
     if (attempts === 1) {
-      return Promise.resolve(
-        protocolResult([cyberPolicyEvent("resp_stream_policy_failure")]),
-      );
+      return Promise.resolve(protocolResult([cyberPolicyEvent('resp_stream_policy_failure')]));
     }
 
-    return Promise.resolve(upstreamServerError("upstream failed after retry"));
+    return Promise.resolve(upstreamServerError('upstream failed after retry'));
   });
 
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
 
   assertEquals(attempts, 2);
   assertEquals(frames.length, 1);
   const finalFrame = frames[0];
-  assertEquals(finalFrame.type, "event");
-  if (finalFrame.type !== "event") throw new Error("expected event frame");
-  const finalFailure = finalFrame.event as Extract<
-    ResponsesStreamEvent,
-    { type: "response.failed" }
-  >;
-  assertEquals(finalFailure.response.status, "failed");
+  assertEquals(finalFrame.type, 'event');
+  if (finalFrame.type !== 'event') throw new Error('expected event frame');
+  const finalFailure = finalFrame.event as Extract<ResponsesStreamEvent, { type: 'response.failed' }>;
+  assertEquals(finalFailure.response.status, 'failed');
   assertEquals(finalFailure.response.error, {
-    message: "upstream failed after retry",
-    type: "server_error",
-    code: "upstream_failed",
+    message: 'upstream failed after retry',
+    type: 'server_error',
+    code: 'upstream_failed',
   });
 });
 
-test("withCyberPolicyRetried preserves debug fields for later internal failures after a streaming policy failure", async () => {
+test('withCyberPolicyRetried preserves debug fields for later internal failures after a streaming policy failure', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -503,53 +444,48 @@ test("withCyberPolicyRetried preserves debug fields for later internal failures 
     attempts += 1;
 
     if (attempts === 1) {
-      return Promise.resolve(
-        protocolResult([cyberPolicyEvent("resp_stream_policy_failure")]),
-      );
+      return Promise.resolve(protocolResult([cyberPolicyEvent('resp_stream_policy_failure')]));
     }
 
     return Promise.resolve({
-      type: "internal-error" as const,
+      type: 'internal-error' as const,
       status: 502,
       error: {
-        type: "internal_error" as const,
-        name: "Error",
-        message: "retry setup failed",
-        stack: "Error: retry setup failed\n    at test",
-        cause: { message: "nested" },
-        source_api: "responses" as const,
-        target_api: "responses" as const,
+        type: 'internal_error' as const,
+        name: 'Error',
+        message: 'retry setup failed',
+        stack: 'Error: retry setup failed\n    at test',
+        cause: { message: 'nested' },
+        source_api: 'responses' as const,
+        target_api: 'responses' as const,
       },
     });
   });
 
-  assertEquals(result.type, "events");
-  if (result.type !== "events") throw new Error("expected events result");
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('expected events result');
 
   const frames = await collectFrames(result.events);
 
   assertEquals(attempts, 2);
   assertEquals(frames.length, 1);
   const finalFrame = frames[0];
-  assertEquals(finalFrame.type, "event");
-  if (finalFrame.type !== "event") throw new Error("expected event frame");
-  const finalFailure = finalFrame.event as Extract<
-    ResponsesStreamEvent,
-    { type: "response.failed" }
-  >;
+  assertEquals(finalFrame.type, 'event');
+  if (finalFrame.type !== 'event') throw new Error('expected event frame');
+  const finalFailure = finalFrame.event as Extract<ResponsesStreamEvent, { type: 'response.failed' }>;
   assertEquals(finalFailure.response.error as Record<string, unknown>, {
-    message: "retry setup failed",
-    type: "internal_error",
-    code: "internal_error",
-    name: "Error",
-    stack: "Error: retry setup failed\n    at test",
-    cause: { message: "nested" },
-    source_api: "responses",
-    target_api: "responses",
+    message: 'retry setup failed',
+    type: 'internal_error',
+    code: 'internal_error',
+    name: 'Error',
+    stack: 'Error: retry setup failed\n    at test',
+    cause: { message: 'nested' },
+    source_api: 'responses',
+    target_api: 'responses',
   });
 });
 
-test("withCyberPolicyRetried returns the final cyber policy failure after exhausting retries", async () => {
+test('withCyberPolicyRetried returns the final cyber policy failure after exhausting retries', async () => {
   const payload = makePayload();
   let attempts = 0;
 
@@ -559,12 +495,9 @@ test("withCyberPolicyRetried returns the final cyber policy failure after exhaus
   });
 
   assertEquals(attempts, 11);
-  assertEquals(result.type, "upstream-error");
-  if (result.type !== "upstream-error") {
-    throw new Error("expected upstream-error result");
+  assertEquals(result.type, 'upstream-error');
+  if (result.type !== 'upstream-error') {
+    throw new Error('expected upstream-error result');
   }
-  assertEquals(
-    JSON.parse(new TextDecoder().decode(result.body)).error.message,
-    "blocked 11",
-  );
+  assertEquals(JSON.parse(new TextDecoder().decode(result.body)).error.message, 'blocked 11');
 });

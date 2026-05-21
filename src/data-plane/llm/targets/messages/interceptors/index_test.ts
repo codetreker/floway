@@ -1,17 +1,14 @@
-import { test } from "vitest";
+import { test } from 'vitest';
 // Order assertion for the Messages target assembler: base ++ provider ++
 // optional. The protocol interceptor runner executes whatever order the
 // assembler returns, so this guards interceptor ordering across refactors.
 
-import { assertEquals } from "../../../../../test-assert.ts";
-import { messagesCopilotInterceptors } from "../../../../providers/copilot/interceptors/messages/index.ts";
-import { withReasoningDisabledOnForcedToolChoice } from "./disable-reasoning-on-forced-tool-choice.ts";
-import {
-  interceptorsForMessages,
-  messagesOptionalInterceptors,
-} from "./index.ts";
+import { withReasoningDisabledOnForcedToolChoice } from './disable-reasoning-on-forced-tool-choice.ts';
+import { interceptorsForMessages, messagesOptionalInterceptors } from './index.ts';
+import { assertEquals } from '../../../../../test-assert.ts';
+import { messagesCopilotInterceptors } from '../../../../providers/copilot/interceptors/messages/index.ts';
 
-test("interceptorsForMessages on provider with Copilot interceptors: provider interceptors only", () => {
+test('interceptorsForMessages on provider with Copilot interceptors: provider interceptors only', () => {
   const provider = {
     enabledFixes: new Set<string>(),
     targetInterceptors: { messages: messagesCopilotInterceptors },
@@ -21,7 +18,7 @@ test("interceptorsForMessages on provider with Copilot interceptors: provider in
   assertEquals(assembled, [...messagesCopilotInterceptors]);
 });
 
-test("interceptorsForMessages on provider without provider interceptors or opt-ins: empty assembly", () => {
+test('interceptorsForMessages on provider without provider interceptors or opt-ins: empty assembly', () => {
   const provider = {
     enabledFixes: new Set<string>(),
   };
@@ -29,27 +26,18 @@ test("interceptorsForMessages on provider without provider interceptors or opt-i
 
   assertEquals(assembled, []);
   for (const interceptor of messagesCopilotInterceptors) {
-    assertEquals(
-      assembled.includes(interceptor),
-      false,
-      "providers must not pick up Copilot-only interceptors unless they attach them",
-    );
+    assertEquals(assembled.includes(interceptor), false, 'providers must not pick up Copilot-only interceptors unless they attach them');
   }
 });
 
-test("interceptorsForMessages picks up disable-reasoning-on-forced-tool-choice when opted in", () => {
+test('interceptorsForMessages picks up disable-reasoning-on-forced-tool-choice when opted in', () => {
   const provider = {
-    enabledFixes: new Set(["disable-reasoning-on-forced-tool-choice"]),
+    enabledFixes: new Set(['disable-reasoning-on-forced-tool-choice']),
   };
-  assertEquals(
-    interceptorsForMessages(provider),
-    [withReasoningDisabledOnForcedToolChoice],
-  );
+  assertEquals(interceptorsForMessages(provider), [withReasoningDisabledOnForcedToolChoice]);
 });
 
-test("messagesOptionalInterceptors registers disable-reasoning-on-forced-tool-choice", () => {
-  const descriptor = messagesOptionalInterceptors.find(
-    (d) => d.fixId === "disable-reasoning-on-forced-tool-choice",
-  );
-  if (!descriptor) throw new Error("expected interceptor to be registered");
+test('messagesOptionalInterceptors registers disable-reasoning-on-forced-tool-choice', () => {
+  const descriptor = messagesOptionalInterceptors.find(d => d.fixId === 'disable-reasoning-on-forced-tool-choice');
+  if (!descriptor) throw new Error('expected interceptor to be registered');
 });

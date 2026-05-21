@@ -1,8 +1,5 @@
-import type {
-  GeminiGenerateContentRequest,
-  GeminiToolGroup,
-} from "../../../../shared/protocol/gemini.ts";
-import type { GeminiInterceptor } from "../../../interceptors.ts";
+import type { GeminiGenerateContentRequest, GeminiToolGroup } from '../../../../shared/protocol/gemini.ts';
+import type { GeminiInterceptor } from '../../../interceptors.ts';
 
 /**
  * Only function declarations are currently translatable from Gemini tool
@@ -23,12 +20,10 @@ const stripToolCapabilities = (tool: GeminiToolGroup): void => {
   delete tool.googleMaps;
 };
 
-export const stripUnsupportedToolsFromPayload = (
-  payload: GeminiGenerateContentRequest,
-): void => {
+export const stripUnsupportedToolsFromPayload = (payload: GeminiGenerateContentRequest): void => {
   if (!payload.tools) return;
 
-  const tools = payload.tools.filter((tool) => {
+  const tools = payload.tools.filter(tool => {
     stripToolCapabilities(tool);
     return tool.functionDeclarations && tool.functionDeclarations.length > 0;
   });

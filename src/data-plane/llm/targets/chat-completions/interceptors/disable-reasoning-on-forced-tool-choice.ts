@@ -1,7 +1,5 @@
-import type {
-  ChatCompletionsPayload,
-} from "../../../../shared/protocol/chat-completions.ts";
-import type { ChatCompletionsInterceptor } from "../../../interceptors.ts";
+import type { ChatCompletionsPayload } from '../../../../shared/protocol/chat-completions.ts';
+import type { ChatCompletionsInterceptor } from '../../../interceptors.ts';
 
 // Opt-in workaround for upstreams where forced `tool_choice` and enabled
 // reasoning do not compose. By default this strips OpenAI `reasoning_effort`
@@ -15,34 +13,24 @@ import type { ChatCompletionsInterceptor } from "../../../interceptors.ts";
 const hasForcedToolChoice = (payload: ChatCompletionsPayload): boolean => {
   const toolChoice = payload.tool_choice;
   if (toolChoice === undefined || toolChoice === null) return false;
-  if (typeof toolChoice === "string") return toolChoice === "required";
+  if (typeof toolChoice === 'string') return toolChoice === 'required';
   return true;
 };
 
-const disableChatCompletionsReasoning = (
-  payload: ChatCompletionsPayload,
-  enabledFixes: ReadonlySet<string>,
-): ChatCompletionsPayload => {
+const disableChatCompletionsReasoning = (payload: ChatCompletionsPayload, enabledFixes: ReadonlySet<string>): ChatCompletionsPayload => {
   const { reasoning_effort: _reasoningEffort, ...rest } = payload;
   const out: ChatCompletionsPayload & Record<string, unknown> = { ...rest };
-  if (enabledFixes.has("vendor-deepseek")) {
-    out.thinking = { type: "disabled" };
+  if (enabledFixes.has('vendor-deepseek')) {
+    out.thinking = { type: 'disabled' };
   }
-  if (enabledFixes.has("vendor-qwen")) {
+  if (enabledFixes.has('vendor-qwen')) {
     out.enable_thinking = false;
   }
   return out;
 };
 
-export const withReasoningDisabledOnForcedToolChoice:
-  ChatCompletionsInterceptor = async (
-    ctx,
-    run,
-  ) => {
-    if (!hasForcedToolChoice(ctx.payload)) return await run();
-    ctx.payload = disableChatCompletionsReasoning(
-      ctx.payload,
-      ctx.enabledFixes,
-    );
-    return await run();
-  };
+export const withReasoningDisabledOnForcedToolChoice: ChatCompletionsInterceptor = async (ctx, run) => {
+  if (!hasForcedToolChoice(ctx.payload)) return await run();
+  ctx.payload = disableChatCompletionsReasoning(ctx.payload, ctx.enabledFixes);
+  return await run();
+};

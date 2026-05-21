@@ -1,42 +1,33 @@
-import { test } from "vitest";
-import { assertEquals, assertRejects } from "../../../../test-assert.ts";
-import type { ChatCompletionChunk } from "../../../shared/protocol/chat-completions.ts";
-import type { GeminiStreamEvent } from "../../../shared/protocol/gemini.ts";
-import {
-  doneFrame,
-  eventFrame,
-  type ProtocolFrame,
-} from "../../shared/stream/types.ts";
-import { translateToSourceEvents } from "./events.ts";
+import { test } from 'vitest';
+
+import { translateToSourceEvents } from './events.ts';
+import { assertEquals, assertRejects } from '../../../../test-assert.ts';
+import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
+import type { GeminiStreamEvent } from '../../../shared/protocol/gemini.ts';
+import { doneFrame, eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
 
 const chunk = (
-  delta: ChatCompletionChunk["choices"][0]["delta"],
-  finishReason: ChatCompletionChunk["choices"][0]["finish_reason"] = null,
-  usage?: NonNullable<ChatCompletionChunk["usage"]>,
+  delta: ChatCompletionChunk['choices'][0]['delta'],
+  finishReason: ChatCompletionChunk['choices'][0]['finish_reason'] = null,
+  usage?: NonNullable<ChatCompletionChunk['usage']>,
 ): ChatCompletionChunk => ({
-  id: "chatcmpl_test",
-  object: "chat.completion.chunk",
+  id: 'chatcmpl_test',
+  object: 'chat.completion.chunk',
   created: 1,
-  model: "gpt-test",
+  model: 'gpt-test',
   choices: [{ index: 0, delta, finish_reason: finishReason }],
   ...(usage ? { usage } : {}),
 });
 
-const choiceChunk = (
-  index: number,
-  delta: ChatCompletionChunk["choices"][0]["delta"],
-  finishReason: ChatCompletionChunk["choices"][0]["finish_reason"] = null,
-): ChatCompletionChunk => ({
-  id: "chatcmpl_test",
-  object: "chat.completion.chunk",
+const choiceChunk = (index: number, delta: ChatCompletionChunk['choices'][0]['delta'], finishReason: ChatCompletionChunk['choices'][0]['finish_reason'] = null): ChatCompletionChunk => ({
+  id: 'chatcmpl_test',
+  object: 'chat.completion.chunk',
   created: 1,
-  model: "gpt-test",
+  model: 'gpt-test',
   choices: [{ index, delta, finish_reason: finishReason }],
 });
 
-const collect = async (
-  input: ProtocolFrame<ChatCompletionChunk>[],
-): Promise<ProtocolFrame<GeminiStreamEvent>[]> => {
+const collect = async (input: ProtocolFrame<ChatCompletionChunk>[]): Promise<ProtocolFrame<GeminiStreamEvent>[]> => {
   const output: ProtocolFrame<GeminiStreamEvent>[] = [];
 
   async function* frames() {
@@ -50,138 +41,150 @@ const collect = async (
   return output;
 };
 
-const geminiFrame = (
-  event: GeminiStreamEvent,
-): ProtocolFrame<GeminiStreamEvent> => eventFrame(event);
+const geminiFrame = (event: GeminiStreamEvent): ProtocolFrame<GeminiStreamEvent> => eventFrame(event);
 
-const drain = async (
-  input: ProtocolFrame<ChatCompletionChunk>[],
-): Promise<void> => {
+const drain = async (input: ProtocolFrame<ChatCompletionChunk>[]): Promise<void> => {
   await collect(input);
 };
 
-test("translateToSourceEvents maps text chunks and stop finish without emitting DONE", async () => {
-  const frames = await collect([
-    eventFrame(chunk({ role: "assistant", content: "Hello " })),
-    eventFrame(chunk({ content: "world" }, "stop")),
-    doneFrame(),
-  ]);
+test('translateToSourceEvents maps text chunks and stop finish without emitting DONE', async () => {
+  const frames = await collect([eventFrame(chunk({ role: 'assistant', content: 'Hello ' })), eventFrame(chunk({ content: 'world' }, 'stop')), doneFrame()]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [{ text: "Hello " }] },
-      }],
-    }),
-    geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [{ text: "world" }] },
-        finishReason: "STOP",
-      }],
-    }),
-  ]);
-});
-
-test("translateToSourceEvents maps reasoning text and attaches opaque signature to next action", async () => {
-  const frames = await collect([
-    eventFrame(chunk({ role: "assistant", reasoning_text: "trace" })),
-    eventFrame(chunk({ reasoning_opaque: "sig_1" })),
-    eventFrame(chunk({ content: "answer" })),
-    eventFrame(chunk({}, "stop")),
-    doneFrame(),
-  ]);
-
-  assertEquals(frames, [
-    geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [{ text: "trace", thought: true }] },
-      }],
-    }),
-    geminiFrame({
-      candidates: [{
-        index: 0,
-        content: {
-          role: "model",
-          parts: [{ text: "answer", thoughtSignature: "sig_1" }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [{ text: 'Hello ' }] },
         },
-      }],
+      ],
     }),
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "STOP",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [{ text: 'world' }] },
+          finishReason: 'STOP',
+        },
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents flushes unclaimed opaque signature in the finish chunk", async () => {
+test('translateToSourceEvents maps reasoning text and attaches opaque signature to next action', async () => {
   const frames = await collect([
-    eventFrame(chunk({ role: "assistant", reasoning_opaque: "sig_only" })),
-    eventFrame(chunk({}, "stop")),
+    eventFrame(chunk({ role: 'assistant', reasoning_text: 'trace' })),
+    eventFrame(chunk({ reasoning_opaque: 'sig_1' })),
+    eventFrame(chunk({ content: 'answer' })),
+    eventFrame(chunk({}, 'stop')),
     doneFrame(),
   ]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: {
-          role: "model",
-          parts: [{ text: "", thoughtSignature: "sig_only" }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [{ text: 'trace', thought: true }] },
         },
-        finishReason: "STOP",
-      }],
+      ],
+    }),
+    geminiFrame({
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [{ text: 'answer', thoughtSignature: 'sig_1' }],
+          },
+        },
+      ],
+    }),
+    geminiFrame({
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'STOP',
+        },
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents accumulates streamed tool calls and emits functionCall at finish", async () => {
+test('translateToSourceEvents flushes unclaimed opaque signature in the finish chunk', async () => {
+  const frames = await collect([eventFrame(chunk({ role: 'assistant', reasoning_opaque: 'sig_only' })), eventFrame(chunk({}, 'stop')), doneFrame()]);
+
+  assertEquals(frames, [
+    geminiFrame({
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [{ text: '', thoughtSignature: 'sig_only' }],
+          },
+          finishReason: 'STOP',
+        },
+      ],
+    }),
+  ]);
+});
+
+test('translateToSourceEvents accumulates streamed tool calls and emits functionCall at finish', async () => {
   const frames = await collect([
-    eventFrame(chunk({
-      role: "assistant",
-      tool_calls: [{
-        index: 0,
-        id: "call_1",
-        type: "function",
-        function: { name: "lookup", arguments: '{"query"' },
-      }],
-    })),
-    eventFrame(chunk({
-      tool_calls: [{
-        index: 0,
-        function: { arguments: ':"docs"}' },
-      }],
-    })),
-    eventFrame(chunk({}, "tool_calls")),
+    eventFrame(
+      chunk({
+        role: 'assistant',
+        tool_calls: [
+          {
+            index: 0,
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'lookup', arguments: '{"query"' },
+          },
+        ],
+      }),
+    ),
+    eventFrame(
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            function: { arguments: ':"docs"}' },
+          },
+        ],
+      }),
+    ),
+    eventFrame(chunk({}, 'tool_calls')),
     doneFrame(),
   ]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: {
-          role: "model",
-          parts: [{
-            functionCall: {
-              id: "call_1",
-              name: "lookup",
-              args: { query: "docs" },
-            },
-          }],
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [
+              {
+                functionCall: {
+                  id: 'call_1',
+                  name: 'lookup',
+                  args: { query: 'docs' },
+                },
+              },
+            ],
+          },
+          finishReason: 'STOP',
         },
-        finishReason: "STOP",
-      }],
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents maps finish reasons and usage metadata", async () => {
+test('translateToSourceEvents maps finish reasons and usage metadata', async () => {
   const usage = {
     prompt_tokens: 10,
     completion_tokens: 5,
@@ -193,18 +196,17 @@ test("translateToSourceEvents maps finish reasons and usage metadata", async () 
     },
   };
 
-  const frames = await collect([
-    eventFrame(chunk({}, "length", usage)),
-    doneFrame(),
-  ]);
+  const frames = await collect([eventFrame(chunk({}, 'length', usage)), doneFrame()]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "MAX_TOKENS",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
       usageMetadata: {
         promptTokenCount: 10,
         candidatesTokenCount: 5,
@@ -214,60 +216,58 @@ test("translateToSourceEvents maps finish reasons and usage metadata", async () 
     }),
   ]);
 
-  const safetyFrames = await collect([
-    eventFrame(chunk({}, "content_filter")),
-    doneFrame(),
-  ]);
+  const safetyFrames = await collect([eventFrame(chunk({}, 'content_filter')), doneFrame()]);
 
   assertEquals(
     safetyFrames[0],
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "SAFETY",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'SAFETY',
+        },
+      ],
     }),
   );
 });
 
-test("translateToSourceEvents preserves multiple choices that finish in separate chunks", async () => {
-  const frames = await collect([
-    eventFrame(choiceChunk(0, { content: "first" }, "stop")),
-    eventFrame(choiceChunk(1, { content: "second" }, "length")),
-    doneFrame(),
-  ]);
+test('translateToSourceEvents preserves multiple choices that finish in separate chunks', async () => {
+  const frames = await collect([eventFrame(choiceChunk(0, { content: 'first' }, 'stop')), eventFrame(choiceChunk(1, { content: 'second' }, 'length')), doneFrame()]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [{ text: "first" }] },
-        finishReason: "STOP",
-      }, {
-        index: 1,
-        content: { role: "model", parts: [{ text: "second" }] },
-        finishReason: "MAX_TOKENS",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [{ text: 'first' }] },
+          finishReason: 'STOP',
+        },
+        {
+          index: 1,
+          content: { role: 'model', parts: [{ text: 'second' }] },
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents throws on upstream Chat error payloads", async () => {
+test('translateToSourceEvents throws on upstream Chat error payloads', async () => {
   await assertRejects(
     async () =>
       await drain([
         eventFrame({
-          error: { type: "invalid_request_error", message: "bad request" },
+          error: { type: 'invalid_request_error', message: 'bad request' },
         } as unknown as ChatCompletionChunk),
         doneFrame(),
       ]),
     Error,
-    "Upstream Chat Completions stream error: invalid_request_error: bad request",
+    'Upstream Chat Completions stream error: invalid_request_error: bad request',
   );
 });
 
-test("translateToSourceEvents surfaces cached_tokens as cachedContentTokenCount", async () => {
+test('translateToSourceEvents surfaces cached_tokens as cachedContentTokenCount', async () => {
   const usage = {
     prompt_tokens: 100,
     completion_tokens: 8,
@@ -275,18 +275,17 @@ test("translateToSourceEvents surfaces cached_tokens as cachedContentTokenCount"
     prompt_tokens_details: { cached_tokens: 30 },
   };
 
-  const frames = await collect([
-    eventFrame(chunk({}, "stop", usage)),
-    doneFrame(),
-  ]);
+  const frames = await collect([eventFrame(chunk({}, 'stop', usage)), doneFrame()]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "STOP",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'STOP',
+        },
+      ],
       usageMetadata: {
         promptTokenCount: 100,
         candidatesTokenCount: 8,

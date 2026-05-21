@@ -1,30 +1,25 @@
-import type {
-  ResponseFunctionTool,
-  ResponsesPayload,
-  ResponseTool,
-} from "../../../../shared/protocol/responses.ts";
-import type { ResponsesInterceptor } from "../../../interceptors.ts";
+import type { ResponseFunctionTool, ResponsesPayload, ResponseTool } from '../../../../shared/protocol/responses.ts';
+import type { ResponsesInterceptor } from '../../../interceptors.ts';
 
 const APPLY_PATCH_FUNCTION_TOOL: ResponseFunctionTool = {
-  type: "function",
-  name: "apply_patch",
-  description: "Use the `apply_patch` tool to edit files",
+  type: 'function',
+  name: 'apply_patch',
+  description: 'Use the `apply_patch` tool to edit files',
   parameters: {
-    type: "object",
+    type: 'object',
     properties: {
       input: {
-        type: "string",
-        description: "The entire contents of the apply_patch command",
+        type: 'string',
+        description: 'The entire contents of the apply_patch command',
       },
     },
-    required: ["input"],
+    required: ['input'],
     additionalProperties: false,
   },
   strict: false,
 };
 
-const isApplyPatchCustomTool = (tool: ResponseTool): boolean =>
-  tool.type === "custom" && tool.name === "apply_patch";
+const isApplyPatchCustomTool = (tool: ResponseTool): boolean => tool.type === 'custom' && tool.name === 'apply_patch';
 
 /**
  * Public Responses supports both function tools and custom tools, but
@@ -43,18 +38,12 @@ const isApplyPatchCustomTool = (tool: ResponseTool): boolean =>
  */
 const fixPayload = (payload: ResponsesPayload): void => {
   if (Array.isArray(payload.tools)) {
-    payload.tools = payload.tools.map((tool) =>
-      isApplyPatchCustomTool(tool) ? APPLY_PATCH_FUNCTION_TOOL : tool
-    );
+    payload.tools = payload.tools.map(tool => (isApplyPatchCustomTool(tool) ? APPLY_PATCH_FUNCTION_TOOL : tool));
   }
 
   const choice = payload.tool_choice;
-  if (
-    choice && typeof choice === "object" &&
-    choice.type === "custom" &&
-    choice.name === "apply_patch"
-  ) {
-    payload.tool_choice = { type: "function", name: "apply_patch" };
+  if (choice && typeof choice === 'object' && choice.type === 'custom' && choice.name === 'apply_patch') {
+    payload.tool_choice = { type: 'function', name: 'apply_patch' };
   }
 };
 

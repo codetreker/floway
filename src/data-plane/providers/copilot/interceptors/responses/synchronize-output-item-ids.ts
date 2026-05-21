@@ -1,5 +1,5 @@
-import type { ResponsesInterceptor } from "../../../../llm/interceptors.ts";
-import type { ResponsesStreamEvent } from "../../../../llm/shared/protocol/responses.ts";
+import type { ResponsesInterceptor } from '../../../../llm/interceptors.ts';
+import type { ResponsesStreamEvent } from '../../../../llm/shared/protocol/responses.ts';
 
 /**
  * Copilot `/responses` streams have been seen to emit one `item.id` on
@@ -17,21 +17,15 @@ interface StreamIdTracker {
   outputItemIds: Map<number, string>;
 }
 
-const fixResponsesStreamIds = (
-  event: ResponsesStreamEvent,
-  tracker: StreamIdTracker,
-): ResponsesStreamEvent => {
-  if (
-    event.type !== "response.output_item.added" &&
-    event.type !== "response.output_item.done"
-  ) return event;
+const fixResponsesStreamIds = (event: ResponsesStreamEvent, tracker: StreamIdTracker): ResponsesStreamEvent => {
+  if (event.type !== 'response.output_item.added' && event.type !== 'response.output_item.done') return event;
 
   const item = event.item as { id?: unknown };
-  if (typeof event.output_index !== "number" || typeof item.id !== "string") {
+  if (typeof event.output_index !== 'number' || typeof item.id !== 'string') {
     return event;
   }
 
-  if (event.type === "response.output_item.added") {
+  if (event.type === 'response.output_item.added') {
     tracker.outputItemIds.set(event.output_index, item.id);
     return event;
   }
@@ -45,12 +39,9 @@ const fixResponsesStreamIds = (
   } as ResponsesStreamEvent;
 };
 
-export const withOutputItemIdsSynchronized: ResponsesInterceptor = async (
-  _ctx,
-  run,
-) => {
+export const withOutputItemIdsSynchronized: ResponsesInterceptor = async (_ctx, run) => {
   const result = await run();
-  if (result.type !== "events") return result;
+  if (result.type !== 'events') return result;
 
   const tracker: StreamIdTracker = { outputItemIds: new Map() };
 
@@ -58,9 +49,7 @@ export const withOutputItemIdsSynchronized: ResponsesInterceptor = async (
     ...result,
     events: (async function* () {
       for await (const frame of result.events) {
-        yield frame.type === "event"
-          ? { ...frame, event: fixResponsesStreamIds(frame.event, tracker) }
-          : frame;
+        yield frame.type === 'event' ? { ...frame, event: fixResponsesStreamIds(frame.event, tracker) } : frame;
       }
     })(),
   };

@@ -1,16 +1,5 @@
-import type {
-  ChatCompletionsPayload,
-  ContentPart,
-  Message,
-  Tool,
-  ToolCall,
-} from "../../../shared/protocol/chat-completions.ts";
-import type {
-  GeminiContent,
-  GeminiGenerateContentRequest,
-  GeminiGenerationConfig,
-  GeminiPart,
-} from "../../../shared/protocol/gemini.ts";
+import type { ChatCompletionsPayload, ContentPart, Message, Tool, ToolCall } from '../../../shared/protocol/chat-completions.ts';
+import type { GeminiContent, GeminiGenerateContentRequest, GeminiGenerationConfig, GeminiPart } from '../../../shared/protocol/gemini.ts';
 import {
   geminiFunctionCallingIntent,
   geminiFunctionCallPart,
@@ -23,43 +12,33 @@ import {
   geminiThoughtText,
   type GeminiToolCallIds,
   geminiVisibleText,
-} from "../shared/gemini.ts";
+} from '../shared/gemini.ts';
 
-const appendOpaque = (
-  current: string | null,
-  signature?: string,
-): string | null =>
-  typeof signature === "string" ? `${current ?? ""}${signature}` : current;
+const appendOpaque = (current: string | null, signature?: string): string | null => (typeof signature === 'string' ? `${current ?? ''}${signature}` : current);
 
 const inlineDataToContentPart = (part: GeminiPart): ContentPart | null => {
   const url = geminiInlineDataUrl(part);
   if (url === null) return null;
 
   return {
-    type: "image_url",
+    type: 'image_url',
     image_url: { url },
   };
 };
 
 const textToContentPart = (text: string): ContentPart => ({
-  type: "text",
+  type: 'text',
   text,
 });
 
-const contentFromParts = (
-  parts: GeminiPart[],
-): string | ContentPart[] | null => {
-  const textParts = parts
-    .map(geminiPartText)
-    .filter((text): text is string => text !== null);
-  const mediaParts = parts
-    .map(inlineDataToContentPart)
-    .filter((part): part is ContentPart => part !== null);
+const contentFromParts = (parts: GeminiPart[]): string | ContentPart[] | null => {
+  const textParts = parts.map(geminiPartText).filter((text): text is string => text !== null);
+  const mediaParts = parts.map(inlineDataToContentPart).filter((part): part is ContentPart => part !== null);
 
   if (!textParts.length && !mediaParts.length) return null;
-  if (!mediaParts.length) return textParts.join("\n\n");
+  if (!mediaParts.length) return textParts.join('\n\n');
 
-  return parts.flatMap((part) => {
+  return parts.flatMap(part => {
     const text = geminiPartText(part);
     if (text !== null) return [textToContentPart(text)];
 
@@ -68,11 +47,7 @@ const contentFromParts = (
   });
 };
 
-const buildAssistantMessage = (
-  content: GeminiContent,
-  turnIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): Message | null => {
+const buildAssistantMessage = (content: GeminiContent, turnIndex: number, unmatchedToolCallIds: GeminiToolCallIds): Message | null => {
   const visibleParts: GeminiPart[] = [];
   const thoughtTexts: string[] = [];
   const toolCalls: ToolCall[] = [];
@@ -81,17 +56,12 @@ const buildAssistantMessage = (
   content.parts.forEach((part, partIndex) => {
     reasoningOpaque = appendOpaque(reasoningOpaque, part.thoughtSignature);
 
-    const functionCallPart = geminiFunctionCallPart(
-      part,
-      unmatchedToolCallIds,
-      turnIndex,
-      partIndex,
-    );
+    const functionCallPart = geminiFunctionCallPart(part, unmatchedToolCallIds, turnIndex, partIndex);
     if (functionCallPart) {
       const { call, id } = functionCallPart;
       toolCalls.push({
         id,
-        type: "function",
+        type: 'function',
         function: {
           name: call.name,
           arguments: JSON.stringify(call.args),
@@ -112,47 +82,29 @@ const buildAssistantMessage = (
   });
 
   const message: Message = {
-    role: "assistant",
+    role: 'assistant',
     content: contentFromParts(visibleParts),
   };
 
   if (toolCalls.length) message.tool_calls = toolCalls;
-  if (thoughtTexts.length) message.reasoning_text = thoughtTexts.join("\n\n");
+  if (thoughtTexts.length) message.reasoning_text = thoughtTexts.join('\n\n');
   if (reasoningOpaque !== null) message.reasoning_opaque = reasoningOpaque;
 
-  return message.content !== null || message.tool_calls?.length ||
-      message.reasoning_text !== undefined ||
-      message.reasoning_opaque !== undefined
-    ? message
-    : null;
+  return message.content !== null || message.tool_calls?.length || message.reasoning_text !== undefined || message.reasoning_opaque !== undefined ? message : null;
 };
 
-const buildToolMessage = (
-  part: GeminiPart,
-  turnIndex: number,
-  partIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): Message | null => {
-  const functionResponsePart = geminiFunctionResponsePart(
-    part,
-    unmatchedToolCallIds,
-    turnIndex,
-    partIndex,
-  );
+const buildToolMessage = (part: GeminiPart, turnIndex: number, partIndex: number, unmatchedToolCallIds: GeminiToolCallIds): Message | null => {
+  const functionResponsePart = geminiFunctionResponsePart(part, unmatchedToolCallIds, turnIndex, partIndex);
   if (!functionResponsePart) return null;
 
   return {
-    role: "tool",
+    role: 'tool',
     tool_call_id: functionResponsePart.id,
     content: JSON.stringify(functionResponsePart.response.response),
   };
 };
 
-const buildUserMessages = (
-  content: GeminiContent,
-  turnIndex: number,
-  unmatchedToolCallIds: GeminiToolCallIds,
-): Message[] => {
+const buildUserMessages = (content: GeminiContent, turnIndex: number, unmatchedToolCallIds: GeminiToolCallIds): Message[] => {
   const messages: Message[] = [];
   let pendingParts: GeminiPart[] = [];
 
@@ -161,16 +113,11 @@ const buildUserMessages = (
     pendingParts = [];
     if (chatContent === null) return;
 
-    messages.push({ role: "user", content: chatContent });
+    messages.push({ role: 'user', content: chatContent });
   };
 
   content.parts.forEach((part, partIndex) => {
-    const toolMessage = buildToolMessage(
-      part,
-      turnIndex,
-      partIndex,
-      unmatchedToolCallIds,
-    );
+    const toolMessage = buildToolMessage(part, turnIndex, partIndex, unmatchedToolCallIds);
     if (toolMessage) {
       flushUserParts();
       messages.push(toolMessage);
@@ -184,10 +131,7 @@ const buildUserMessages = (
   return messages;
 };
 
-const applyGenerationConfig = (
-  request: ChatCompletionsPayload,
-  generationConfig?: GeminiGenerationConfig,
-): void => {
+const applyGenerationConfig = (request: ChatCompletionsPayload, generationConfig?: GeminiGenerationConfig): void => {
   if (!generationConfig) return;
 
   if (generationConfig.maxOutputTokens !== undefined) {
@@ -217,47 +161,34 @@ const applyGenerationConfig = (
 
   if (generationConfig.responseSchema !== undefined) {
     request.response_format = {
-      type: "json_schema",
+      type: 'json_schema',
       json_schema: {
-        name: "gemini_response",
+        name: 'gemini_response',
         schema: generationConfig.responseSchema,
       },
     };
-  } else if (generationConfig.responseMimeType === "application/json") {
-    request.response_format = { type: "json_object" };
+  } else if (generationConfig.responseMimeType === 'application/json') {
+    request.response_format = { type: 'json_object' };
   }
 
-  const reasoningEffort = geminiReasoningEffort(
-    generationConfig.thinkingConfig,
-  );
+  const reasoningEffort = geminiReasoningEffort(generationConfig.thinkingConfig);
   if (reasoningEffort) request.reasoning_effort = reasoningEffort;
 };
 
-const buildTools = (
-  payload: GeminiGenerateContentRequest,
-): Tool[] | undefined => {
-  const tools = geminiFunctionDeclarations(payload, "any")
-    .map((declaration) => ({
-      type: "function" as const,
-      function: {
-        name: declaration.name,
-        ...(declaration.description !== undefined
-          ? { description: declaration.description }
-          : {}),
-        ...(declaration.parameters !== undefined
-          ? { parameters: declaration.parameters }
-          : {}),
-      },
-    }));
+const buildTools = (payload: GeminiGenerateContentRequest): Tool[] | undefined => {
+  const tools = geminiFunctionDeclarations(payload, 'any').map(declaration => ({
+    type: 'function' as const,
+    function: {
+      name: declaration.name,
+      ...(declaration.description !== undefined ? { description: declaration.description } : {}),
+      ...(declaration.parameters !== undefined ? { parameters: declaration.parameters } : {}),
+    },
+  }));
 
   return tools.length ? tools : undefined;
 };
 
-export const buildTargetRequest = (
-  payload: GeminiGenerateContentRequest,
-  model: string,
-  wantsStream: boolean,
-): ChatCompletionsPayload => {
+export const buildTargetRequest = (payload: GeminiGenerateContentRequest, model: string, wantsStream: boolean): ChatCompletionsPayload => {
   const request: ChatCompletionsPayload = {
     model,
     stream: wantsStream,
@@ -267,23 +198,17 @@ export const buildTargetRequest = (
 
   const systemText = geminiText(payload.systemInstruction);
   if (systemText !== null) {
-    request.messages.push({ role: "system", content: systemText });
+    request.messages.push({ role: 'system', content: systemText });
   }
 
   payload.contents?.forEach((content, turnIndex) => {
-    if (content.role === "model") {
-      const message = buildAssistantMessage(
-        content,
-        turnIndex,
-        unmatchedToolCallIds,
-      );
+    if (content.role === 'model') {
+      const message = buildAssistantMessage(content, turnIndex, unmatchedToolCallIds);
       if (message) request.messages.push(message);
       return;
     }
 
-    request.messages.push(
-      ...buildUserMessages(content, turnIndex, unmatchedToolCallIds),
-    );
+    request.messages.push(...buildUserMessages(content, turnIndex, unmatchedToolCallIds));
   });
 
   applyGenerationConfig(request, payload.generationConfig);
@@ -292,25 +217,23 @@ export const buildTargetRequest = (
   if (tools) {
     request.tools = tools;
 
-    const intent = geminiFunctionCallingIntent(
-      payload.toolConfig?.functionCallingConfig,
-    );
+    const intent = geminiFunctionCallingIntent(payload.toolConfig?.functionCallingConfig);
     switch (intent?.type) {
-      case "none":
-        request.tool_choice = "none";
-        break;
-      case "auto":
-        request.tool_choice = "auto";
-        break;
-      case "any":
-        request.tool_choice = "required";
-        break;
-      case "named":
-        request.tool_choice = {
-          type: "function",
-          function: { name: intent.name },
-        };
-        break;
+    case 'none':
+      request.tool_choice = 'none';
+      break;
+    case 'auto':
+      request.tool_choice = 'auto';
+      break;
+    case 'any':
+      request.tool_choice = 'required';
+      break;
+    case 'named':
+      request.tool_choice = {
+        type: 'function',
+        function: { name: intent.name },
+      };
+      break;
     }
   }
 

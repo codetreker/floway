@@ -1,6 +1,7 @@
 .claude/
 .worktrees/
 .wrangler/
+.eslintcache
 node_modules/
 docs/superpowers
 .superpowers

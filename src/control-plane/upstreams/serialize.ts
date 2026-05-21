@@ -1,4 +1,4 @@
-import type { UpstreamConfig } from "../../repo/types.ts";
+import type { UpstreamConfig } from '../../repo/types.ts';
 
 // Public-facing serialization: omit the bearer token by default and instead
 // expose `bearer_token_set` so the dashboard can show whether a credential

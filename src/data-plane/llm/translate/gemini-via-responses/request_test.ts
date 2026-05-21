@@ -1,181 +1,187 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../test-assert.ts";
-import type { GeminiGenerateContentRequest } from "../../../shared/protocol/gemini.ts";
-import { buildTargetRequest } from "./request.ts";
+import { test } from 'vitest';
 
-test("buildTargetRequest maps instructions and multimodal user input without defaults", () => {
+import { buildTargetRequest } from './request.ts';
+import { assertEquals } from '../../../../test-assert.ts';
+import type { GeminiGenerateContentRequest } from '../../../shared/protocol/gemini.ts';
+
+test('buildTargetRequest maps instructions and multimodal user input without defaults', () => {
   const payload: GeminiGenerateContentRequest = {
     systemInstruction: {
-      parts: [{ text: "Be precise." }, { text: "Use markdown." }],
+      parts: [{ text: 'Be precise.' }, { text: 'Use markdown.' }],
     },
-    contents: [{
-      parts: [
-        { text: "Describe this image." },
-        { inlineData: { mimeType: "application/pdf", data: "cGRm" } },
-        { inlineData: { mimeType: "image/png", data: "aW1hZ2U=" } },
-      ],
-    }],
+    contents: [
+      {
+        parts: [{ text: 'Describe this image.' }, { inlineData: { mimeType: 'application/pdf', data: 'cGRm' } }, { inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }],
+      },
+    ],
   };
 
-  assertEquals(buildTargetRequest(payload, "gpt-test", true), {
-    model: "gpt-test",
+  assertEquals(buildTargetRequest(payload, 'gpt-test', true), {
+    model: 'gpt-test',
     stream: true,
-    instructions: "Be precise.\n\nUse markdown.",
-    input: [{
-      type: "message",
-      role: "user",
-      content: [
-        { type: "input_text", text: "Describe this image." },
-        {
-          type: "input_image",
-          image_url: "data:image/png;base64,aW1hZ2U=",
-          detail: "auto",
-        },
-      ],
-    }],
+    instructions: 'Be precise.\n\nUse markdown.',
+    input: [
+      {
+        type: 'message',
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Describe this image.' },
+          {
+            type: 'input_image',
+            image_url: 'data:image/png;base64,aW1hZ2U=',
+            detail: 'auto',
+          },
+        ],
+      },
+    ],
   });
 });
 
-test("buildTargetRequest maps assistant reasoning, function calls, and call-order outputs", () => {
+test('buildTargetRequest maps assistant reasoning, function calls, and call-order outputs', () => {
   const payload: GeminiGenerateContentRequest = {
-    contents: [{
-      role: "model",
-      parts: [
-        { text: "private trace", thought: true, thoughtSignature: "sig_1" },
-        { thoughtSignature: "sig_only" },
-        { text: "Visible answer." },
-        { functionCall: { name: "lookup", args: { query: "first" } } },
-        {
-          functionCall: {
-            id: "call_explicit",
-            name: "lookup",
-            args: { query: "second" },
+    contents: [
+      {
+        role: 'model',
+        parts: [
+          { text: 'private trace', thought: true, thoughtSignature: 'sig_1' },
+          { thoughtSignature: 'sig_only' },
+          { text: 'Visible answer.' },
+          { functionCall: { name: 'lookup', args: { query: 'first' } } },
+          {
+            functionCall: {
+              id: 'call_explicit',
+              name: 'lookup',
+              args: { query: 'second' },
+            },
           },
-        },
-      ],
-    }, {
-      role: "user",
-      parts: [
-        { functionResponse: { name: "lookup", response: { answer: "first" } } },
-        {
-          functionResponse: {
-            id: "call_explicit",
-            name: "lookup",
-            response: { answer: "second" },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          { functionResponse: { name: 'lookup', response: { answer: 'first' } } },
+          {
+            functionResponse: {
+              id: 'call_explicit',
+              name: 'lookup',
+              response: { answer: 'second' },
+            },
           },
-        },
-      ],
-    }],
+        ],
+      },
+    ],
   };
 
-  assertEquals(buildTargetRequest(payload, "gpt-test", false).input, [
+  assertEquals(buildTargetRequest(payload, 'gpt-test', false).input, [
     {
-      type: "reasoning",
-      id: "gemini_reasoning_0_0",
-      summary: [{ type: "summary_text", text: "private trace" }],
-      encrypted_content: "sig_1",
+      type: 'reasoning',
+      id: 'gemini_reasoning_0_0',
+      summary: [{ type: 'summary_text', text: 'private trace' }],
+      encrypted_content: 'sig_1',
     },
     {
-      type: "reasoning",
-      id: "gemini_reasoning_0_1",
+      type: 'reasoning',
+      id: 'gemini_reasoning_0_1',
       summary: [],
-      encrypted_content: "sig_only",
+      encrypted_content: 'sig_only',
     },
     {
-      type: "message",
-      role: "assistant",
-      content: [{ type: "output_text", text: "Visible answer." }],
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Visible answer.' }],
     },
     {
-      type: "function_call",
-      call_id: "gemini_call_0_3",
-      name: "lookup",
+      type: 'function_call',
+      call_id: 'gemini_call_0_3',
+      name: 'lookup',
       arguments: '{"query":"first"}',
-      status: "completed",
+      status: 'completed',
     },
     {
-      type: "function_call",
-      call_id: "call_explicit",
-      name: "lookup",
+      type: 'function_call',
+      call_id: 'call_explicit',
+      name: 'lookup',
       arguments: '{"query":"second"}',
-      status: "completed",
+      status: 'completed',
     },
     {
-      type: "function_call_output",
-      call_id: "gemini_call_0_3",
+      type: 'function_call_output',
+      call_id: 'gemini_call_0_3',
       output: '{"answer":"first"}',
-      status: "completed",
+      status: 'completed',
     },
     {
-      type: "function_call_output",
-      call_id: "call_explicit",
+      type: 'function_call_output',
+      call_id: 'call_explicit',
       output: '{"answer":"second"}',
-      status: "completed",
+      status: 'completed',
     },
   ]);
 });
 
-test("buildTargetRequest preserves model action parts that carry only a thought signature", () => {
+test('buildTargetRequest preserves model action parts that carry only a thought signature', () => {
   const payload: GeminiGenerateContentRequest = {
-    contents: [{
-      role: "model",
-      parts: [
-        { text: "Signed answer.", thoughtSignature: "sig_text" },
-        {
-          thoughtSignature: "sig_call",
-          functionCall: { name: "lookup", args: {} },
-        },
-      ],
-    }],
+    contents: [
+      {
+        role: 'model',
+        parts: [
+          { text: 'Signed answer.', thoughtSignature: 'sig_text' },
+          {
+            thoughtSignature: 'sig_call',
+            functionCall: { name: 'lookup', args: {} },
+          },
+        ],
+      },
+    ],
   };
 
-  assertEquals(buildTargetRequest(payload, "gpt-test", false).input, [
+  assertEquals(buildTargetRequest(payload, 'gpt-test', false).input, [
     {
-      type: "reasoning",
-      id: "gemini_reasoning_0_0",
+      type: 'reasoning',
+      id: 'gemini_reasoning_0_0',
       summary: [],
-      encrypted_content: "sig_text",
+      encrypted_content: 'sig_text',
     },
     {
-      type: "message",
-      role: "assistant",
-      content: [{ type: "output_text", text: "Signed answer." }],
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Signed answer.' }],
     },
     {
-      type: "reasoning",
-      id: "gemini_reasoning_0_1",
+      type: 'reasoning',
+      id: 'gemini_reasoning_0_1',
       summary: [],
-      encrypted_content: "sig_call",
+      encrypted_content: 'sig_call',
     },
     {
-      type: "function_call",
-      call_id: "gemini_call_0_1",
-      name: "lookup",
-      arguments: "{}",
-      status: "completed",
+      type: 'function_call',
+      call_id: 'gemini_call_0_1',
+      name: 'lookup',
+      arguments: '{}',
+      status: 'completed',
     },
   ]);
 });
 
-test("buildTargetRequest maps generation config, JSON schema, and reasoning controls", () => {
+test('buildTargetRequest maps generation config, JSON schema, and reasoning controls', () => {
   const schema = {
-    type: "object",
-    properties: { answer: { type: "string" } },
-    required: ["answer"],
+    type: 'object',
+    properties: { answer: { type: 'string' } },
+    required: ['answer'],
   };
   const payload: GeminiGenerateContentRequest = {
     generationConfig: {
       maxOutputTokens: 512,
       temperature: 0.25,
       topP: 0.8,
-      responseMimeType: "application/json",
+      responseMimeType: 'application/json',
       responseSchema: schema,
-      thinkingConfig: { thinkingLevel: "medium", includeThoughts: true },
+      thinkingConfig: { thinkingLevel: 'medium', includeThoughts: true },
     },
   };
 
-  assertEquals(buildTargetRequest(payload, "gpt-test", false), {
-    model: "gpt-test",
+  assertEquals(buildTargetRequest(payload, 'gpt-test', false), {
+    model: 'gpt-test',
     stream: false,
     input: [],
     max_output_tokens: 512,
@@ -183,81 +189,62 @@ test("buildTargetRequest maps generation config, JSON schema, and reasoning cont
     top_p: 0.8,
     text: {
       format: {
-        type: "json_schema",
-        json_schema: { name: "gemini_response", schema },
+        type: 'json_schema',
+        json_schema: { name: 'gemini_response', schema },
       },
     },
-    reasoning: { effort: "medium", summary: "detailed" },
+    reasoning: { effort: 'medium', summary: 'detailed' },
   });
 
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { responseMimeType: "application/json" } },
-      "gpt-test",
-      false,
-    ).text,
-    { format: { type: "json_object" } },
-  );
+  assertEquals(buildTargetRequest({ generationConfig: { responseMimeType: 'application/json' } }, 'gpt-test', false).text, { format: { type: 'json_object' } });
 });
 
-test("buildTargetRequest filters tools to allowed function names for ANY mode", () => {
+test('buildTargetRequest filters tools to allowed function names for ANY mode', () => {
   const result = buildTargetRequest(
     {
-      tools: [{
-        functionDeclarations: [{ name: "lookup" }, { name: "ping" }, {
-          name: "forbidden",
-        }],
-      }],
+      tools: [
+        {
+          functionDeclarations: [
+            { name: 'lookup' },
+            { name: 'ping' },
+            {
+              name: 'forbidden',
+            },
+          ],
+        },
+      ],
       toolConfig: {
         functionCallingConfig: {
-          mode: "ANY",
-          allowedFunctionNames: ["lookup", "ping"],
+          mode: 'ANY',
+          allowedFunctionNames: ['lookup', 'ping'],
         },
       },
     },
-    "gpt-test",
+    'gpt-test',
     false,
   );
 
-  assertEquals(result.tools, [{
-    type: "function",
-    name: "lookup",
-    parameters: { type: "object", properties: {} },
-    strict: false,
-  }, {
-    type: "function",
-    name: "ping",
-    parameters: { type: "object", properties: {} },
-    strict: false,
-  }]);
-  assertEquals(result.tool_choice, "required");
+  assertEquals(result.tools, [
+    {
+      type: 'function',
+      name: 'lookup',
+      parameters: { type: 'object', properties: {} },
+      strict: false,
+    },
+    {
+      type: 'function',
+      name: 'ping',
+      parameters: { type: 'object', properties: {} },
+      strict: false,
+    },
+  ]);
+  assertEquals(result.tool_choice, 'required');
 });
 
-test("buildTargetRequest maps thinking budget thresholds and zero-budget disable", () => {
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { thinkingConfig: { thinkingBudget: 2048 } } },
-      "gpt-test",
-      false,
-    ).reasoning,
-    { effort: "low" },
-  );
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { thinkingConfig: { thinkingBudget: 8192 } } },
-      "gpt-test",
-      false,
-    ).reasoning,
-    { effort: "medium" },
-  );
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { thinkingConfig: { thinkingBudget: 8193 } } },
-      "gpt-test",
-      false,
-    ).reasoning,
-    { effort: "high" },
-  );
+test('buildTargetRequest maps thinking budget thresholds and zero-budget disable', () => {
+  assertEquals(buildTargetRequest({ generationConfig: { thinkingConfig: { thinkingBudget: 2048 } } }, 'gpt-test', false).reasoning, { effort: 'low' });
+  assertEquals(buildTargetRequest({ generationConfig: { thinkingConfig: { thinkingBudget: 8192 } } }, 'gpt-test', false).reasoning, { effort: 'medium' });
+  assertEquals(buildTargetRequest({ generationConfig: { thinkingConfig: { thinkingBudget: 8193 } } }, 'gpt-test', false).reasoning, { effort: 'high' });
   assertEquals(
     buildTargetRequest(
       {
@@ -265,110 +252,103 @@ test("buildTargetRequest maps thinking budget thresholds and zero-budget disable
           thinkingConfig: { thinkingBudget: 0, includeThoughts: true },
         },
       },
-      "gpt-test",
+      'gpt-test',
       false,
     ).reasoning,
-    { effort: "none" },
+    { effort: 'none' },
   );
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { thinkingConfig: { thinkingBudget: -1 } } },
-      "gpt-test",
-      false,
-    ).reasoning,
-    undefined,
-  );
+  assertEquals(buildTargetRequest({ generationConfig: { thinkingConfig: { thinkingBudget: -1 } } }, 'gpt-test', false).reasoning, undefined);
 });
 
-test("buildTargetRequest maps tool declarations and tool choice modes only when tools exist", () => {
+test('buildTargetRequest maps tool declarations and tool choice modes only when tools exist', () => {
   const payload: GeminiGenerateContentRequest = {
-    tools: [{
-      functionDeclarations: [{
-        name: "lookup",
-        description: "Look up facts",
-        parameters: {
-          type: "object",
-          properties: { query: { type: "string" } },
-        },
-      }, {
-        name: "ping",
-      }],
-    }],
+    tools: [
+      {
+        functionDeclarations: [
+          {
+            name: 'lookup',
+            description: 'Look up facts',
+            parameters: {
+              type: 'object',
+              properties: { query: { type: 'string' } },
+            },
+          },
+          {
+            name: 'ping',
+          },
+        ],
+      },
+    ],
     toolConfig: {
       functionCallingConfig: {
-        mode: "ANY",
-        allowedFunctionNames: ["lookup"],
+        mode: 'ANY',
+        allowedFunctionNames: ['lookup'],
       },
     },
   };
 
-  assertEquals(buildTargetRequest(payload, "gpt-test", false), {
-    model: "gpt-test",
+  assertEquals(buildTargetRequest(payload, 'gpt-test', false), {
+    model: 'gpt-test',
     stream: false,
     input: [],
-    tools: [{
-      type: "function",
-      name: "lookup",
-      description: "Look up facts",
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string" } },
+    tools: [
+      {
+        type: 'function',
+        name: 'lookup',
+        description: 'Look up facts',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+        },
+        strict: false,
       },
-      strict: false,
-    }],
-    tool_choice: { type: "function", name: "lookup" },
+    ],
+    tool_choice: { type: 'function', name: 'lookup' },
   });
 
   assertEquals(
     buildTargetRequest(
       {
-        tools: [{ functionDeclarations: [{ name: "lookup" }] }],
-        toolConfig: { functionCallingConfig: { mode: "NONE" } },
+        tools: [{ functionDeclarations: [{ name: 'lookup' }] }],
+        toolConfig: { functionCallingConfig: { mode: 'NONE' } },
       },
-      "gpt-test",
+      'gpt-test',
       false,
     ).tool_choice,
-    "none",
+    'none',
   );
   assertEquals(
     buildTargetRequest(
       {
-        tools: [{ functionDeclarations: [{ name: "lookup" }] }],
-        toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+        tools: [{ functionDeclarations: [{ name: 'lookup' }] }],
+        toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
       },
-      "gpt-test",
+      'gpt-test',
       false,
     ).tool_choice,
-    "auto",
+    'auto',
   );
   assertEquals(
     buildTargetRequest(
       {
-        tools: [{ functionDeclarations: [{ name: "lookup" }] }],
-        toolConfig: { functionCallingConfig: { mode: "VALIDATED" } },
+        tools: [{ functionDeclarations: [{ name: 'lookup' }] }],
+        toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
       },
-      "gpt-test",
+      'gpt-test',
       false,
     ).tool_choice,
-    "auto",
+    'auto',
   );
   assertEquals(
     buildTargetRequest(
       {
-        tools: [{ functionDeclarations: [{ name: "lookup" }] }],
-        toolConfig: { functionCallingConfig: { mode: "ANY" } },
+        tools: [{ functionDeclarations: [{ name: 'lookup' }] }],
+        toolConfig: { functionCallingConfig: { mode: 'ANY' } },
       },
-      "gpt-test",
+      'gpt-test',
       false,
     ).tool_choice,
-    "required",
+    'required',
   );
-  assertEquals(
-    buildTargetRequest(
-      { toolConfig: { functionCallingConfig: { mode: "ANY" } } },
-      "gpt-test",
-      false,
-    ).tool_choice,
-    undefined,
-  );
+  assertEquals(buildTargetRequest({ toolConfig: { functionCallingConfig: { mode: 'ANY' } } }, 'gpt-test', false).tool_choice, undefined);
 });

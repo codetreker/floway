@@ -1,6 +1,7 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../test-assert.ts";
-import { parseSSEStream } from "./parse-sse.ts";
+import { test } from 'vitest';
+
+import { parseSSEStream } from './parse-sse.ts';
+import { assertEquals } from '../../../../test-assert.ts';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -9,7 +10,7 @@ interface Deferred<T> {
 
 const deferred = <T>(): Deferred<T> => {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  const promise = new Promise<T>(res => {
     resolve = res;
   });
 
@@ -20,16 +21,13 @@ const waitForMicrotasks = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-const cancelStateWithin = async (
-  promise: Promise<void>,
-  timeoutMs: number,
-): Promise<"canceled" | "pending"> => {
+const cancelStateWithin = async (promise: Promise<void>, timeoutMs: number): Promise<'canceled' | 'pending'> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      promise.then(() => "canceled" as const),
-      new Promise<"pending">((resolve) => {
-        timeoutId = setTimeout(() => resolve("pending"), timeoutMs);
+      promise.then(() => 'canceled' as const),
+      new Promise<'pending'>(resolve => {
+        timeoutId = setTimeout(() => resolve('pending'), timeoutMs);
       }),
     ]);
   } finally {
@@ -45,15 +43,17 @@ const collect = async (text: string) => {
   return frames;
 };
 
-test("parseSSEStream flushes a final data line without a trailing newline", async () => {
-  assertEquals(await collect("event: message_delta\ndata: not json"), [{
-    type: "sse",
-    event: "message_delta",
-    data: "not json",
-  }]);
+test('parseSSEStream flushes a final data line without a trailing newline', async () => {
+  assertEquals(await collect('event: message_delta\ndata: not json'), [
+    {
+      type: 'sse',
+      event: 'message_delta',
+      data: 'not json',
+    },
+  ]);
 });
 
-test("parseSSEStream cancels a pending reader when its signal aborts", async () => {
+test('parseSSEStream cancels a pending reader when its signal aborts', async () => {
   const upstreamCanceled = deferred<void>();
   let upstreamController!: ReadableStreamDefaultController<Uint8Array>;
   const downstreamAbortController = new AbortController();
@@ -76,7 +76,7 @@ test("parseSSEStream cancels a pending reader when its signal aborts", async () 
 
     const cancelState = await cancelStateWithin(upstreamCanceled.promise, 20);
 
-    assertEquals(cancelState, "canceled");
+    assertEquals(cancelState, 'canceled');
     assertEquals(await pendingNext, { done: true, value: undefined });
   } finally {
     try {

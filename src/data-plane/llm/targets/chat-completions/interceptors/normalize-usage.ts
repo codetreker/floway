@@ -1,11 +1,7 @@
-import type { ChatCompletionChunk } from "../../../../shared/protocol/chat-completions.ts";
-import {
-  asJsonObject,
-  type JsonObject,
-  readJsonNumber,
-} from "../../../../../shared/json-helpers.ts";
-import type { ChatCompletionsInterceptor } from "../../../interceptors.ts";
-import { eventFrame } from "../../../shared/stream/types.ts";
+import { asJsonObject, type JsonObject, readJsonNumber } from '../../../../../shared/json-helpers.ts';
+import type { ChatCompletionChunk } from '../../../../shared/protocol/chat-completions.ts';
+import type { ChatCompletionsInterceptor } from '../../../interceptors.ts';
+import { eventFrame } from '../../../shared/stream/types.ts';
 
 /**
  * Normalize OpenAI-compatible upstream `usage` into the OpenAI standard shape
@@ -28,16 +24,10 @@ import { eventFrame } from "../../../shared/stream/types.ts";
  *    immediately after.
  */
 
-const VENDOR_USAGE_FIELDS = [
-  "prompt_cache_hit_tokens",
-  "prompt_cache_miss_tokens",
-  "cached_tokens",
-] as const;
+const VENDOR_USAGE_FIELDS = ['prompt_cache_hit_tokens', 'prompt_cache_miss_tokens', 'cached_tokens'] as const;
 
 const extractCacheRead = (usage: JsonObject): number | null => {
-  const standard = readJsonNumber(
-    asJsonObject(usage.prompt_tokens_details)?.cached_tokens,
-  );
+  const standard = readJsonNumber(asJsonObject(usage.prompt_tokens_details)?.cached_tokens);
   if (standard != null) return standard;
   const dsHit = readJsonNumber(usage.prompt_cache_hit_tokens);
   if (dsHit != null) return dsHit;
@@ -59,44 +49,39 @@ const normalizeUsage = (usage: JsonObject): JsonObject => {
   return out;
 };
 
-const isCarrierChunk = (chunk: ChatCompletionChunk): boolean =>
-  chunk.choices.length === 0;
+const isCarrierChunk = (chunk: ChatCompletionChunk): boolean => chunk.choices.length === 0;
 
-const splitOrNormalizeChunk = (
-  chunk: ChatCompletionChunk,
-): readonly ChatCompletionChunk[] => {
+const splitOrNormalizeChunk = (chunk: ChatCompletionChunk): readonly ChatCompletionChunk[] => {
   const usage = asJsonObject(chunk.usage);
   if (!usage) return [chunk];
 
-  const normalized = normalizeUsage(
-    usage,
-  ) as unknown as ChatCompletionChunk["usage"];
+  const normalized = normalizeUsage(usage) as unknown as ChatCompletionChunk['usage'];
   if (isCarrierChunk(chunk)) return [{ ...chunk, usage: normalized }];
 
   // Relocate: original chunk loses its `usage`; carrier chunk gets it so
   // downstream readers see usage only on the spec-compliant `choices: []` shape.
   const { usage: _usage, ...withoutUsage } = chunk;
-  return [withoutUsage, {
-    id: chunk.id,
-    object: chunk.object,
-    created: chunk.created,
-    model: chunk.model,
-    choices: [],
-    usage: normalized,
-  }];
+  return [
+    withoutUsage,
+    {
+      id: chunk.id,
+      object: chunk.object,
+      created: chunk.created,
+      model: chunk.model,
+      choices: [],
+      usage: normalized,
+    },
+  ];
 };
 
-export const withUsageNormalized: ChatCompletionsInterceptor = async (
-  _ctx,
-  run,
-) => {
+export const withUsageNormalized: ChatCompletionsInterceptor = async (_ctx, run) => {
   const result = await run();
-  if (result.type !== "events") return result;
+  if (result.type !== 'events') return result;
   return {
     ...result,
     events: (async function* () {
       for await (const frame of result.events) {
-        if (frame.type !== "event") {
+        if (frame.type !== 'event') {
           yield frame;
           continue;
         }

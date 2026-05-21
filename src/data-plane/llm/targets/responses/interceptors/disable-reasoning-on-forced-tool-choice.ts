@@ -1,5 +1,5 @@
-import type { ResponsesPayload } from "../../../../shared/protocol/responses.ts";
-import type { ResponsesInterceptor } from "../../../interceptors.ts";
+import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
+import type { ResponsesInterceptor } from '../../../interceptors.ts';
 
 // Opt-in workaround for upstreams where forced `tool_choice` and enabled
 // reasoning do not compose. By default this strips OpenAI `reasoning` rather
@@ -12,34 +12,24 @@ import type { ResponsesInterceptor } from "../../../interceptors.ts";
 const hasForcedToolChoice = (payload: ResponsesPayload): boolean => {
   const toolChoice = payload.tool_choice;
   if (toolChoice === undefined || toolChoice === null) return false;
-  if (typeof toolChoice === "string") return toolChoice === "required";
+  if (typeof toolChoice === 'string') return toolChoice === 'required';
   return true;
 };
 
-const disableResponsesReasoning = (
-  payload: ResponsesPayload,
-  enabledFixes: ReadonlySet<string>,
-): ResponsesPayload => {
+const disableResponsesReasoning = (payload: ResponsesPayload, enabledFixes: ReadonlySet<string>): ResponsesPayload => {
   const { reasoning: _reasoning, ...rest } = payload;
   const out: ResponsesPayload & Record<string, unknown> = { ...rest };
-  if (enabledFixes.has("vendor-deepseek")) {
-    out.thinking = { type: "disabled" };
+  if (enabledFixes.has('vendor-deepseek')) {
+    out.thinking = { type: 'disabled' };
   }
-  if (enabledFixes.has("vendor-qwen")) {
+  if (enabledFixes.has('vendor-qwen')) {
     out.enable_thinking = false;
   }
   return out;
 };
 
-export const withReasoningDisabledOnForcedToolChoice: ResponsesInterceptor =
-  async (
-    ctx,
-    run,
-  ) => {
-    if (!hasForcedToolChoice(ctx.payload)) return await run();
-    ctx.payload = disableResponsesReasoning(
-      ctx.payload,
-      ctx.enabledFixes,
-    );
-    return await run();
-  };
+export const withReasoningDisabledOnForcedToolChoice: ResponsesInterceptor = async (ctx, run) => {
+  if (!hasForcedToolChoice(ctx.payload)) return await run();
+  ctx.payload = disableResponsesReasoning(ctx.payload, ctx.enabledFixes);
+  return await run();
+};

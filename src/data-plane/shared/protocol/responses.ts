@@ -19,7 +19,7 @@ export interface ResponsesPayload {
   parallel_tool_calls?: boolean | null;
   reasoning?: {
     effort?: string;
-    summary?: "detailed" | "auto" | "concise";
+    summary?: 'detailed' | 'auto' | 'concise';
   };
   include?: string[];
   text?: { format?: Record<string, unknown> | null } | null;
@@ -28,63 +28,56 @@ export interface ResponsesPayload {
   service_tier?: string | null;
 }
 
-export type ResponseInputItem =
-  | ResponseInputMessage
-  | ResponseFunctionToolCallItem
-  | ResponseFunctionCallOutputItem
-  | ResponseInputReasoning
-  | ResponseItemReference;
+export type ResponseInputItem = ResponseInputMessage | ResponseFunctionToolCallItem | ResponseFunctionCallOutputItem | ResponseInputReasoning | ResponseItemReference;
 
 export interface ResponseInputMessage {
-  type: "message";
-  role: "user" | "assistant" | "system" | "developer";
+  type: 'message';
+  role: 'user' | 'assistant' | 'system' | 'developer';
   content: string | ResponseInputContent[];
 }
 
-export type ResponseInputContent =
-  | ResponseInputText
-  | ResponseInputImage;
+export type ResponseInputContent = ResponseInputText | ResponseInputImage;
 
 export interface ResponseInputText {
-  type: "input_text" | "output_text";
+  type: 'input_text' | 'output_text';
   text: string;
 }
 
 export interface ResponseInputImage {
-  type: "input_image";
+  type: 'input_image';
   image_url: string;
-  detail: "auto" | "low" | "high";
+  detail: 'auto' | 'low' | 'high';
 }
 
 export interface ResponseInputReasoning {
-  type: "reasoning";
+  type: 'reasoning';
   id: string;
-  summary: { type: "summary_text"; text: string }[];
+  summary: { type: 'summary_text'; text: string }[];
   encrypted_content?: string;
 }
 
 interface ResponseFunctionToolCallItem {
-  type: "function_call";
+  type: 'function_call';
   call_id: string;
   name: string;
   arguments: string;
-  status: "completed" | "in_progress" | "incomplete";
+  status: 'completed' | 'in_progress' | 'incomplete';
 }
 
 interface ResponseFunctionCallOutputItem {
-  type: "function_call_output";
+  type: 'function_call_output';
   call_id: string;
   output: string;
-  status?: "completed" | "incomplete";
+  status?: 'completed' | 'incomplete';
 }
 
 export interface ResponseItemReference {
-  type: "item_reference";
+  type: 'item_reference';
   id: string;
 }
 
 export interface ResponseFunctionTool {
-  type: "function";
+  type: 'function';
   name: string;
   parameters: Record<string, unknown>;
   strict: boolean;
@@ -99,29 +92,26 @@ export interface ResponseFunctionTool {
 // union and translators must narrow on `type === "function"` before reading
 // `name` / `parameters`.
 export interface ResponseHostedTool {
-  type: "web_search" | "image_generation" | "tool_search" | "namespace";
+  type: 'web_search' | 'image_generation' | 'tool_search' | 'namespace';
   [key: string]: unknown;
 }
 
 export interface ResponseCustomTool {
-  type: "custom";
+  type: 'custom';
   name: string;
   description?: string;
   format?: Record<string, unknown>;
 }
 
-export type ResponseTool =
-  | ResponseFunctionTool
-  | ResponseHostedTool
-  | ResponseCustomTool;
+export type ResponseTool = ResponseFunctionTool | ResponseHostedTool | ResponseCustomTool;
 
 export type ResponseToolChoice =
-  | "auto"
-  | "none"
-  | "required"
-  | { type: "function"; name: string }
-  | { type: "custom"; name: string }
-  | { type: "web_search" | "image_generation" | "tool_search" | "namespace" };
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; name: string }
+  | { type: 'custom'; name: string }
+  | { type: 'web_search' | 'image_generation' | 'tool_search' | 'namespace' };
 
 // ── Response types ──
 
@@ -131,7 +121,7 @@ export interface ResponsesResult {
   model: string;
   output: ResponseOutputItem[];
   output_text: string;
-  status: "completed" | "incomplete" | "failed" | "in_progress";
+  status: 'completed' | 'incomplete' | 'failed' | 'in_progress';
   incomplete_details?: { reason: string };
   error?: { message: string; type: string; code: string };
   usage?: {
@@ -143,33 +133,28 @@ export interface ResponsesResult {
   };
 }
 
-export type ResponseOutputItem =
-  | ResponseOutputMessage
-  | ResponseOutputFunctionCall
-  | ResponseOutputReasoning;
+export type ResponseOutputItem = ResponseOutputMessage | ResponseOutputFunctionCall | ResponseOutputReasoning;
 
 export interface ResponseOutputMessage {
-  type: "message";
-  role: "assistant";
+  type: 'message';
+  role: 'assistant';
   content: ResponseOutputContentBlock[];
 }
 
-export type ResponseOutputContentBlock =
-  | ResponseOutputText
-  | ResponseOutputRefusal;
+export type ResponseOutputContentBlock = ResponseOutputText | ResponseOutputRefusal;
 
 interface ResponseOutputText {
-  type: "output_text";
+  type: 'output_text';
   text: string;
 }
 
 interface ResponseOutputRefusal {
-  type: "refusal";
+  type: 'refusal';
   refusal: string;
 }
 
 export interface ResponseOutputFunctionCall {
-  type: "function_call";
+  type: 'function_call';
   call_id: string;
   name: string;
   arguments: string;
@@ -177,100 +162,100 @@ export interface ResponseOutputFunctionCall {
 }
 
 export interface ResponseOutputReasoning {
-  type: "reasoning";
+  type: 'reasoning';
   id: string;
-  summary: { type: "summary_text"; text: string }[];
+  summary: { type: 'summary_text'; text: string }[];
   encrypted_content?: string;
 }
 
 // ── Stream event types ──
 
 export type ResponseStreamEvent =
-  | { type: "response.created"; response: ResponsesResult }
-  | { type: "response.in_progress"; response: ResponsesResult }
+  | { type: 'response.created'; response: ResponsesResult }
+  | { type: 'response.in_progress'; response: ResponsesResult }
   | {
-    type: "response.output_item.added";
+    type: 'response.output_item.added';
     output_index: number;
     item: ResponseOutputItem;
   }
   | {
-    type: "response.output_item.done";
+    type: 'response.output_item.done';
     output_index: number;
     item: ResponseOutputItem;
   }
   | {
-    type: "response.content_part.added";
+    type: 'response.content_part.added';
     item_id: string;
     output_index: number;
     content_index: number;
     part: ResponseOutputContentBlock;
   }
   | {
-    type: "response.content_part.done";
+    type: 'response.content_part.done';
     item_id: string;
     output_index: number;
     content_index: number;
     part: ResponseOutputContentBlock;
   }
   | {
-    type: "response.reasoning_summary_part.added";
+    type: 'response.reasoning_summary_part.added';
     item_id: string;
     output_index: number;
     summary_index: number;
-    part: { type: "summary_text"; text: string };
+    part: { type: 'summary_text'; text: string };
   }
   | {
-    type: "response.reasoning_summary_part.done";
+    type: 'response.reasoning_summary_part.done';
     item_id: string;
     output_index: number;
     summary_index: number;
-    part: { type: "summary_text"; text: string };
+    part: { type: 'summary_text'; text: string };
   }
   | {
-    type: "response.reasoning_summary_text.delta";
+    type: 'response.reasoning_summary_text.delta';
     item_id: string;
     output_index: number;
     summary_index: number;
     delta: string;
   }
   | {
-    type: "response.reasoning_summary_text.done";
+    type: 'response.reasoning_summary_text.done';
     item_id: string;
     output_index: number;
     summary_index: number;
     text: string;
   }
   | {
-    type: "response.output_text.delta";
+    type: 'response.output_text.delta';
     item_id: string;
     output_index: number;
     content_index: number;
     delta: string;
   }
   | {
-    type: "response.output_text.done";
+    type: 'response.output_text.done';
     item_id: string;
     output_index: number;
     content_index: number;
     text: string;
   }
   | {
-    type: "response.function_call_arguments.delta";
+    type: 'response.function_call_arguments.delta';
     item_id: string;
     output_index: number;
     delta: string;
   }
   | {
-    type: "response.function_call_arguments.done";
+    type: 'response.function_call_arguments.done';
     item_id: string;
     output_index: number;
     arguments: string;
   }
-  | { type: "response.completed"; response: ResponsesResult }
-  | { type: "response.incomplete"; response: ResponsesResult }
-  | { type: "response.failed"; response: ResponsesResult }
+  | { type: 'response.completed'; response: ResponsesResult }
+  | { type: 'response.incomplete'; response: ResponsesResult }
+  | { type: 'response.failed'; response: ResponsesResult }
   | {
-    type: "error";
+    type: 'error';
     message: string;
     code?: string;
     name?: string;
@@ -279,5 +264,5 @@ export type ResponseStreamEvent =
     source_api?: string;
     target_api?: string;
   }
-  | { type: "ping" }
+  | { type: 'ping' }
   | { type: string; [key: string]: unknown };

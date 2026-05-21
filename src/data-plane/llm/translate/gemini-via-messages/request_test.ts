@@ -1,12 +1,13 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../../test-assert.ts";
-import type { GeminiGenerateContentRequest } from "../../../shared/protocol/gemini.ts";
-import { MESSAGES_FALLBACK_MAX_TOKENS } from "../../../shared/protocol/messages.ts";
-import type { ModelCapabilities } from "../../../providers/capabilities.ts";
-import { buildTargetRequest } from "./request.ts";
+import { test } from 'vitest';
+
+import { buildTargetRequest } from './request.ts';
+import { assertEquals } from '../../../../test-assert.ts';
+import type { ModelCapabilities } from '../../../providers/capabilities.ts';
+import type { GeminiGenerateContentRequest } from '../../../shared/protocol/gemini.ts';
+import { MESSAGES_FALLBACK_MAX_TOKENS } from '../../../shared/protocol/messages.ts';
 
 const noCapabilities: ModelCapabilities = {
-  supportedEndpoints: ["messages"],
+  supportedEndpoints: ['messages'],
   supportsMessages: true,
   supportsResponses: false,
   supportsChatCompletions: false,
@@ -18,335 +19,286 @@ const withMaxOutputTokens = (maxOutputTokens: number): ModelCapabilities => ({
   maxOutputTokens,
 });
 
-test("buildTargetRequest maps system, default max tokens, and multimodal user content", () => {
+test('buildTargetRequest maps system, default max tokens, and multimodal user content', () => {
   const payload: GeminiGenerateContentRequest = {
     systemInstruction: {
-      parts: [{ text: "Be precise." }, { text: "Use markdown." }],
+      parts: [{ text: 'Be precise.' }, { text: 'Use markdown.' }],
     },
-    contents: [{
-      parts: [
-        { text: "Describe this image." },
-        { inlineData: { mimeType: "image/png", data: "aW1hZ2U=" } },
-        { inlineData: { mimeType: "application/pdf", data: "cGRm" } },
-      ],
-    }],
+    contents: [
+      {
+        parts: [{ text: 'Describe this image.' }, { inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }, { inlineData: { mimeType: 'application/pdf', data: 'cGRm' } }],
+      },
+    ],
   };
 
-  assertEquals(
-    buildTargetRequest(payload, "claude-test", true, noCapabilities),
-    {
-      model: "claude-test",
-      stream: true,
-      max_tokens: MESSAGES_FALLBACK_MAX_TOKENS,
-      system: "Be precise.\n\nUse markdown.",
-      messages: [{
-        role: "user",
+  assertEquals(buildTargetRequest(payload, 'claude-test', true, noCapabilities), {
+    model: 'claude-test',
+    stream: true,
+    max_tokens: MESSAGES_FALLBACK_MAX_TOKENS,
+    system: 'Be precise.\n\nUse markdown.',
+    messages: [
+      {
+        role: 'user',
         content: [
-          { type: "text", text: "Describe this image." },
+          { type: 'text', text: 'Describe this image.' },
           {
-            type: "image",
+            type: 'image',
             source: {
-              type: "base64",
-              media_type: "image/png",
-              data: "aW1hZ2U=",
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'aW1hZ2U=',
             },
           },
         ],
-      }],
-    },
-  );
+      },
+    ],
+  });
 });
 
-test("buildTargetRequest prefers capabilities.maxOutputTokens over the gateway default when payload omits maxOutputTokens", () => {
-  const request = buildTargetRequest(
-    {},
-    "claude-test",
-    false,
-    withMaxOutputTokens(6144),
-  );
+test('buildTargetRequest prefers capabilities.maxOutputTokens over the gateway default when payload omits maxOutputTokens', () => {
+  const request = buildTargetRequest({}, 'claude-test', false, withMaxOutputTokens(6144));
   assertEquals(request.max_tokens, 6144);
 });
 
-test("buildTargetRequest maps generation config and thinking controls", () => {
+test('buildTargetRequest maps generation config and thinking controls', () => {
   const payload: GeminiGenerateContentRequest = {
     generationConfig: {
       maxOutputTokens: 512,
       temperature: 0.25,
       topP: 0.8,
       topK: 40,
-      stopSequences: ["END"],
+      stopSequences: ['END'],
       thinkingConfig: {
         thinkingBudget: 2048,
-        thinkingLevel: "high",
+        thinkingLevel: 'high',
       },
     },
   };
 
-  assertEquals(
-    buildTargetRequest(payload, "claude-test", false, noCapabilities),
-    {
-      model: "claude-test",
-      stream: false,
-      messages: [],
-      max_tokens: 512,
-      temperature: 0.25,
-      top_p: 0.8,
-      top_k: 40,
-      stop_sequences: ["END"],
-      thinking: { type: "enabled", budget_tokens: 2048 },
-      output_config: { effort: "high" },
-    },
-  );
+  assertEquals(buildTargetRequest(payload, 'claude-test', false, noCapabilities), {
+    model: 'claude-test',
+    stream: false,
+    messages: [],
+    max_tokens: 512,
+    temperature: 0.25,
+    top_p: 0.8,
+    top_k: 40,
+    stop_sequences: ['END'],
+    thinking: { type: 'enabled', budget_tokens: 2048 },
+    output_config: { effort: 'high' },
+  });
 
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { thinkingConfig: { thinkingBudget: 0 } } },
-      "claude-test",
-      false,
-      noCapabilities,
-    ).thinking,
-    { type: "disabled" },
-  );
+  assertEquals(buildTargetRequest({ generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }, 'claude-test', false, noCapabilities).thinking, { type: 'disabled' });
 });
 
-test("buildTargetRequest maps assistant thinking signatures and tool calls", () => {
+test('buildTargetRequest maps assistant thinking signatures and tool calls', () => {
   const payload: GeminiGenerateContentRequest = {
-    contents: [{
-      role: "model",
-      parts: [
-        { text: "private trace", thought: true },
+    contents: [
+      {
+        role: 'model',
+        parts: [
+          { text: 'private trace', thought: true },
+          {
+            thoughtSignature: 'sig_1',
+            functionCall: { id: 'call_1', name: 'lookup', args: { q: 'docs' } },
+          },
+        ],
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            thoughtSignature: 'sig_only',
+            functionCall: { name: 'fallback', args: {} },
+          },
+        ],
+      },
+    ],
+  };
+
+  assertEquals(buildTargetRequest(payload, 'claude-test', false, noCapabilities).messages, [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'private trace', signature: 'sig_1' },
         {
-          thoughtSignature: "sig_1",
-          functionCall: { id: "call_1", name: "lookup", args: { q: "docs" } },
+          type: 'tool_use',
+          id: 'call_1',
+          name: 'lookup',
+          input: { q: 'docs' },
         },
       ],
-    }, {
-      role: "model",
-      parts: [{
-        thoughtSignature: "sig_only",
-        functionCall: { name: "fallback", args: {} },
-      }],
-    }],
-  };
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'redacted_thinking', data: 'sig_only' },
+        {
+          type: 'tool_use',
+          id: 'gemini_call_1_0',
+          name: 'fallback',
+          input: {},
+        },
+      ],
+    },
+  ]);
+});
 
-  assertEquals(
-    buildTargetRequest(payload, "claude-test", false, noCapabilities).messages,
-    [
+test('buildTargetRequest correlates omitted function response ids in call order', () => {
+  const payload: GeminiGenerateContentRequest = {
+    contents: [
       {
-        role: "assistant",
-        content: [
-          { type: "thinking", thinking: "private trace", signature: "sig_1" },
+        role: 'model',
+        parts: [{ functionCall: { name: 'lookup', args: { q: 'first' } } }, { functionCall: { name: 'lookup', args: { q: 'second' } } }],
+      },
+      {
+        role: 'user',
+        parts: [
           {
-            type: "tool_use",
-            id: "call_1",
-            name: "lookup",
-            input: { q: "docs" },
+            functionResponse: { name: 'lookup', response: { answer: 'first' } },
           },
         ],
       },
       {
-        role: "assistant",
-        content: [
-          { type: "redacted_thinking", data: "sig_only" },
+        role: 'user',
+        parts: [
           {
-            type: "tool_use",
-            id: "gemini_call_1_0",
-            name: "fallback",
-            input: {},
+            functionResponse: { name: 'lookup', response: { answer: 'second' } },
           },
         ],
       },
     ],
-  );
-});
-
-test("buildTargetRequest correlates omitted function response ids in call order", () => {
-  const payload: GeminiGenerateContentRequest = {
-    contents: [{
-      role: "model",
-      parts: [
-        { functionCall: { name: "lookup", args: { q: "first" } } },
-        { functionCall: { name: "lookup", args: { q: "second" } } },
-      ],
-    }, {
-      role: "user",
-      parts: [{
-        functionResponse: { name: "lookup", response: { answer: "first" } },
-      }],
-    }, {
-      role: "user",
-      parts: [{
-        functionResponse: { name: "lookup", response: { answer: "second" } },
-      }],
-    }],
   };
 
-  assertEquals(
-    buildTargetRequest(payload, "claude-test", false, noCapabilities).messages,
-    [
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "gemini_call_0_0",
-            name: "lookup",
-            input: { q: "first" },
-          },
-          {
-            type: "tool_use",
-            id: "gemini_call_0_1",
-            name: "lookup",
-            input: { q: "second" },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [{
-          type: "tool_result",
-          tool_use_id: "gemini_call_0_0",
+  assertEquals(buildTargetRequest(payload, 'claude-test', false, noCapabilities).messages, [
+    {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_use',
+          id: 'gemini_call_0_0',
+          name: 'lookup',
+          input: { q: 'first' },
+        },
+        {
+          type: 'tool_use',
+          id: 'gemini_call_0_1',
+          name: 'lookup',
+          input: { q: 'second' },
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'gemini_call_0_0',
           content: '{"answer":"first"}',
-        }],
-      },
-      {
-        role: "user",
-        content: [{
-          type: "tool_result",
-          tool_use_id: "gemini_call_0_1",
+        },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'gemini_call_0_1',
           content: '{"answer":"second"}',
-        }],
+        },
+      ],
+    },
+  ]);
+});
+
+test('buildTargetRequest maps tool declarations and tool choice modes', () => {
+  const payload: GeminiGenerateContentRequest = {
+    tools: [
+      {
+        functionDeclarations: [
+          {
+            name: 'lookup',
+            description: 'Look up facts',
+            parameters: {
+              type: 'object',
+              properties: { query: { type: 'string' } },
+            },
+          },
+          {
+            name: 'ping',
+          },
+        ],
       },
     ],
-  );
-});
-
-test("buildTargetRequest maps tool declarations and tool choice modes", () => {
-  const payload: GeminiGenerateContentRequest = {
-    tools: [{
-      functionDeclarations: [{
-        name: "lookup",
-        description: "Look up facts",
-        parameters: {
-          type: "object",
-          properties: { query: { type: "string" } },
-        },
-      }, {
-        name: "ping",
-      }],
-    }],
     toolConfig: {
       functionCallingConfig: {
-        mode: "ANY",
-        allowedFunctionNames: ["lookup"],
+        mode: 'ANY',
+        allowedFunctionNames: ['lookup'],
       },
     },
   };
 
-  assertEquals(
-    buildTargetRequest(payload, "claude-test", false, noCapabilities),
-    {
-      model: "claude-test",
-      stream: false,
-      messages: [],
-      max_tokens: MESSAGES_FALLBACK_MAX_TOKENS,
-      tools: [{
-        type: "custom",
-        name: "lookup",
-        description: "Look up facts",
+  assertEquals(buildTargetRequest(payload, 'claude-test', false, noCapabilities), {
+    model: 'claude-test',
+    stream: false,
+    messages: [],
+    max_tokens: MESSAGES_FALLBACK_MAX_TOKENS,
+    tools: [
+      {
+        type: 'custom',
+        name: 'lookup',
+        description: 'Look up facts',
         input_schema: {
-          type: "object",
-          properties: { query: { type: "string" } },
+          type: 'object',
+          properties: { query: { type: 'string' } },
         },
-      }],
-      tool_choice: { type: "tool", name: "lookup" },
-    },
-  );
+      },
+    ],
+    tool_choice: { type: 'tool', name: 'lookup' },
+  });
 
-  assertEquals(
-    buildTargetRequest(
-      { toolConfig: { functionCallingConfig: { mode: "NONE" } } },
-      "claude-test",
-      false,
-      noCapabilities,
-    ).tool_choice,
-    { type: "none" },
-  );
-  assertEquals(
-    buildTargetRequest(
-      { toolConfig: { functionCallingConfig: { mode: "AUTO" } } },
-      "claude-test",
-      false,
-      noCapabilities,
-    ).tool_choice,
-    { type: "auto" },
-  );
-  assertEquals(
-    buildTargetRequest(
-      { toolConfig: { functionCallingConfig: { mode: "VALIDATED" } } },
-      "claude-test",
-      false,
-      noCapabilities,
-    ).tool_choice,
-    { type: "auto" },
-  );
-  assertEquals(
-    buildTargetRequest(
-      { toolConfig: { functionCallingConfig: { mode: "ANY" } } },
-      "claude-test",
-      false,
-      noCapabilities,
-    ).tool_choice,
-    { type: "any" },
-  );
+  assertEquals(buildTargetRequest({ toolConfig: { functionCallingConfig: { mode: 'NONE' } } }, 'claude-test', false, noCapabilities).tool_choice, { type: 'none' });
+  assertEquals(buildTargetRequest({ toolConfig: { functionCallingConfig: { mode: 'AUTO' } } }, 'claude-test', false, noCapabilities).tool_choice, { type: 'auto' });
+  assertEquals(buildTargetRequest({ toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } } }, 'claude-test', false, noCapabilities).tool_choice, { type: 'auto' });
+  assertEquals(buildTargetRequest({ toolConfig: { functionCallingConfig: { mode: 'ANY' } } }, 'claude-test', false, noCapabilities).tool_choice, { type: 'any' });
 });
 
-test("buildTargetRequest filters tools to multiple allowed names for ANY mode", () => {
+test('buildTargetRequest filters tools to multiple allowed names for ANY mode', () => {
   const payload: GeminiGenerateContentRequest = {
-    tools: [{
-      functionDeclarations: [
-        { name: "lookup" },
-        { name: "ping" },
-        { name: "blocked" },
-      ],
-    }],
+    tools: [
+      {
+        functionDeclarations: [{ name: 'lookup' }, { name: 'ping' }, { name: 'blocked' }],
+      },
+    ],
     toolConfig: {
       functionCallingConfig: {
-        mode: "ANY",
-        allowedFunctionNames: ["lookup", "ping"],
+        mode: 'ANY',
+        allowedFunctionNames: ['lookup', 'ping'],
       },
     },
   };
 
-  assertEquals(
-    buildTargetRequest(payload, "claude-test", false, noCapabilities),
-    {
-      model: "claude-test",
-      stream: false,
-      messages: [],
-      max_tokens: MESSAGES_FALLBACK_MAX_TOKENS,
-      tools: [{
-        type: "custom",
-        name: "lookup",
-        input_schema: { type: "object", properties: {} },
-      }, {
-        type: "custom",
-        name: "ping",
-        input_schema: { type: "object", properties: {} },
-      }],
-      tool_choice: { type: "any" },
-    },
-  );
+  assertEquals(buildTargetRequest(payload, 'claude-test', false, noCapabilities), {
+    model: 'claude-test',
+    stream: false,
+    messages: [],
+    max_tokens: MESSAGES_FALLBACK_MAX_TOKENS,
+    tools: [
+      {
+        type: 'custom',
+        name: 'lookup',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        type: 'custom',
+        name: 'ping',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ],
+    tool_choice: { type: 'any' },
+  });
 });
 
-test("buildTargetRequest maps dynamic thinking budget to adaptive thinking", () => {
-  assertEquals(
-    buildTargetRequest(
-      { generationConfig: { thinkingConfig: { thinkingBudget: -1 } } },
-      "claude-test",
-      false,
-      noCapabilities,
-    ).thinking,
-    { type: "adaptive" },
-  );
+test('buildTargetRequest maps dynamic thinking budget to adaptive thinking', () => {
+  assertEquals(buildTargetRequest({ generationConfig: { thinkingConfig: { thinkingBudget: -1 } } }, 'claude-test', false, noCapabilities).thinking, { type: 'adaptive' });
 });

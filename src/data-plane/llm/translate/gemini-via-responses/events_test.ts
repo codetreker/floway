@@ -1,33 +1,22 @@
-import { test } from "vitest";
-import { assertEquals, assertRejects } from "../../../../test-assert.ts";
-import type { GeminiStreamEvent } from "../../../shared/protocol/gemini.ts";
-import type {
-  ResponsesResult,
-  ResponseStreamEvent,
-} from "../../../shared/protocol/responses.ts";
-import {
-  doneFrame,
-  eventFrame,
-  type ProtocolFrame,
-} from "../../shared/stream/types.ts";
-import { translateToSourceEvents } from "./events.ts";
+import { test } from 'vitest';
 
-const response = (
-  status: ResponsesResult["status"],
-  extra: Partial<ResponsesResult> = {},
-): ResponsesResult => ({
-  id: "resp_1",
-  object: "response",
-  model: "gpt-test",
+import { translateToSourceEvents } from './events.ts';
+import { assertEquals, assertRejects } from '../../../../test-assert.ts';
+import type { GeminiStreamEvent } from '../../../shared/protocol/gemini.ts';
+import type { ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
+import { doneFrame, eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
+
+const response = (status: ResponsesResult['status'], extra: Partial<ResponsesResult> = {}): ResponsesResult => ({
+  id: 'resp_1',
+  object: 'response',
+  model: 'gpt-test',
   output: [],
-  output_text: "",
+  output_text: '',
   status,
   ...extra,
 });
 
-const collect = async (
-  input: ProtocolFrame<ResponseStreamEvent>[],
-): Promise<ProtocolFrame<GeminiStreamEvent>[]> => {
+const collect = async (input: ProtocolFrame<ResponseStreamEvent>[]): Promise<ProtocolFrame<GeminiStreamEvent>[]> => {
   const output: ProtocolFrame<GeminiStreamEvent>[] = [];
 
   async function* frames() {
@@ -41,45 +30,41 @@ const collect = async (
   return output;
 };
 
-const geminiFrame = (
-  event: GeminiStreamEvent,
-): ProtocolFrame<GeminiStreamEvent> => eventFrame(event);
+const geminiFrame = (event: GeminiStreamEvent): ProtocolFrame<GeminiStreamEvent> => eventFrame(event);
 
-const drain = async (
-  input: ProtocolFrame<ResponseStreamEvent>[],
-): Promise<void> => {
+const drain = async (input: ProtocolFrame<ResponseStreamEvent>[]): Promise<void> => {
   await collect(input);
 };
 
-test("translateToSourceEvents maps reasoning text, attaches signature to text, and maps completion usage", async () => {
+test('translateToSourceEvents maps reasoning text, attaches signature to text, and maps completion usage', async () => {
   const frames = await collect([
     eventFrame({
-      type: "response.reasoning_summary_text.delta",
-      item_id: "rs_1",
+      type: 'response.reasoning_summary_text.delta',
+      item_id: 'rs_1',
       output_index: 0,
       summary_index: 0,
-      delta: "trace",
+      delta: 'trace',
     }),
     eventFrame({
-      type: "response.output_item.done",
+      type: 'response.output_item.done',
       output_index: 0,
       item: {
-        type: "reasoning",
-        id: "rs_1",
+        type: 'reasoning',
+        id: 'rs_1',
         summary: [],
-        encrypted_content: "sig_1",
+        encrypted_content: 'sig_1',
       },
     }),
     eventFrame({
-      type: "response.output_text.delta",
-      item_id: "msg_1",
+      type: 'response.output_text.delta',
+      item_id: 'msg_1',
       output_index: 1,
       content_index: 0,
-      delta: "answer",
+      delta: 'answer',
     }),
     eventFrame({
-      type: "response.completed",
-      response: response("completed", {
+      type: 'response.completed',
+      response: response('completed', {
         usage: {
           input_tokens: 10,
           output_tokens: 5,
@@ -93,26 +78,32 @@ test("translateToSourceEvents maps reasoning text, attaches signature to text, a
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [{ text: "trace", thought: true }] },
-      }],
-    }),
-    geminiFrame({
-      candidates: [{
-        index: 0,
-        content: {
-          role: "model",
-          parts: [{ text: "answer", thoughtSignature: "sig_1" }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [{ text: 'trace', thought: true }] },
         },
-      }],
+      ],
     }),
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "STOP",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [{ text: 'answer', thoughtSignature: 'sig_1' }],
+          },
+        },
+      ],
+    }),
+    geminiFrame({
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'STOP',
+        },
+      ],
       usageMetadata: {
         promptTokenCount: 10,
         candidatesTokenCount: 5,
@@ -123,117 +114,125 @@ test("translateToSourceEvents maps reasoning text, attaches signature to text, a
   ]);
 });
 
-test("translateToSourceEvents flushes an unclaimed reasoning signature at completion", async () => {
+test('translateToSourceEvents flushes an unclaimed reasoning signature at completion', async () => {
   const frames = await collect([
     eventFrame({
-      type: "response.output_item.done",
+      type: 'response.output_item.done',
       output_index: 0,
       item: {
-        type: "reasoning",
-        id: "rs_1",
+        type: 'reasoning',
+        id: 'rs_1',
         summary: [],
-        encrypted_content: "sig_only",
+        encrypted_content: 'sig_only',
       },
     }),
-    eventFrame({ type: "response.completed", response: response("completed") }),
+    eventFrame({ type: 'response.completed', response: response('completed') }),
   ]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: {
-          role: "model",
-          parts: [{ text: "", thoughtSignature: "sig_only" }],
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [{ text: '', thoughtSignature: 'sig_only' }],
+          },
+          finishReason: 'STOP',
         },
-        finishReason: "STOP",
-      }],
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents accumulates function call arguments and attaches pending signature", async () => {
+test('translateToSourceEvents accumulates function call arguments and attaches pending signature', async () => {
   const frames = await collect([
     eventFrame({
-      type: "response.output_item.done",
+      type: 'response.output_item.done',
       output_index: 0,
       item: {
-        type: "reasoning",
-        id: "rs_1",
+        type: 'reasoning',
+        id: 'rs_1',
         summary: [],
-        encrypted_content: "sig_tool",
+        encrypted_content: 'sig_tool',
       },
     }),
     eventFrame({
-      type: "response.output_item.added",
+      type: 'response.output_item.added',
       output_index: 1,
       item: {
-        type: "function_call",
-        call_id: "call_1",
-        name: "lookup",
-        arguments: "",
-        status: "in_progress",
+        type: 'function_call',
+        call_id: 'call_1',
+        name: 'lookup',
+        arguments: '',
+        status: 'in_progress',
       },
     }),
     eventFrame({
-      type: "response.function_call_arguments.delta",
-      item_id: "fc_1",
+      type: 'response.function_call_arguments.delta',
+      item_id: 'fc_1',
       output_index: 1,
       delta: '{"query"',
     }),
     eventFrame({
-      type: "response.function_call_arguments.done",
-      item_id: "fc_1",
+      type: 'response.function_call_arguments.done',
+      item_id: 'fc_1',
       output_index: 1,
       arguments: '{"query":"docs"}',
     }),
     eventFrame({
-      type: "response.output_item.done",
+      type: 'response.output_item.done',
       output_index: 1,
       item: {
-        type: "function_call",
-        call_id: "call_1",
-        name: "lookup",
-        arguments: "",
-        status: "completed",
+        type: 'function_call',
+        call_id: 'call_1',
+        name: 'lookup',
+        arguments: '',
+        status: 'completed',
       },
     }),
-    eventFrame({ type: "response.completed", response: response("completed") }),
+    eventFrame({ type: 'response.completed', response: response('completed') }),
   ]);
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: {
-          role: "model",
-          parts: [{
-            functionCall: {
-              id: "call_1",
-              name: "lookup",
-              args: { query: "docs" },
-            },
-            thoughtSignature: "sig_tool",
-          }],
+      candidates: [
+        {
+          index: 0,
+          content: {
+            role: 'model',
+            parts: [
+              {
+                functionCall: {
+                  id: 'call_1',
+                  name: 'lookup',
+                  args: { query: 'docs' },
+                },
+                thoughtSignature: 'sig_tool',
+              },
+            ],
+          },
         },
-      }],
+      ],
     }),
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "STOP",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'STOP',
+        },
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents maps incomplete and failed finish reasons with usage", async () => {
+test('translateToSourceEvents maps incomplete and failed finish reasons with usage', async () => {
   const maxTokenFrames = await collect([
     eventFrame({
-      type: "response.incomplete",
-      response: response("incomplete", {
-        incomplete_details: { reason: "max_output_tokens" },
+      type: 'response.incomplete',
+      response: response('incomplete', {
+        incomplete_details: { reason: 'max_output_tokens' },
         usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
       }),
     }),
@@ -241,11 +240,13 @@ test("translateToSourceEvents maps incomplete and failed finish reasons with usa
 
   assertEquals(maxTokenFrames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "MAX_TOKENS",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'MAX_TOKENS',
+        },
+      ],
       usageMetadata: {
         promptTokenCount: 8,
         candidatesTokenCount: 3,
@@ -256,12 +257,12 @@ test("translateToSourceEvents maps incomplete and failed finish reasons with usa
 
   const safetyFrames = await collect([
     eventFrame({
-      type: "response.failed",
-      response: response("failed", {
+      type: 'response.failed',
+      response: response('failed', {
         error: {
-          message: "Blocked by safety policy.",
-          type: "safety",
-          code: "content_filter",
+          message: 'Blocked by safety policy.',
+          type: 'safety',
+          code: 'content_filter',
         },
       }),
     }),
@@ -269,22 +270,24 @@ test("translateToSourceEvents maps incomplete and failed finish reasons with usa
 
   assertEquals(safetyFrames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "SAFETY",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'SAFETY',
+        },
+      ],
     }),
   ]);
 
   const genericFrames = await collect([
     eventFrame({
-      type: "response.failed",
-      response: response("failed", {
+      type: 'response.failed',
+      response: response('failed', {
         error: {
-          message: "upstream unavailable",
-          type: "server_error",
-          code: "server_error",
+          message: 'upstream unavailable',
+          type: 'server_error',
+          code: 'server_error',
         },
       }),
     }),
@@ -292,35 +295,37 @@ test("translateToSourceEvents maps incomplete and failed finish reasons with usa
 
   assertEquals(genericFrames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "OTHER",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'OTHER',
+        },
+      ],
     }),
   ]);
 });
 
-test("translateToSourceEvents throws on Responses error stream events", async () => {
+test('translateToSourceEvents throws on Responses error stream events', async () => {
   await assertRejects(
     async () =>
       await drain([
         eventFrame({
-          type: "error",
-          message: "bad request",
-          code: "invalid_request_error",
+          type: 'error',
+          message: 'bad request',
+          code: 'invalid_request_error',
         }),
       ]),
     Error,
-    "Upstream Responses stream error: bad request",
+    'Upstream Responses stream error: bad request',
   );
 });
 
-test("translateToSourceEvents surfaces input cached_tokens as cachedContentTokenCount", async () => {
+test('translateToSourceEvents surfaces input cached_tokens as cachedContentTokenCount', async () => {
   const frames = await collect([
     eventFrame({
-      type: "response.completed",
-      response: response("completed", {
+      type: 'response.completed',
+      response: response('completed', {
         usage: {
           input_tokens: 100,
           output_tokens: 8,
@@ -333,11 +338,13 @@ test("translateToSourceEvents surfaces input cached_tokens as cachedContentToken
 
   assertEquals(frames, [
     geminiFrame({
-      candidates: [{
-        index: 0,
-        content: { role: "model", parts: [] },
-        finishReason: "STOP",
-      }],
+      candidates: [
+        {
+          index: 0,
+          content: { role: 'model', parts: [] },
+          finishReason: 'STOP',
+        },
+      ],
       usageMetadata: {
         promptTokenCount: 100,
         candidatesTokenCount: 8,

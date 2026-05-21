@@ -1,10 +1,4 @@
-import type {
-  ChatCompletionsPayload,
-  ContentPart,
-  Message,
-  Tool,
-  ToolCall,
-} from "../../../shared/protocol/chat-completions.ts";
+import type { ChatCompletionsPayload, ContentPart, Message, Tool, ToolCall } from '../../../shared/protocol/chat-completions.ts';
 import type {
   MessagesAssistantContentBlock,
   MessagesAssistantMessage,
@@ -17,39 +11,31 @@ import type {
   MessagesToolUseBlock,
   MessagesUserContentBlock,
   MessagesUserMessage,
-} from "../../../shared/protocol/messages.ts";
-import {
-  type ChatScalarReasoning,
-  chatScalarReasoningFromMessagesBlock,
-} from "../shared/messages-chat-reasoning.ts";
+} from '../../../shared/protocol/messages.ts';
+import { type ChatScalarReasoning, chatScalarReasoningFromMessagesBlock } from '../shared/messages-chat-reasoning.ts';
 
-const toChatCompletionsContent = (
-  content:
-    | string
-    | MessagesUserContentBlock[]
-    | MessagesAssistantContentBlock[],
-): string | ContentPart[] | null => {
-  if (typeof content === "string") return content;
+const toChatCompletionsContent = (content: string | MessagesUserContentBlock[] | MessagesAssistantContentBlock[]): string | ContentPart[] | null => {
+  if (typeof content === 'string') return content;
 
-  if (!content.some((block) => block.type === "image")) {
+  if (!content.some(block => block.type === 'image')) {
     return content
-      .filter((block): block is MessagesTextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n\n");
+      .filter((block): block is MessagesTextBlock => block.type === 'text')
+      .map(block => block.text)
+      .join('\n\n');
   }
 
   const parts: ContentPart[] = [];
 
   for (const block of content) {
-    if (block.type === "text") {
-      parts.push({ type: "text", text: block.text });
+    if (block.type === 'text') {
+      parts.push({ type: 'text', text: block.text });
       continue;
     }
 
-    if (block.type !== "image") continue;
+    if (block.type !== 'image') continue;
 
     parts.push({
-      type: "image_url",
+      type: 'image_url',
       image_url: {
         url: `data:${block.source.media_type};base64,${block.source.data}`,
       },
@@ -59,28 +45,22 @@ const toChatCompletionsContent = (
   return parts;
 };
 
-const toChatCompletionsToolResultContent = (
-  content: MessagesToolResultBlock["content"],
-): string => {
-  if (typeof content === "string") {
+const toChatCompletionsToolResultContent = (content: MessagesToolResultBlock['content']): string => {
+  if (typeof content === 'string') {
     return content;
   }
 
-  const textBlocks = content.filter((block): block is MessagesTextBlock =>
-    block.type === "text"
-  );
+  const textBlocks = content.filter((block): block is MessagesTextBlock => block.type === 'text');
   if (textBlocks.length === content.length) {
-    return textBlocks.map((block) => block.text).join("\n\n");
+    return textBlocks.map(block => block.text).join('\n\n');
   }
 
   return JSON.stringify(content);
 };
 
-const toChatCompletionsFunctionCall = (
-  block: MessagesToolUseBlock | MessagesServerToolUseBlock,
-): ToolCall => ({
+const toChatCompletionsFunctionCall = (block: MessagesToolUseBlock | MessagesServerToolUseBlock): ToolCall => ({
   id: block.id,
-  type: "function",
+  type: 'function',
   function: {
     name: block.name,
     arguments: JSON.stringify(block.input),
@@ -93,42 +73,29 @@ type PendingAssistantMessage = {
   scalarReasoning: ChatScalarReasoning | null;
 };
 
-const recordPendingScalarReasoning = (
-  pending: PendingAssistantMessage,
-  block: MessagesAssistantContentBlock,
-): void => {
+const recordPendingScalarReasoning = (pending: PendingAssistantMessage, block: MessagesAssistantContentBlock): void => {
   // Chat scalar reasoning cannot represent ordered interleaved Messages
   // thinking blocks. Project only the first source-order group so readable text
   // is never paired with an opaque signature from a later block.
   pending.scalarReasoning ??= chatScalarReasoningFromMessagesBlock(block);
 };
 
-const flushPendingAssistantMessage = (
-  messages: Message[],
-  pending: PendingAssistantMessage,
-): void => {
-  if (
-    pending.textParts.length === 0 && pending.toolCalls.length === 0 &&
-    !pending.scalarReasoning
-  ) {
+const flushPendingAssistantMessage = (messages: Message[], pending: PendingAssistantMessage): void => {
+  if (pending.textParts.length === 0 && pending.toolCalls.length === 0 && !pending.scalarReasoning) {
     return;
   }
 
   const reasoning = pending.scalarReasoning;
 
   messages.push({
-    role: "assistant",
-    content: pending.textParts.join("\n\n") || null,
-    ...(pending.toolCalls.length > 0
-      ? { tool_calls: [...pending.toolCalls] }
-      : {}),
+    role: 'assistant',
+    content: pending.textParts.join('\n\n') || null,
+    ...(pending.toolCalls.length > 0 ? { tool_calls: [...pending.toolCalls] } : {}),
     ...(reasoning
       ? {
-        reasoning_text: reasoning.reasoningText,
-        reasoning_opaque: reasoning.hasReasoningOpaque
-          ? reasoning.reasoningOpaque
-          : null,
-      }
+          reasoning_text: reasoning.reasoningText,
+          reasoning_opaque: reasoning.hasReasoningOpaque ? reasoning.reasoningOpaque : null,
+        }
       : {}),
   });
 
@@ -137,33 +104,28 @@ const flushPendingAssistantMessage = (
   pending.scalarReasoning = null;
 };
 
-const getClientTools = (
-  tools?: MessagesPayload["tools"],
-): MessagesClientTool[] | undefined => {
-  const clientTools = tools?.filter((tool): tool is MessagesClientTool =>
-    tool.type === undefined || tool.type === "custom"
-  );
+const getClientTools = (tools?: MessagesPayload['tools']): MessagesClientTool[] | undefined => {
+  const clientTools = tools?.filter((tool): tool is MessagesClientTool => tool.type === undefined || tool.type === 'custom');
   return clientTools?.length ? clientTools : undefined;
 };
 
 const translateMessagesUser = (message: MessagesUserMessage): Message[] => {
   if (!Array.isArray(message.content)) {
-    return [{
-      role: "user",
-      content: toChatCompletionsContent(message.content),
-    }];
+    return [
+      {
+        role: 'user',
+        content: toChatCompletionsContent(message.content),
+      },
+    ];
   }
 
   const messages: Message[] = [];
-  const pendingUserBlocks: Exclude<
-    MessagesUserContentBlock,
-    MessagesToolResultBlock
-  >[] = [];
+  const pendingUserBlocks: Exclude<MessagesUserContentBlock, MessagesToolResultBlock>[] = [];
 
   const flushPendingUserBlocks = () => {
     if (pendingUserBlocks.length === 0) return;
     messages.push({
-      role: "user",
+      role: 'user',
       content: toChatCompletionsContent(pendingUserBlocks),
     });
 
@@ -171,7 +133,7 @@ const translateMessagesUser = (message: MessagesUserMessage): Message[] => {
   };
 
   for (const block of message.content) {
-    if (block.type !== "tool_result") {
+    if (block.type !== 'tool_result') {
       pendingUserBlocks.push(block);
       continue;
     }
@@ -180,7 +142,7 @@ const translateMessagesUser = (message: MessagesUserMessage): Message[] => {
     // so interleaved user content and tool results become alternating messages.
     flushPendingUserBlocks();
     messages.push({
-      role: "tool",
+      role: 'tool',
       tool_call_id: block.tool_use_id,
       content: toChatCompletionsToolResultContent(block.content),
     });
@@ -191,14 +153,14 @@ const translateMessagesUser = (message: MessagesUserMessage): Message[] => {
   return messages;
 };
 
-const translateMessagesAssistant = (
-  message: MessagesAssistantMessage,
-): Message[] => {
+const translateMessagesAssistant = (message: MessagesAssistantMessage): Message[] => {
   if (!Array.isArray(message.content)) {
-    return [{
-      role: "assistant",
-      content: toChatCompletionsContent(message.content),
-    }];
+    return [
+      {
+        role: 'assistant',
+        content: toChatCompletionsContent(message.content),
+      },
+    ];
   }
 
   const messages: Message[] = [];
@@ -210,25 +172,25 @@ const translateMessagesAssistant = (
 
   for (const block of message.content) {
     switch (block.type) {
-      case "text":
-        pending.textParts.push(block.text);
-        break;
-      case "thinking":
-      case "redacted_thinking":
-        recordPendingScalarReasoning(pending, block);
-        break;
-      case "tool_use":
-      case "server_tool_use":
-        pending.toolCalls.push(toChatCompletionsFunctionCall(block));
-        break;
-      case "web_search_tool_result":
-        flushPendingAssistantMessage(messages, pending);
-        messages.push({
-          role: "tool",
-          tool_call_id: block.tool_use_id,
-          content: JSON.stringify(block.content),
-        });
-        break;
+    case 'text':
+      pending.textParts.push(block.text);
+      break;
+    case 'thinking':
+    case 'redacted_thinking':
+      recordPendingScalarReasoning(pending, block);
+      break;
+    case 'tool_use':
+    case 'server_tool_use':
+      pending.toolCalls.push(toChatCompletionsFunctionCall(block));
+      break;
+    case 'web_search_tool_result':
+      flushPendingAssistantMessage(messages, pending);
+      messages.push({
+        role: 'tool',
+        tool_call_id: block.tool_use_id,
+        content: JSON.stringify(block.content),
+      });
+      break;
     }
   }
 
@@ -236,38 +198,26 @@ const translateMessagesAssistant = (
   return messages;
 };
 
-const translateMessagesInput = (
-  messages: MessagesMessage[],
-  system: string | MessagesTextBlock[] | undefined,
-): Message[] => {
+const translateMessagesInput = (messages: MessagesMessage[], system: string | MessagesTextBlock[] | undefined): Message[] => {
   // Messages system blocks are prompt boundaries; keep them as separated
   // paragraphs when falling back to Chat Completions.
   const systemMessages: Message[] = system
-    ? [{
-      role: "system",
-      content: typeof system === "string"
-        ? system
-        : system.map((block) => block.text).join("\n\n"),
-    }]
+    ? [
+        {
+          role: 'system',
+          content: typeof system === 'string' ? system : system.map(block => block.text).join('\n\n'),
+        },
+      ]
     : [];
 
-  return [
-    ...systemMessages,
-    ...messages.flatMap((message) =>
-      message.role === "user"
-        ? translateMessagesUser(message)
-        : translateMessagesAssistant(message)
-    ),
-  ];
+  return [...systemMessages, ...messages.flatMap(message => (message.role === 'user' ? translateMessagesUser(message) : translateMessagesAssistant(message)))];
 };
 
-const translateMessagesTools = (
-  tools?: MessagesClientTool[],
-): Tool[] | undefined =>
+const translateMessagesTools = (tools?: MessagesClientTool[]): Tool[] | undefined =>
   // Do not hide target-side function-name constraints by renaming tools here;
   // the Messages source contract has no reverse mapping surface for that.
-  tools?.map((tool) => ({
-    type: "function",
+  tools?.map(tool => ({
+    type: 'function',
     function: {
       name: tool.name,
       description: tool.description,
@@ -276,45 +226,31 @@ const translateMessagesTools = (
     },
   }));
 
-const translateMessagesToolChoice = (
-  toolChoice?: MessagesPayload["tool_choice"],
-  tools?: MessagesClientTool[],
-): ChatCompletionsPayload["tool_choice"] => {
+const translateMessagesToolChoice = (toolChoice?: MessagesPayload['tool_choice'], tools?: MessagesClientTool[]): ChatCompletionsPayload['tool_choice'] => {
   if (!toolChoice || !tools || tools.length === 0) return undefined;
 
   switch (toolChoice.type) {
-    case "auto":
-      return "auto";
-    case "any":
-      return "required";
-    case "tool":
-      return toolChoice.name &&
-          tools.some((tool) => tool.name === toolChoice.name)
-        ? { type: "function", function: { name: toolChoice.name } }
-        : undefined;
-    case "none":
-      return "none";
+  case 'auto':
+    return 'auto';
+  case 'any':
+    return 'required';
+  case 'tool':
+    return toolChoice.name && tools.some(tool => tool.name === toolChoice.name) ? { type: 'function', function: { name: toolChoice.name } } : undefined;
+  case 'none':
+    return 'none';
   }
 };
 
-export const translateMessagesToChatCompletions = (
-  payload: MessagesPayload,
-): ChatCompletionsPayload => {
+export const translateMessagesToChatCompletions = (payload: MessagesPayload): ChatCompletionsPayload => {
   const clientTools = getClientTools(payload.tools);
   // Pass effort through verbatim; per-upstream enum acceptance (e.g. some
   // backends rejecting `xhigh`/`max`) is the target interceptor's concern.
-  const reasoningEffort = payload.output_config?.effort
-    ? payload.output_config.effort
-    : payload.thinking?.type === "disabled"
-    ? "none"
-    : undefined;
+  const reasoningEffort = payload.output_config?.effort ?? (payload.thinking?.type === 'disabled' ? 'none' : undefined);
 
   return {
     model: payload.model,
     messages: translateMessagesInput(payload.messages, payload.system),
-    ...(reasoningEffort !== undefined
-      ? { reasoning_effort: reasoningEffort }
-      : {}),
+    ...(reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {}),
     max_tokens: payload.max_tokens,
     stop: payload.stop_sequences,
     stream: payload.stream,

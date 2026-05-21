@@ -1,4 +1,4 @@
-import type { MessagesInterceptor } from "../../../../llm/interceptors.ts";
+import type { MessagesInterceptor } from '../../../../llm/interceptors.ts';
 
 /**
  * Claude Code's prompt-caching-scope beta adds `cache_control.scope`, but
@@ -14,20 +14,15 @@ import type { MessagesInterceptor } from "../../../../llm/interceptors.ts";
  */
 const stripBlockScope = (block: Record<string, unknown>): void => {
   const cacheControl = block.cache_control;
-  if (!cacheControl || typeof cacheControl !== "object") return;
+  if (!cacheControl || typeof cacheControl !== 'object') return;
 
   const { scope: _, ...rest } = cacheControl as Record<string, unknown>;
   block.cache_control = Object.keys(rest).length > 0 ? rest : undefined;
 };
 
-export const withCacheControlScopeStripped: MessagesInterceptor = async (
-  ctx,
-  run,
-) => {
+export const withCacheControlScopeStripped: MessagesInterceptor = async (ctx, run) => {
   if (Array.isArray(ctx.payload.system)) {
-    for (
-      const block of ctx.payload.system as unknown as Record<string, unknown>[]
-    ) {
+    for (const block of ctx.payload.system as unknown as Record<string, unknown>[]) {
       stripBlockScope(block);
     }
   }
@@ -35,9 +30,7 @@ export const withCacheControlScopeStripped: MessagesInterceptor = async (
   for (const message of ctx.payload.messages) {
     if (!Array.isArray(message.content)) continue;
 
-    for (
-      const block of message.content as unknown as Record<string, unknown>[]
-    ) {
+    for (const block of message.content as unknown as Record<string, unknown>[]) {
       stripBlockScope(block);
     }
   }

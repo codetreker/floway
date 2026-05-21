@@ -1,8 +1,9 @@
 // GET /api/copilot-quota — fetch Copilot usage/quota info from GitHub API
 
-import type { Context } from "hono";
-import { githubHeaders } from "../../shared/copilot.ts";
-import { getRepo } from "../../repo/index.ts";
+import type { Context } from 'hono';
+
+import { getRepo } from '../../repo/index.ts';
+import { githubHeaders } from '../../shared/copilot.ts';
 
 interface QuotaDetail {
   entitlement: number;
@@ -34,35 +35,23 @@ interface CopilotUsageResponse {
 
 export const copilotQuota = async (c: Context) => {
   try {
-    const userIdParam = c.req.query("user_id");
+    const userIdParam = c.req.query('user_id');
     const userId = userIdParam === undefined ? undefined : Number(userIdParam);
     if (userIdParam !== undefined && !Number.isSafeInteger(userId)) {
-      return c.json({ error: "Invalid GitHub account ID" }, 400);
+      return c.json({ error: 'Invalid GitHub account ID' }, 400);
     }
 
     const githubRepo = getRepo().github;
-    const account = userId === undefined
-      ? (await githubRepo.listAccounts())[0] ?? null
-      : await githubRepo.getAccount(userId);
+    const account = userId === undefined ? (await githubRepo.listAccounts())[0] ?? null : await githubRepo.getAccount(userId);
     if (!account) {
-      throw new Error(
-        userId === undefined
-          ? "No GitHub account connected — add one via the dashboard"
-          : "GitHub account not found",
-      );
+      throw new Error(userId === undefined ? 'No GitHub account connected — add one via the dashboard' : 'GitHub account not found');
     }
 
-    const resp = await fetch(
-      "https://api.github.com/copilot_internal/user",
-      { headers: await githubHeaders(account.token) },
-    );
+    const resp = await fetch('https://api.github.com/copilot_internal/user', { headers: await githubHeaders(account.token) });
 
     if (!resp.ok) {
       const text = await resp.text();
-      return c.json(
-        { error: `GitHub API error: ${resp.status} ${text}` },
-        resp.status as 400 | 401 | 403 | 404 | 500,
-      );
+      return c.json({ error: `GitHub API error: ${resp.status} ${text}` }, resp.status as 400 | 401 | 403 | 404 | 500);
     }
 
     const data = (await resp.json()) as CopilotUsageResponse;

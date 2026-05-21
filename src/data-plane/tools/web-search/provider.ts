@@ -1,24 +1,16 @@
-import { FIXED_SEARCH_CONFIG_TEST_QUERY } from "./search-config.ts";
-import type {
-  SearchConfig,
-  WebSearchPreviewResult,
-  WebSearchProviderName,
-  WebSearchProviderRequest,
-  WebSearchProviderResult,
-} from "./types.ts";
-import { createMicrosoftGroundingWebSearchProvider } from "./providers/microsoft-grounding.ts";
-import { createTavilyWebSearchProvider } from "./providers/tavily.ts";
-import { searchWebWithoutRecordingUsage } from "./search.ts";
+import { createMicrosoftGroundingWebSearchProvider } from './providers/microsoft-grounding.ts';
+import { createTavilyWebSearchProvider } from './providers/tavily.ts';
+import { FIXED_SEARCH_CONFIG_TEST_QUERY } from './search-config.ts';
+import { searchWebWithoutRecordingUsage } from './search.ts';
+import type { SearchConfig, WebSearchPreviewResult, WebSearchProviderName, WebSearchProviderRequest, WebSearchProviderResult } from './types.ts';
 
-export type WebSearchProvider = (
-  request: WebSearchProviderRequest,
-) => Promise<WebSearchProviderResult>;
+export type WebSearchProvider = (request: WebSearchProviderRequest) => Promise<WebSearchProviderResult>;
 
 export type ConfiguredWebSearchProvider =
-  | { type: "disabled" }
-  | { type: "missing-credential"; provider: WebSearchProviderName }
+  | { type: 'disabled' }
+  | { type: 'missing-credential'; provider: WebSearchProviderName }
   | {
-    type: "enabled";
+    type: 'enabled';
     provider: WebSearchProviderName;
     search: WebSearchProvider;
   };
@@ -26,73 +18,69 @@ export type ConfiguredWebSearchProvider =
 export type SearchConfigConnectionTestResult =
   | {
     ok: true;
-    provider: SearchConfig["provider"];
+    provider: SearchConfig['provider'];
     query: string;
     results: WebSearchPreviewResult[];
   }
   | {
     ok: false;
-    provider: SearchConfig["provider"];
+    provider: SearchConfig['provider'];
     query: string;
     error: { code: string; message: string };
   };
 
-const toPreviewText = (
-  content: Array<{ type: "text"; text: string }>,
-): string => content.map((block) => block.text).join("\n").slice(0, 280);
+const toPreviewText = (content: Array<{ type: 'text'; text: string }>): string =>
+  content
+    .map(block => block.text)
+    .join('\n')
+    .slice(0, 280);
 
-export const resolveConfiguredWebSearchProvider = (
-  config: SearchConfig,
-): ConfiguredWebSearchProvider => {
-  if (config.provider === "disabled") {
-    return { type: "disabled" };
+export const resolveConfiguredWebSearchProvider = (config: SearchConfig): ConfiguredWebSearchProvider => {
+  if (config.provider === 'disabled') {
+    return { type: 'disabled' };
   }
 
-  if (config.provider === "tavily") {
+  if (config.provider === 'tavily') {
     return config.tavily.apiKey
       ? {
-        type: "enabled",
-        provider: "tavily",
-        search: createTavilyWebSearchProvider(config.tavily.apiKey),
-      }
-      : { type: "missing-credential", provider: "tavily" };
+          type: 'enabled',
+          provider: 'tavily',
+          search: createTavilyWebSearchProvider(config.tavily.apiKey),
+        }
+      : { type: 'missing-credential', provider: 'tavily' };
   }
 
   return config.microsoftGrounding.apiKey
     ? {
-      type: "enabled",
-      provider: "microsoft-grounding",
-      search: createMicrosoftGroundingWebSearchProvider(
-        config.microsoftGrounding.apiKey,
-      ),
-    }
-    : { type: "missing-credential", provider: "microsoft-grounding" };
+        type: 'enabled',
+        provider: 'microsoft-grounding',
+        search: createMicrosoftGroundingWebSearchProvider(config.microsoftGrounding.apiKey),
+      }
+    : { type: 'missing-credential', provider: 'microsoft-grounding' };
 };
 
-export const testSearchConfigConnection = async (
-  config: SearchConfig,
-): Promise<SearchConfigConnectionTestResult> => {
+export const testSearchConfigConnection = async (config: SearchConfig): Promise<SearchConfigConnectionTestResult> => {
   const resolved = resolveConfiguredWebSearchProvider(config);
 
-  if (resolved.type === "disabled") {
+  if (resolved.type === 'disabled') {
     return {
       ok: false,
-      provider: "disabled",
+      provider: 'disabled',
       query: FIXED_SEARCH_CONFIG_TEST_QUERY,
       error: {
-        code: "disabled",
-        message: "Search provider is disabled.",
+        code: 'disabled',
+        message: 'Search provider is disabled.',
       },
     };
   }
 
-  if (resolved.type === "missing-credential") {
+  if (resolved.type === 'missing-credential') {
     return {
       ok: false,
       provider: resolved.provider,
       query: FIXED_SEARCH_CONFIG_TEST_QUERY,
       error: {
-        code: "missing_credential",
+        code: 'missing_credential',
         message: `Missing API key for ${resolved.provider}.`,
       },
     };
@@ -103,19 +91,19 @@ export const testSearchConfigConnection = async (
     request: { query: FIXED_SEARCH_CONFIG_TEST_QUERY },
   });
 
-  if (result.type === "error") {
+  if (result.type === 'error') {
     return {
       ok: false,
       provider: resolved.provider,
       query: FIXED_SEARCH_CONFIG_TEST_QUERY,
       error: {
         code: result.errorCode,
-        message: result.message ?? "Search test failed.",
+        message: result.message ?? 'Search test failed.',
       },
     };
   }
 
-  const previews = result.results.slice(0, 3).map((entry) => ({
+  const previews = result.results.slice(0, 3).map(entry => ({
     title: entry.title,
     url: entry.source,
     pageAge: entry.pageAge,
@@ -128,8 +116,8 @@ export const testSearchConfigConnection = async (
       provider: resolved.provider,
       query: FIXED_SEARCH_CONFIG_TEST_QUERY,
       error: {
-        code: "no_results",
-        message: "Search returned no preview results.",
+        code: 'no_results',
+        message: 'Search returned no preview results.',
       },
     };
   }

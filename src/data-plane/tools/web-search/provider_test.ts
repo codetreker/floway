@@ -1,220 +1,206 @@
-import { test } from "vitest";
-import { assertEquals } from "../../../test-assert.ts";
-import { initRepo } from "../../../repo/index.ts";
-import { InMemoryRepo } from "../../../repo/memory.ts";
-import { jsonResponse, withMockedFetch } from "../../../test-helpers.ts";
-import {
-  resolveConfiguredWebSearchProvider,
-  testSearchConfigConnection,
-} from "./provider.ts";
-import {
-  DEFAULT_SEARCH_CONFIG,
-  FIXED_SEARCH_CONFIG_TEST_QUERY,
-} from "./search-config.ts";
+import { test } from 'vitest';
 
-test(
-  "resolveConfiguredWebSearchProvider returns disabled, missing-credential, or enabled",
-  () => {
-    assertEquals(resolveConfiguredWebSearchProvider(DEFAULT_SEARCH_CONFIG), {
-      type: "disabled",
-    });
+import { resolveConfiguredWebSearchProvider, testSearchConfigConnection } from './provider.ts';
+import { DEFAULT_SEARCH_CONFIG, FIXED_SEARCH_CONFIG_TEST_QUERY } from './search-config.ts';
+import { initRepo } from '../../../repo/index.ts';
+import { InMemoryRepo } from '../../../repo/memory.ts';
+import { assertEquals } from '../../../test-assert.ts';
+import { jsonResponse, withMockedFetch } from '../../../test-helpers.ts';
 
-    assertEquals(
-      resolveConfiguredWebSearchProvider({
-        provider: "tavily",
-        tavily: { apiKey: "" },
-        microsoftGrounding: { apiKey: "ms-test" },
-      }),
-      {
-        type: "missing-credential",
-        provider: "tavily",
-      },
-    );
+test('resolveConfiguredWebSearchProvider returns disabled, missing-credential, or enabled', () => {
+  assertEquals(resolveConfiguredWebSearchProvider(DEFAULT_SEARCH_CONFIG), {
+    type: 'disabled',
+  });
 
-    const resolved = resolveConfiguredWebSearchProvider({
-      provider: "microsoft-grounding",
-      tavily: { apiKey: "tvly-test" },
-      microsoftGrounding: { apiKey: "ms-test" },
-    });
+  assertEquals(
+    resolveConfiguredWebSearchProvider({
+      provider: 'tavily',
+      tavily: { apiKey: '' },
+      microsoftGrounding: { apiKey: 'ms-test' },
+    }),
+    {
+      type: 'missing-credential',
+      provider: 'tavily',
+    },
+  );
 
-    assertEquals(resolved.type, "enabled");
-    if (resolved.type !== "enabled") {
-      throw new Error("expected enabled provider");
-    }
-    assertEquals(resolved.provider, "microsoft-grounding");
-  },
-);
+  const resolved = resolveConfiguredWebSearchProvider({
+    provider: 'microsoft-grounding',
+    tavily: { apiKey: 'tvly-test' },
+    microsoftGrounding: { apiKey: 'ms-test' },
+  });
 
-test(
-  "testSearchConfigConnection returns structured disabled and missing-credential errors",
-  async () => {
-    assertEquals(await testSearchConfigConnection(DEFAULT_SEARCH_CONFIG), {
+  assertEquals(resolved.type, 'enabled');
+  if (resolved.type !== 'enabled') {
+    throw new Error('expected enabled provider');
+  }
+  assertEquals(resolved.provider, 'microsoft-grounding');
+});
+
+test('testSearchConfigConnection returns structured disabled and missing-credential errors', async () => {
+  assertEquals(await testSearchConfigConnection(DEFAULT_SEARCH_CONFIG), {
+    ok: false,
+    provider: 'disabled',
+    query: FIXED_SEARCH_CONFIG_TEST_QUERY,
+    error: {
+      code: 'disabled',
+      message: 'Search provider is disabled.',
+    },
+  });
+
+  assertEquals(
+    await testSearchConfigConnection({
+      provider: 'tavily',
+      tavily: { apiKey: '' },
+      microsoftGrounding: { apiKey: 'ms-test' },
+    }),
+    {
       ok: false,
-      provider: "disabled",
+      provider: 'tavily',
       query: FIXED_SEARCH_CONFIG_TEST_QUERY,
       error: {
-        code: "disabled",
-        message: "Search provider is disabled.",
+        code: 'missing_credential',
+        message: 'Missing API key for tavily.',
       },
-    });
+    },
+  );
+});
 
-    assertEquals(
-      await testSearchConfigConnection({
-        provider: "tavily",
-        tavily: { apiKey: "" },
-        microsoftGrounding: { apiKey: "ms-test" },
-      }),
-      {
-        ok: false,
-        provider: "tavily",
-        query: FIXED_SEARCH_CONFIG_TEST_QUERY,
-        error: {
-          code: "missing_credential",
-          message: "Missing API key for tavily.",
-        },
-      },
-    );
-  },
-);
-
-test(
-  "testSearchConfigConnection previews at most three normalized results",
-  async () => {
-    await withMockedFetch(
-      () =>
-        jsonResponse({
-          results: [
-            {
-              title: "React A",
-              url: "https://react.dev/a",
-              content: "A".repeat(400),
-              published_date: "2026-04-01T00:00:00Z",
-            },
-            {
-              title: "React B",
-              url: "https://react.dev/b",
-              content: "Second result",
-            },
-            {
-              title: "React C",
-              url: "https://react.dev/c",
-              content: "Third result",
-            },
-            {
-              title: "React D",
-              url: "https://react.dev/d",
-              content: "Fourth result",
-            },
-          ],
-        }),
-      async () => {
-        const result = await testSearchConfigConnection({
-          provider: "tavily",
-          tavily: { apiKey: "tvly-test" },
-          microsoftGrounding: { apiKey: "ms-test" },
-        });
-
-        assertEquals(result.ok, true);
-        if (!result.ok) {
-          throw new Error("expected a successful preview result");
-        }
-
-        assertEquals(result.provider, "tavily");
-        assertEquals(result.query, FIXED_SEARCH_CONFIG_TEST_QUERY);
-        assertEquals(result.results.length, 3);
-        assertEquals(result.results[0].title, "React A");
-        assertEquals(result.results[0].url, "https://react.dev/a");
-        assertEquals(result.results[0].pageAge, "2026-04-01T00:00:00Z");
-        assertEquals(result.results[0].previewText.length, 280);
-        assertEquals(result.results[2].title, "React C");
-      },
-    );
-  },
-);
-
-test(
-  "testSearchConfigConnection returns no_results when the provider returns no previews",
-  async () => {
-    await withMockedFetch(
-      () => jsonResponse({ results: [] }),
-      async () => {
-        assertEquals(
-          await testSearchConfigConnection({
-            provider: "tavily",
-            tavily: { apiKey: "tvly-test" },
-            microsoftGrounding: { apiKey: "ms-test" },
-          }),
+test('testSearchConfigConnection previews at most three normalized results', async () => {
+  await withMockedFetch(
+    () =>
+      jsonResponse({
+        results: [
           {
-            ok: false,
-            provider: "tavily",
-            query: FIXED_SEARCH_CONFIG_TEST_QUERY,
-            error: {
-              code: "no_results",
-              message: "Search returned no preview results.",
-            },
+            title: 'React A',
+            url: 'https://react.dev/a',
+            content: 'A'.repeat(400),
+            published_date: '2026-04-01T00:00:00Z',
           },
-        );
-      },
-    );
-  },
-);
+          {
+            title: 'React B',
+            url: 'https://react.dev/b',
+            content: 'Second result',
+          },
+          {
+            title: 'React C',
+            url: 'https://react.dev/c',
+            content: 'Third result',
+          },
+          {
+            title: 'React D',
+            url: 'https://react.dev/d',
+            content: 'Fourth result',
+          },
+        ],
+      }),
+    async () => {
+      const result = await testSearchConfigConnection({
+        provider: 'tavily',
+        tavily: { apiKey: 'tvly-test' },
+        microsoftGrounding: { apiKey: 'ms-test' },
+      });
 
-test(
-  "testSearchConfigConnection returns preview results for Microsoft Grounding too",
-  async () => {
-    await withMockedFetch(
-      () =>
-        jsonResponse({
-          webResults: [{
-            title: "React on Microsoft Learn",
-            url: "https://learn.microsoft.com/react",
-            content: "React guidance from Microsoft Learn.",
-            lastUpdatedAt: "2026-04-21T00:00:00Z",
-          }],
+      assertEquals(result.ok, true);
+      if (!result.ok) {
+        throw new Error('expected a successful preview result');
+      }
+
+      assertEquals(result.provider, 'tavily');
+      assertEquals(result.query, FIXED_SEARCH_CONFIG_TEST_QUERY);
+      assertEquals(result.results.length, 3);
+      assertEquals(result.results[0].title, 'React A');
+      assertEquals(result.results[0].url, 'https://react.dev/a');
+      assertEquals(result.results[0].pageAge, '2026-04-01T00:00:00Z');
+      assertEquals(result.results[0].previewText.length, 280);
+      assertEquals(result.results[2].title, 'React C');
+    },
+  );
+});
+
+test('testSearchConfigConnection returns no_results when the provider returns no previews', async () => {
+  await withMockedFetch(
+    () => jsonResponse({ results: [] }),
+    async () => {
+      assertEquals(
+        await testSearchConfigConnection({
+          provider: 'tavily',
+          tavily: { apiKey: 'tvly-test' },
+          microsoftGrounding: { apiKey: 'ms-test' },
         }),
-      async () => {
-        const result = await testSearchConfigConnection({
-          provider: "microsoft-grounding",
-          tavily: { apiKey: "tvly-test" },
-          microsoftGrounding: { apiKey: "ms-test" },
-        });
+        {
+          ok: false,
+          provider: 'tavily',
+          query: FIXED_SEARCH_CONFIG_TEST_QUERY,
+          error: {
+            code: 'no_results',
+            message: 'Search returned no preview results.',
+          },
+        },
+      );
+    },
+  );
+});
 
-        assertEquals(result.ok, true);
-        if (!result.ok) {
-          throw new Error("expected a successful Microsoft preview result");
-        }
+test('testSearchConfigConnection returns preview results for Microsoft Grounding too', async () => {
+  await withMockedFetch(
+    () =>
+      jsonResponse({
+        webResults: [
+          {
+            title: 'React on Microsoft Learn',
+            url: 'https://learn.microsoft.com/react',
+            content: 'React guidance from Microsoft Learn.',
+            lastUpdatedAt: '2026-04-21T00:00:00Z',
+          },
+        ],
+      }),
+    async () => {
+      const result = await testSearchConfigConnection({
+        provider: 'microsoft-grounding',
+        tavily: { apiKey: 'tvly-test' },
+        microsoftGrounding: { apiKey: 'ms-test' },
+      });
 
-        assertEquals(result.provider, "microsoft-grounding");
-        assertEquals(result.query, FIXED_SEARCH_CONFIG_TEST_QUERY);
-        assertEquals(result.results, [{
-          title: "React on Microsoft Learn",
-          url: "https://learn.microsoft.com/react",
-          pageAge: "2026-04-21T00:00:00Z",
-          previewText: "React guidance from Microsoft Learn.",
-        }]);
-      },
-    );
-  },
-);
+      assertEquals(result.ok, true);
+      if (!result.ok) {
+        throw new Error('expected a successful Microsoft preview result');
+      }
 
-test("testSearchConfigConnection does not record search usage", async () => {
+      assertEquals(result.provider, 'microsoft-grounding');
+      assertEquals(result.query, FIXED_SEARCH_CONFIG_TEST_QUERY);
+      assertEquals(result.results, [
+        {
+          title: 'React on Microsoft Learn',
+          url: 'https://learn.microsoft.com/react',
+          pageAge: '2026-04-21T00:00:00Z',
+          previewText: 'React guidance from Microsoft Learn.',
+        },
+      ]);
+    },
+  );
+});
+
+test('testSearchConfigConnection does not record search usage', async () => {
   const repo = new InMemoryRepo();
   initRepo(repo);
 
   await withMockedFetch(
     () =>
       jsonResponse({
-        results: [{
-          title: "React",
-          url: "https://react.dev",
-          content: "Docs",
-        }],
+        results: [
+          {
+            title: 'React',
+            url: 'https://react.dev',
+            content: 'Docs',
+          },
+        ],
       }),
     async () => {
       const result = await testSearchConfigConnection({
-        provider: "tavily",
-        tavily: { apiKey: "tvly-test" },
-        microsoftGrounding: { apiKey: "" },
+        provider: 'tavily',
+        tavily: { apiKey: 'tvly-test' },
+        microsoftGrounding: { apiKey: '' },
       });
 
       assertEquals(result.ok, true);

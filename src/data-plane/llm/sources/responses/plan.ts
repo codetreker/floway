@@ -1,23 +1,18 @@
-import type { ModelCapabilities } from "../../../providers/capabilities.ts";
+import type { ModelCapabilities } from '../../../providers/capabilities.ts';
 
-export type ResponsesPlan =
-  | { target: "responses" }
-  | { target: "messages" }
-  | { target: "chat-completions" };
+export type ResponsesPlan = { target: 'responses' } | { target: 'messages' } | { target: 'chat-completions' };
 
-export const planResponsesRequest = (
-  capabilities: ModelCapabilities,
-): ResponsesPlan | null => {
+export const planResponsesRequest = (capabilities: ModelCapabilities): ResponsesPlan | null => {
   if (capabilities.supportsResponses) {
-    return { target: "responses" };
+    return { target: 'responses' };
   }
 
   if (capabilities.supportsMessages) {
-    return { target: "messages" };
+    return { target: 'messages' };
   }
 
   if (capabilities.supportsChatCompletions) {
-    return { target: "chat-completions" };
+    return { target: 'chat-completions' };
   }
 
   return null;

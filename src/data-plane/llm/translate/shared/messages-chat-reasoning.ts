@@ -1,8 +1,4 @@
-import type {
-  MessagesAssistantContentBlock,
-  MessagesRedactedThinkingBlock,
-  MessagesThinkingBlock,
-} from "../../../shared/protocol/messages.ts";
+import type { MessagesAssistantContentBlock, MessagesRedactedThinkingBlock, MessagesThinkingBlock } from '../../../shared/protocol/messages.ts';
 
 export interface ChatScalarReasoning {
   reasoningText: string | null;
@@ -16,37 +12,29 @@ export const messagesThinkingBlockFromChatScalarReasoning = (
 ): MessagesThinkingBlock | MessagesRedactedThinkingBlock | null => {
   if (reasoningText) {
     return {
-      type: "thinking",
+      type: 'thinking',
       thinking: reasoningText,
-      ...(reasoningOpaque !== undefined && reasoningOpaque !== null
-        ? { signature: reasoningOpaque }
-        : {}),
+      ...(reasoningOpaque !== undefined && reasoningOpaque !== null ? { signature: reasoningOpaque } : {}),
     };
   }
 
-  return reasoningOpaque !== undefined && reasoningOpaque !== null
-    ? { type: "redacted_thinking", data: reasoningOpaque }
-    : null;
+  return reasoningOpaque !== undefined && reasoningOpaque !== null ? { type: 'redacted_thinking', data: reasoningOpaque } : null;
 };
 
-export const chatScalarReasoningFromMessagesBlock = (
-  block: MessagesAssistantContentBlock,
-): ChatScalarReasoning | null => {
-  if (block.type === "thinking") {
+export const chatScalarReasoningFromMessagesBlock = (block: MessagesAssistantContentBlock): ChatScalarReasoning | null => {
+  if (block.type === 'thinking') {
     return {
       reasoningText: block.thinking || null,
-      reasoningOpaque: Object.hasOwn(block, "signature")
-        ? block.signature ?? null
-        : null,
-      hasReasoningOpaque: Object.hasOwn(block, "signature"),
+      reasoningOpaque: Object.hasOwn(block, 'signature') ? block.signature ?? null : null,
+      hasReasoningOpaque: Object.hasOwn(block, 'signature'),
     };
   }
 
-  return block.type === "redacted_thinking"
+  return block.type === 'redacted_thinking'
     ? {
-      reasoningText: null,
-      reasoningOpaque: block.data,
-      hasReasoningOpaque: true,
-    }
+        reasoningText: null,
+        reasoningOpaque: block.data,
+        hasReasoningOpaque: true,
+      }
     : null;
 };

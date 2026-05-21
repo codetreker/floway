@@ -1,12 +1,7 @@
-import { test } from "vitest";
-import {
-  assert,
-  assertAlmostEquals,
-  assertEquals,
-  assertFalse,
-  assertStringIncludes,
-} from "../test-assert.ts";
-import { DashboardPage } from "./dashboard.tsx";
+import { test } from 'vitest';
+
+import { assert, assertAlmostEquals, assertEquals, assertFalse, assertStringIncludes } from '../test-assert.ts';
+import { DashboardPage } from './dashboard.tsx';
 
 type ChartDataset = {
   _keyId?: string;
@@ -51,11 +46,11 @@ function expectedTodayChartLabels() {
   const labels = [];
   const cur = new Date();
   cur.setMinutes(0, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const pad = (n: number) => String(n).padStart(2, '0');
   for (let i = 23; i >= 0; i--) {
     const d = new Date(cur.getTime() - i * 3600000);
     const h = d.getHours();
-    labels.push(pad(h) + ":00 \u2013 " + pad((h + 1) % 24) + ":00");
+    labels.push(`${pad(h)}:00 \u2013 ${pad((h + 1) % 24)}:00`);
   }
   return labels;
 }
@@ -66,18 +61,14 @@ function expected4hChartLabels(count: number) {
   start.setHours(start.getHours() - (start.getHours() % 4));
   const labels = [];
   let prevDateKey: string | null = null;
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const pad = (n: number) => String(n).padStart(2, '0');
   for (let i = count - 1; i >= 0; i--) {
     const d = new Date(start.getTime() - i * 4 * 3600000);
     const h = d.getHours();
-    const dateKey = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" +
-      pad(d.getDate());
+    const dateKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const endH = (h + 4) % 24;
-    const time = pad(h) + ":00 – " + pad(endH) + ":00";
-    const datePrefix = dateKey !== prevDateKey
-      ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
-        " "
-      : "";
+    const time = `${pad(h)}:00 – ${pad(endH)}:00`;
+    const datePrefix = dateKey !== prevDateKey ? `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ` : '';
     labels.push(datePrefix + time);
     prevDateKey = dateKey;
   }
@@ -92,7 +83,7 @@ function expected4hAxisTickLabels(count: number) {
   const result = [];
   for (let i = count - 1; i >= 0; i--) {
     const d = new Date(start.getTime() - i * 4 * 3600000);
-    result.push(d.getHours() % 8 === 0 ? labels[count - 1 - i] : "");
+    result.push(d.getHours() % 8 === 0 ? labels[count - 1 - i] : '');
   }
   return result;
 }
@@ -107,17 +98,17 @@ function extractDashboardScript() {
   const html = DashboardPage().toString();
   const scripts = html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g);
   for (const script of scripts) {
-    if (script[1].includes("function dashboardApp()")) return script[1];
+    if (script[1].includes('function dashboardApp()')) return script[1];
   }
-  throw new Error("dashboard script not found");
+  throw new Error('dashboard script not found');
 }
 
 function createDashboardHarness(options: { document?: unknown } = {}) {
   const charts: FakeChart[] = [];
   class FakeChart {
     canvas: unknown;
-    data: ChartConfig["data"];
-    options: ChartConfig["options"];
+    data: ChartConfig['data'];
+    options: ChartConfig['options'];
     visibility = new Map<number, boolean>();
     lastUpdateMode: string | null = null;
 
@@ -142,13 +133,13 @@ function createDashboardHarness(options: { document?: unknown } = {}) {
 
   const localStorage = {
     getItem(key: string) {
-      if (key === "authKey") return "test-key";
-      if (key === "isAdmin") return "1";
+      if (key === 'authKey') return 'test-key';
+      if (key === 'isAdmin') return '1';
       return null;
     },
     removeItem() {},
   };
-  const location = { hash: "#usage", origin: "https://example.test" };
+  const location = { hash: '#usage', origin: 'https://example.test' };
   const window = { addEventListener() {}, location };
   const document = options.document ?? {
     getElementById(id: string) {
@@ -156,14 +147,13 @@ function createDashboardHarness(options: { document?: unknown } = {}) {
     },
   };
 
-  const dashboardApp = new Function(
-    "localStorage",
-    "location",
-    "window",
-    "document",
-    "Chart",
-    extractDashboardScript() + "\nreturn dashboardApp;",
-  )(localStorage, location, window, document, FakeChart);
+  const dashboardApp = new Function('localStorage', 'location', 'window', 'document', 'Chart', `${extractDashboardScript()}\nreturn dashboardApp;`)(
+    localStorage,
+    location,
+    window,
+    document,
+    FakeChart,
+  );
 
   return { app: dashboardApp(), charts };
 }
@@ -173,9 +163,9 @@ function usageRecord(offsetHours: number, overrides: Record<string, unknown>) {
   date.setHours(date.getHours() + offsetHours, 0, 0, 0);
   return {
     hour: date.toISOString().slice(0, 13),
-    keyId: "key_1",
-    keyName: "Primary",
-    model: "model-a",
+    keyId: 'key_1',
+    keyName: 'Primary',
+    model: 'model-a',
     requests: 1,
     inputTokens: 1,
     outputTokens: 1,
@@ -186,64 +176,61 @@ function usageRecord(offsetHours: number, overrides: Record<string, unknown>) {
   };
 }
 
-function searchUsageRecord(
-  offsetHours: number,
-  overrides: Record<string, unknown>,
-) {
+function searchUsageRecord(offsetHours: number, overrides: Record<string, unknown>) {
   const date = new Date();
   date.setHours(date.getHours() + offsetHours, 0, 0, 0);
   return {
-    provider: "tavily",
+    provider: 'tavily',
     hour: date.toISOString().slice(0, 13),
-    keyId: "key_1",
-    keyName: "Primary",
+    keyId: 'key_1',
+    keyName: 'Primary',
     requests: 1,
     ...overrides,
   };
 }
 
 const TEST_USAGE_KEY_COLOR_ORDER = [
-  "46360b74-2457-4a38-a116-7afdb2894632",
-  "4969165b-3412-436c-87d9-3fd4770164b5",
-  "541128df-ee71-4fc1-9cc7-6855ca1e7fcc",
-  "e694733c-370e-4b9a-9331-57eefd12a8cc",
-  "5a4481c9-0230-481c-bd17-49fc2bda6f02",
-  "future-1",
-  "3f2fe5b9-2991-4bb8-bc04-2852f58150ca",
-  "future-3",
-  "future-2",
-  "future-4",
+  '46360b74-2457-4a38-a116-7afdb2894632',
+  '4969165b-3412-436c-87d9-3fd4770164b5',
+  '541128df-ee71-4fc1-9cc7-6855ca1e7fcc',
+  'e694733c-370e-4b9a-9331-57eefd12a8cc',
+  '5a4481c9-0230-481c-bd17-49fc2bda6f02',
+  'future-1',
+  '3f2fe5b9-2991-4bb8-bc04-2852f58150ca',
+  'future-3',
+  'future-2',
+  'future-4',
 ];
 
-test("DashboardPage renders split dashboard shell", () => {
+test('DashboardPage renders split dashboard shell', () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, 'x-data="dashboardApp()"');
-  assertStringIncludes(html, "Copilot Gateway");
-  assertStringIncludes(html, "API Keys");
-  assertStringIncludes(html, "Total Tokens");
-  assertStringIncludes(html, "Performance");
-  assertStringIncludes(html, "Cache Hit Rate");
-  assertStringIncludes(html, "function dashboardApp()");
+  assertStringIncludes(html, 'Copilot Gateway');
+  assertStringIncludes(html, 'API Keys');
+  assertStringIncludes(html, 'Total Tokens');
+  assertStringIncludes(html, 'Performance');
+  assertStringIncludes(html, 'Cache Hit Rate');
+  assertStringIncludes(html, 'function dashboardApp()');
 });
 
-test("dashboardApp renders performance model percentile chart", () => {
+test('dashboardApp renders performance model percentile chart', () => {
   const { app, charts } = createDashboardHarness();
   const currentHour = new Date();
   currentHour.setMinutes(0, 0, 0);
   const previousHour = new Date(currentHour.getTime() - 3600000);
 
-  app.tab = "performance";
-  app.performancePercentile = "p95Ms";
+  app.tab = 'performance';
+  app.performancePercentile = 'p95Ms';
   app.performanceSeries = [
     {
       bucket: app.localHourKey(previousHour),
-      group: "claude-opus-4-7",
+      group: 'claude-opus-4-7',
       p95Ms: 300,
     },
     {
       bucket: app.localHourKey(currentHour),
-      group: "claude-opus-4-7",
+      group: 'claude-opus-4-7',
       p95Ms: 600,
     },
   ];
@@ -251,24 +238,22 @@ test("dashboardApp renders performance model percentile chart", () => {
   app.renderPerformanceChart();
 
   assertEquals(charts.length, 1);
-  assertEquals(charts[0].data.datasets[0].label, "claude-opus-4-7");
-  assertEquals(charts[0].data.datasets[0].data.filter((v) => v !== null), [
-    300,
-    600,
-  ]);
+  assertEquals(charts[0].data.datasets[0].label, 'claude-opus-4-7');
+  assertEquals(
+    charts[0].data.datasets[0].data.filter(v => v !== null),
+    [300, 600],
+  );
 });
 
-test("dashboardApp renders performance chart over the full hourly range", () => {
+test('dashboardApp renders performance chart over the full hourly range', () => {
   const { app, charts } = createDashboardHarness();
   const now = new Date();
   now.setMinutes(0, 0, 0);
 
-  app.tab = "performance";
-  app.performanceRange = "today";
-  app.performancePercentile = "p95Ms";
-  app.performanceSeries = [
-    { bucket: app.localHourKey(now), group: "claude-opus-4-7", p95Ms: 600 },
-  ];
+  app.tab = 'performance';
+  app.performanceRange = 'today';
+  app.performancePercentile = 'p95Ms';
+  app.performanceSeries = [{ bucket: app.localHourKey(now), group: 'claude-opus-4-7', p95Ms: 600 }];
 
   app.renderPerformanceChart();
 
@@ -277,19 +262,19 @@ test("dashboardApp renders performance chart over the full hourly range", () => 
   assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
 });
 
-test("dashboardApp renders performance chart with 4h buckets for 7d range", () => {
+test('dashboardApp renders performance chart with 4h buckets for 7d range', () => {
   const { app, charts } = createDashboardHarness();
   const start = new Date();
   start.setMinutes(0, 0, 0);
   start.setHours(start.getHours() - (start.getHours() % 4));
 
-  app.tab = "performance";
-  app.performanceRange = "7d";
-  app.performancePercentile = "p95Ms";
+  app.tab = 'performance';
+  app.performanceRange = '7d';
+  app.performancePercentile = 'p95Ms';
   app.performanceSeries = [
     {
       bucket: app.local4hBucketKey(start),
-      group: "claude-opus-4-7",
+      group: 'claude-opus-4-7',
       p95Ms: 600,
     },
   ];
@@ -297,20 +282,20 @@ test("dashboardApp renders performance chart with 4h buckets for 7d range", () =
   app.renderPerformanceChart();
 
   assertEquals(charts[0].data.labels, expected4hChartLabels(42));
-  assertFalse(charts[0].data.labels?.includes(""));
+  assertFalse(charts[0].data.labels?.includes(''));
   assertEquals(renderAxisTickLabels(charts[0]), expected4hAxisTickLabels(42));
   assertEquals(charts[0].data.datasets[0].data.length, 42);
   assertEquals(charts[0].data.datasets[0].data.at(-1), 600);
 });
 
-test("dashboardApp renders token chart with labeled 4h buckets for 7d range", () => {
+test('dashboardApp renders token chart with labeled 4h buckets for 7d range', () => {
   const { app, charts } = createDashboardHarness();
   const start = new Date();
   start.setMinutes(0, 0, 0);
   start.setHours(start.getHours() - (start.getHours() % 4));
 
-  app.tab = "usage";
-  app.tokenRange = "7d";
+  app.tab = 'usage';
+  app.tokenRange = '7d';
   app.tokenData = [
     usageRecord(0, {
       hour: start.toISOString().slice(0, 13),
@@ -322,39 +307,39 @@ test("dashboardApp renders token chart with labeled 4h buckets for 7d range", ()
   app.renderTokenCharts();
 
   assertEquals(charts[0].data.labels, expected4hChartLabels(42));
-  assertFalse(charts[0].data.labels?.includes(""));
+  assertFalse(charts[0].data.labels?.includes(''));
   assertEquals(renderAxisTickLabels(charts[0]), expected4hAxisTickLabels(42));
   assertEquals(charts[0].data.datasets[0].data.length, 42);
   assertEquals(charts[0].data.datasets[0].data.at(-1), 15);
 });
 
-test("dashboardApp renders performance percentile comparison chart", () => {
+test('dashboardApp renders performance percentile comparison chart', () => {
   const { app, charts } = createDashboardHarness();
   const currentHour = new Date();
   currentHour.setMinutes(0, 0, 0);
   const previousHour = new Date(currentHour.getTime() - 3600000);
 
-  app.tab = "performance";
-  app.performanceChartView = "percentile";
-  app.performanceModel = "claude-opus-4-7";
+  app.tab = 'performance';
+  app.performanceChartView = 'percentile';
+  app.performanceModel = 'claude-opus-4-7';
   app.performanceSeries = [
     {
       bucket: app.localHourKey(previousHour),
-      group: "claude-opus-4-7",
+      group: 'claude-opus-4-7',
       p50Ms: 100,
       p95Ms: 300,
       p99Ms: 900,
     },
     {
       bucket: app.localHourKey(currentHour),
-      group: "claude-opus-4-7",
+      group: 'claude-opus-4-7',
       p50Ms: 120,
       p95Ms: 360,
       p99Ms: 1200,
     },
     {
       bucket: app.localHourKey(previousHour),
-      group: "gpt-5",
+      group: 'gpt-5',
       p50Ms: 30,
       p95Ms: 60,
       p99Ms: 90,
@@ -364,151 +349,126 @@ test("dashboardApp renders performance percentile comparison chart", () => {
   app.renderPerformanceChart();
 
   assertEquals(charts.length, 1);
-  assertEquals(charts[0].data.datasets.map((dataset) => dataset.label), [
-    "p50",
-    "p95",
-    "p99",
-  ]);
-  assertEquals(charts[0].data.datasets[1].data.filter((v) => v !== null), [
-    300,
-    360,
-  ]);
+  assertEquals(
+    charts[0].data.datasets.map(dataset => dataset.label),
+    ['p50', 'p95', 'p99'],
+  );
+  assertEquals(
+    charts[0].data.datasets[1].data.filter(v => v !== null),
+    [300, 360],
+  );
 });
 
-test("DashboardPage renders performance model selector for percentile view", () => {
+test('DashboardPage renders performance model selector for percentile view', () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "performanceChartView === 'percentile'");
   assertStringIncludes(html, 'x-model="performanceModel"');
-  assertStringIncludes(html, "performanceModelOptions()");
+  assertStringIncludes(html, 'performanceModelOptions()');
 });
 
-test("DashboardPage styles existing select controls", () => {
+test('DashboardPage styles existing select controls', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    'input[type="text"], input[type="password"], input[type="number"], textarea, select',
-  );
-  assertStringIncludes(html, "input:focus, textarea:focus, select:focus");
-  assertStringIncludes(html, "appearance: none;");
-  assertStringIncludes(html, "background-position: right 16px center;");
+  assertStringIncludes(html, "input[type='text'],");
+  assertStringIncludes(html, "input[type='password'],");
+  assertStringIncludes(html, "input[type='number'],");
+  assertStringIncludes(html, 'textarea,');
+  assertStringIncludes(html, 'input:focus,');
+  assertStringIncludes(html, 'textarea:focus,');
+  assertStringIncludes(html, 'select:focus');
+  assertStringIncludes(html, 'appearance: none;');
+  assertStringIncludes(html, 'background-position: right 16px center;');
 });
 
-test("DashboardPage renders performance chart view switcher", () => {
+test('DashboardPage renders performance chart view switcher', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "By Model");
-  assertStringIncludes(html, "By Percentile");
+  assertStringIncludes(html, 'By Model');
+  assertStringIncludes(html, 'By Percentile');
 });
 
-test("DashboardPage loads performance dashboard aggregates in one request", () => {
+test('DashboardPage loads performance dashboard aggregates in one request', () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "'/api/performance/overview?'");
   assertFalse(html.includes("this.fetchPerformanceRecords('runtimeLocation'"));
 });
 
-test("DashboardPage renders the search section below the usage cards without architecture labels", () => {
+test('DashboardPage renders the search section below the usage cards without architecture labels', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "Search Provider");
-  assertStringIncludes(html, "Tavily");
-  assertStringIncludes(html, "Microsoft Grounding");
-  assertStringIncludes(html, "Save Search Config");
-  assertStringIncludes(html, "Test Search");
+  assertStringIncludes(html, 'Search Provider');
+  assertStringIncludes(html, 'Tavily');
+  assertStringIncludes(html, 'Microsoft Grounding');
+  assertStringIncludes(html, 'Save Search Config');
+  assertStringIncludes(html, 'Test Search');
   assertStringIncludes(html, 'autocomplete="off"');
-  assertStringIncludes(
-    html,
-    ":disabled=\"!searchConfigLoaded || searchConfigTesting || searchConfigDraft.provider === 'disabled'\"",
-  );
-  assertFalse(html.includes("Control Plane"));
-  assertFalse(html.includes("Data Plane"));
-  assertFalse(
-    html.indexOf("Search Provider") < html.indexOf("Premium Requests"),
-  );
+  assertStringIncludes(html, ':disabled="!searchConfigLoaded || searchConfigTesting || searchConfigDraft.provider === \'disabled\'"');
+  assertFalse(html.includes('Control Plane'));
+  assertFalse(html.includes('Data Plane'));
+  assertFalse(html.indexOf('Search Provider') < html.indexOf('Premium Requests'));
 });
 
-test("DashboardPage gates search config controls until saved config has loaded", () => {
+test('DashboardPage gates search config controls until saved config has loaded', () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, '<template x-if="!searchConfigLoaded">');
   assertStringIncludes(html, '<template x-if="searchConfigLoaded">');
-  assertStringIncludes(html, "Loading saved search config...");
+  assertStringIncludes(html, 'Loading saved search config...');
 
-  assert(
-    html.indexOf('<template x-if="searchConfigLoaded">') <
-      html.indexOf("Search Provider"),
-  );
-  assert(
-    html.indexOf("Loading saved search config...") <
-      html.indexOf('<template x-if="searchConfigLoaded">'),
-  );
+  assert(html.indexOf('<template x-if="searchConfigLoaded">') < html.indexOf('Search Provider'));
+  assert(html.indexOf('Loading saved search config...') < html.indexOf('<template x-if="searchConfigLoaded">'));
 });
 
-test("DashboardPage renders helper functions inside script without HTML entity encoding", () => {
+test('DashboardPage renders helper functions inside script without HTML entity encoding', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "const draftFromSearchConfig = ");
-  assertStringIncludes(html, "const activeCredentialValue = ");
-  assertStringIncludes(html, "const setActiveCredentialValue = ");
-  assertStringIncludes(html, "const searchConfigFromDraft = ");
-  assertFalse(html.includes("=&gt;"));
-  assertFalse(html.includes("&quot;tavily&quot;"));
+  assertStringIncludes(html, 'const draftFromSearchConfig = ');
+  assertStringIncludes(html, 'const activeCredentialValue = ');
+  assertStringIncludes(html, 'const setActiveCredentialValue = ');
+  assertStringIncludes(html, 'const searchConfigFromDraft = ');
+  assertFalse(html.includes('=&gt;'));
+  assertFalse(html.includes('&quot;tavily&quot;'));
 });
 
-test("DashboardPage no longer ships pricing regexes to the client", () => {
+test('DashboardPage no longer ships pricing regexes to the client', () => {
   const html = DashboardPage().toString();
 
   // Pricing lives in control-plane token-usage code and is applied server-side.
   // before /api/token-usage returns records, so no MODEL_PRICING table or
   // model-name regex should appear in the rendered dashboard script.
-  assertFalse(html.includes("MODEL_PRICING"));
-  assertFalse(html.includes("getModelPricing"));
+  assertFalse(html.includes('MODEL_PRICING'));
+  assertFalse(html.includes('getModelPricing'));
 });
 
-test("DashboardPage renders clickable usage summary metrics for chart axis selection", () => {
+test('DashboardPage renders clickable usage summary metrics for chart axis selection', () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "tokenChartMetric: 'total'");
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('requests')\"");
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('cost')\"");
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('total')\"");
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('input')\"");
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('output')\"");
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('cached')\"");
-  assertStringIncludes(
-    html,
-    "@click=\"switchTokenChartMetric('cachedRate')\"",
-  );
-  assertStringIncludes(html, "@click=\"switchTokenChartMetric('prefill')\"");
-  assertStringIncludes(
-    html,
-    "@click=\"switchTokenChartMetric('cacheCreation')\"",
-  );
-  assertStringIncludes(
-    html,
-    "@click=\"switchTokenChartMetric('cacheHitRate')\"",
-  );
-  assertStringIncludes(html, "Cached Input");
-  assertStringIncludes(html, "Cached Rate");
-  assertStringIncludes(html, "Prefill Input");
-  assertStringIncludes(html, "Est. Cost");
-  assertFalse(html.includes("Prefill Rate"));
-  assertStringIncludes(
-    html,
-    "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4",
-  );
-  assertEquals(
-    html.split('class="grid grid-cols-2 lg:grid-cols-1 gap-2"').length - 1,
-    5,
-  );
-  assertFalse(html.includes("grid grid-cols-2 md:grid-cols-5 gap-4"));
-  assert(html.indexOf("Prefill Input") < html.indexOf("Cached Input"));
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'requests\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'cost\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'total\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'input\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'output\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'cached\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'cachedRate\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'prefill\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'cacheCreation\')"');
+  assertStringIncludes(html, '@click="switchTokenChartMetric(\'cacheHitRate\')"');
+  assertStringIncludes(html, 'Cached Input');
+  assertStringIncludes(html, 'Cached Rate');
+  assertStringIncludes(html, 'Prefill Input');
+  assertStringIncludes(html, 'Est. Cost');
+  assertFalse(html.includes('Prefill Rate'));
+  assertStringIncludes(html, 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4');
+  assertEquals(html.split('class="grid grid-cols-2 lg:grid-cols-1 gap-2"').length - 1, 5);
+  assertFalse(html.includes('grid grid-cols-2 md:grid-cols-5 gap-4'));
+  assert(html.indexOf('Prefill Input') < html.indexOf('Cached Input'));
   assertStringIncludes(html, ":class=\"tokenChartMetric === 'total'");
 });
 
-test("DashboardPage renders cache and prefill tooltip columns without ratio", () => {
+test('DashboardPage renders cache and prefill tooltip columns without ratio', () => {
   const html = DashboardPage().toString();
 
   assertStringIncludes(html, "Cost'.padStart(9)");
@@ -517,47 +477,32 @@ test("DashboardPage renders cache and prefill tooltip columns without ratio", ()
   assertStringIncludes(html, "Output'.padStart(7)");
   assertStringIncludes(html, "Hit%'.padStart(7)");
   assertFalse(html.includes("Ratio'.padStart"));
-  assertFalse(html.includes("renderInputOutputRatio"));
-  assertFalse(html.includes("Output%"));
+  assertFalse(html.includes('renderInputOutputRatio'));
+  assertFalse(html.includes('Output%'));
 });
 
-test("DashboardPage does not embed production usage key ids in public HTML", () => {
+test('DashboardPage does not embed production usage key ids in public HTML', () => {
   const html = DashboardPage().toString();
 
-  assertFalse(html.includes("46360b74-2457-4a38-a116-7afdb2894632"));
-  assertFalse(html.includes("4969165b-3412-436c-87d9-3fd4770164b5"));
-  assertFalse(html.includes("3f2fe5b9-2991-4bb8-bc04-2852f58150ca"));
+  assertFalse(html.includes('46360b74-2457-4a38-a116-7afdb2894632'));
+  assertFalse(html.includes('4969165b-3412-436c-87d9-3fd4770164b5'));
+  assertFalse(html.includes('3f2fe5b9-2991-4bb8-bc04-2852f58150ca'));
 });
 
-test("DashboardPage preserves empty cache hit rate chart points", () => {
+test('DashboardPage preserves empty cache hit rate chart points', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "return total > 0 ? (detail.cacheRead / total) * 100 : null;",
-  );
-  assertStringIncludes(
-    html,
-    "return isTokenChartPercentMetric(this.tokenChartMetric) ? null : 0;",
-  );
-  assertStringIncludes(
-    html,
-    "item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0))",
-  );
+  assertStringIncludes(html, 'return total > 0 ? (detail.cacheRead / total) * 100 : null;');
+  assertStringIncludes(html, 'return isTokenChartPercentMetric(this.tokenChartMetric) ? null : 0;');
+  assertStringIncludes(html, 'item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0)');
 });
 
-test("dashboardApp copies snippets with textarea fallback when Clipboard API is unavailable", async () => {
-  const originalNavigator = Object.getOwnPropertyDescriptor(
-    globalThis,
-    "navigator",
-  );
-  const originalSetTimeout = Object.getOwnPropertyDescriptor(
-    globalThis,
-    "setTimeout",
-  );
+test('dashboardApp copies snippets with textarea fallback when Clipboard API is unavailable', async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const originalSetTimeout = Object.getOwnPropertyDescriptor(globalThis, 'setTimeout');
   const copiedValues: string[] = [];
   const textarea = {
-    value: "",
+    value: '',
     style: {} as Record<string, string>,
     setAttribute() {},
     focus() {},
@@ -568,7 +513,7 @@ test("dashboardApp copies snippets with textarea fallback when Clipboard API is 
       return { id, clientWidth: 640 };
     },
     createElement(tag: string) {
-      assertEquals(tag, "textarea");
+      assertEquals(tag, 'textarea');
       return textarea;
     },
     body: {
@@ -580,17 +525,17 @@ test("dashboardApp copies snippets with textarea fallback when Clipboard API is 
       },
     },
     execCommand(command: string) {
-      assertEquals(command, "copy");
+      assertEquals(command, 'copy');
       copiedValues.push(textarea.value);
       return true;
     },
   };
 
-  Object.defineProperty(globalThis, "navigator", {
+  Object.defineProperty(globalThis, 'navigator', {
     value: {},
     configurable: true,
   });
-  Object.defineProperty(globalThis, "setTimeout", {
+  Object.defineProperty(globalThis, 'setTimeout', {
     value: () => 0,
     configurable: true,
   });
@@ -598,43 +543,34 @@ test("dashboardApp copies snippets with textarea fallback when Clipboard API is 
   try {
     const { app } = createDashboardHarness({ document });
 
-    await app.copySnippet("test-api-key", "key-1");
+    await app.copySnippet('test-api-key', 'key-1');
 
-    assertEquals(copiedValues, ["test-api-key"]);
-    assertEquals(app.copied, "key-1");
+    assertEquals(copiedValues, ['test-api-key']);
+    assertEquals(app.copied, 'key-1');
   } finally {
     if (originalNavigator) {
-      Object.defineProperty(globalThis, "navigator", originalNavigator);
+      Object.defineProperty(globalThis, 'navigator', originalNavigator);
     }
     if (originalSetTimeout) {
-      Object.defineProperty(globalThis, "setTimeout", originalSetTimeout);
+      Object.defineProperty(globalThis, 'setTimeout', originalSetTimeout);
     }
   }
 });
 
-test("DashboardPage filters search usage tooltip items independently from token metric", () => {
+test('DashboardPage filters search usage tooltip items independently from token metric', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "filter: (item) => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : (isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0))",
-  );
+  assertStringIncludes(html, 'filter: item => item.parsed.y !== null && (isSearchChart ? item.parsed.y > 0 : isTokenChartPercentMetric(self.tokenChartMetric) || item.parsed.y > 0)');
 });
 
-test("DashboardPage connects percent metric lines across empty points", () => {
+test('DashboardPage connects percent metric lines across empty points', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "ds.spanGaps = isPercentMetric;",
-  );
-  assertStringIncludes(
-    html,
-    "spanGaps: isTokenChartPercentMetric(self.tokenChartMetric)",
-  );
+  assertStringIncludes(html, 'ds.spanGaps = isPercentMetric;');
+  assertStringIncludes(html, 'spanGaps: isTokenChartPercentMetric(self.tokenChartMetric)');
 });
 
-test("dashboardApp updates chart data and options when switching summary metrics", () => {
+test('dashboardApp updates chart data and options when switching summary metrics', () => {
   const { app, charts } = createDashboardHarness();
   app.tokenData = [
     usageRecord(-2, {
@@ -663,9 +599,9 @@ test("dashboardApp updates chart data and options when switching summary metrics
   app.renderTokenCharts();
   assertEquals(charts.length, 2);
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Total Tokens");
+    assertEquals(chart.options.scales.y.title.text, 'Total Tokens');
     assertEquals(chart.options.scales.y.stacked, true);
-    assertEquals(chart.data.datasets[0].fill, "stack");
+    assertEquals(chart.data.datasets[0].fill, 'stack');
     assertEquals(chart.data.datasets[0].spanGaps, false);
     assertFalse(chart.data.datasets[0].data.includes(null));
     assert(chart.data.datasets[0].data.includes(15));
@@ -673,10 +609,10 @@ test("dashboardApp updates chart data and options when switching summary metrics
     assert(chart.data.datasets[0].data.includes(10));
   }
 
-  app.switchTokenChartMetric("cacheHitRate");
-  assertEquals(app.tokenChartMetric, "cacheHitRate");
+  app.switchTokenChartMetric('cacheHitRate');
+  assertEquals(app.tokenChartMetric, 'cacheHitRate');
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Cache Hit Rate");
+    assertEquals(chart.options.scales.y.title.text, 'Cache Hit Rate');
     assertEquals(chart.options.scales.y.stacked, false);
     assertEquals(chart.options.scales.y.suggestedMax, 100);
     assertEquals(chart.data.datasets[0].fill, false);
@@ -686,13 +622,13 @@ test("dashboardApp updates chart data and options when switching summary metrics
     assert(chart.data.datasets[0].data.includes(null));
   }
 
-  app.switchTokenChartMetric("cached");
-  assertEquals(app.tokenChartMetric, "cached");
+  app.switchTokenChartMetric('cached');
+  assertEquals(app.tokenChartMetric, 'cached');
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Cached Input");
+    assertEquals(chart.options.scales.y.title.text, 'Cached Input');
     assertEquals(chart.options.scales.y.stacked, true);
     assertEquals(chart.options.scales.y.suggestedMax, undefined);
-    assertEquals(chart.data.datasets[0].fill, "stack");
+    assertEquals(chart.data.datasets[0].fill, 'stack');
     assertEquals(chart.data.datasets[0].spanGaps, false);
     assertFalse(chart.data.datasets[0].data.includes(null));
     assert(chart.data.datasets[0].data.includes(5));
@@ -700,10 +636,10 @@ test("dashboardApp updates chart data and options when switching summary metrics
     assert(chart.data.datasets[0].data.includes(3));
   }
 
-  app.switchTokenChartMetric("cachedRate");
-  assertEquals(app.tokenChartMetric, "cachedRate");
+  app.switchTokenChartMetric('cachedRate');
+  assertEquals(app.tokenChartMetric, 'cachedRate');
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Cached Rate");
+    assertEquals(chart.options.scales.y.title.text, 'Cached Rate');
     assertEquals(chart.options.scales.y.stacked, false);
     assertEquals(chart.options.scales.y.suggestedMax, 100);
     assertEquals(chart.data.datasets[0].fill, false);
@@ -712,13 +648,13 @@ test("dashboardApp updates chart data and options when switching summary metrics
     assert(chart.data.datasets[0].data.includes(0));
   }
 
-  app.switchTokenChartMetric("prefill");
-  assertEquals(app.tokenChartMetric, "prefill");
+  app.switchTokenChartMetric('prefill');
+  assertEquals(app.tokenChartMetric, 'prefill');
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Prefill Input");
+    assertEquals(chart.options.scales.y.title.text, 'Prefill Input');
     assertEquals(chart.options.scales.y.stacked, true);
     assertEquals(chart.options.scales.y.suggestedMax, undefined);
-    assertEquals(chart.data.datasets[0].fill, "stack");
+    assertEquals(chart.data.datasets[0].fill, 'stack');
     assertEquals(chart.data.datasets[0].spanGaps, false);
     assertFalse(chart.data.datasets[0].data.includes(null));
     assert(chart.data.datasets[0].data.includes(5));
@@ -726,13 +662,13 @@ test("dashboardApp updates chart data and options when switching summary metrics
     assert(chart.data.datasets[0].data.includes(3));
   }
 
-  app.switchTokenChartMetric("requests");
-  assertEquals(app.tokenChartMetric, "requests");
+  app.switchTokenChartMetric('requests');
+  assertEquals(app.tokenChartMetric, 'requests');
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Requests");
+    assertEquals(chart.options.scales.y.title.text, 'Requests');
     assertEquals(chart.options.scales.y.stacked, true);
     assertEquals(chart.options.scales.y.suggestedMax, undefined);
-    assertEquals(chart.data.datasets[0].fill, "stack");
+    assertEquals(chart.data.datasets[0].fill, 'stack');
     assertEquals(chart.data.datasets[0].spanGaps, false);
     assertFalse(chart.data.datasets[0].data.includes(null));
     assert(chart.data.datasets[0].data.includes(2));
@@ -741,12 +677,12 @@ test("dashboardApp updates chart data and options when switching summary metrics
   }
 });
 
-test("dashboardApp surfaces backend-precomputed cost on chart and summary", () => {
+test('dashboardApp surfaces backend-precomputed cost on chart and summary', () => {
   const { app, charts } = createDashboardHarness();
   const expectedCost = 0.0004185;
   app.tokenData = [
     usageRecord(0, {
-      model: "claude-sonnet-4",
+      model: 'claude-sonnet-4',
       inputTokens: 100,
       outputTokens: 10,
       cacheReadTokens: 20,
@@ -756,20 +692,18 @@ test("dashboardApp surfaces backend-precomputed cost on chart and summary", () =
   ];
 
   app.renderTokenCharts();
-  app.switchTokenChartMetric("cost");
+  app.switchTokenChartMetric('cost');
 
   assertAlmostEquals(app.tokenSummary.cost, expectedCost, 1e-10);
   for (const chart of charts) {
-    assertEquals(chart.options.scales.y.title.text, "Est. Cost");
-    const nonZeroValues = chart.data.datasets[0].data.filter((v) =>
-      typeof v === "number" && v > 0
-    );
+    assertEquals(chart.options.scales.y.title.text, 'Est. Cost');
+    const nonZeroValues = chart.data.datasets[0].data.filter(v => typeof v === 'number' && v > 0);
     assertEquals(nonZeroValues.length, 1);
     assertAlmostEquals(nonZeroValues[0] as number, expectedCost, 1e-10);
   }
 });
 
-test("dashboardApp tooltip shows cached and prefill columns without ratio", () => {
+test('dashboardApp tooltip shows cached and prefill columns without ratio', () => {
   const { app, charts } = createDashboardHarness();
   app.tokenData = [
     usageRecord(0, {
@@ -785,7 +719,7 @@ test("dashboardApp tooltip shows cached and prefill columns without ratio", () =
 
   const chart = charts[0];
   const dataset = chart.data.datasets[0];
-  const dataIndex = dataset.data.findIndex((v) => v === 120);
+  const dataIndex = dataset.data.findIndex(v => v === 120);
   assert(dataIndex >= 0);
 
   const callbacks = chart.options.plugins?.tooltip?.callbacks;
@@ -800,201 +734,192 @@ test("dashboardApp tooltip shows cached and prefill columns without ratio", () =
     parsed: { y: 120 },
   });
 
-  assertStringIncludes(String(header), "Cost");
-  assertStringIncludes(String(header), "Cached%");
-  assertFalse(String(header).includes("Prefill%"));
-  assertStringIncludes(String(header), "Output");
-  assertStringIncludes(String(header), "Hit%");
-  assertFalse(String(header).includes("Ratio"));
-  assertStringIncludes(row, "120");
-  assertStringIncludes(row, "30");
-  assertStringIncludes(row, "30.0%");
-  assertStringIncludes(row, "70");
-  assertStringIncludes(row, "20");
-  assertFalse(row.includes("5.00x"));
-  assertStringIncludes(row, "75.0%");
+  assertStringIncludes(String(header), 'Cost');
+  assertStringIncludes(String(header), 'Cached%');
+  assertFalse(String(header).includes('Prefill%'));
+  assertStringIncludes(String(header), 'Output');
+  assertStringIncludes(String(header), 'Hit%');
+  assertFalse(String(header).includes('Ratio'));
+  assertStringIncludes(row, '120');
+  assertStringIncludes(row, '30');
+  assertStringIncludes(row, '30.0%');
+  assertStringIncludes(row, '70');
+  assertStringIncludes(row, '20');
+  assertFalse(row.includes('5.00x'));
+  assertStringIncludes(row, '75.0%');
 });
 
-test("dashboardApp keeps known usage key colors on selected slots when earlier keys are absent", () => {
+test('dashboardApp keeps known usage key colors on selected slots when earlier keys are absent', () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenData = [
     usageRecord(-1, {
-      keyId: "4969165b-3412-436c-87d9-3fd4770164b5",
-      keyName: "Menci",
-      keyCreatedAt: "2026-03-09T09:48:00.125Z",
+      keyId: '4969165b-3412-436c-87d9-3fd4770164b5',
+      keyName: 'Menci',
+      keyCreatedAt: '2026-03-09T09:48:00.125Z',
     }),
     usageRecord(0, {
-      keyId: "3f2fe5b9-2991-4bb8-bc04-2852f58150ca",
-      keyName: "ceerRep",
-      keyCreatedAt: "2026-04-22T14:20:03.256Z",
+      keyId: '3f2fe5b9-2991-4bb8-bc04-2852f58150ca',
+      keyName: 'ceerRep',
+      keyCreatedAt: '2026-04-22T14:20:03.256Z',
     }),
   ];
 
   app.renderTokenCharts();
 
   const keyChart = charts[0];
-  const menci = keyChart.data.datasets.find((ds: ChartDataset) =>
-    ds._keyId === "4969165b-3412-436c-87d9-3fd4770164b5"
-  );
-  const ceerRep = keyChart.data.datasets.find((ds: ChartDataset) =>
-    ds._keyId === "3f2fe5b9-2991-4bb8-bc04-2852f58150ca"
-  );
+  const menci = keyChart.data.datasets.find((ds: ChartDataset) => ds._keyId === '4969165b-3412-436c-87d9-3fd4770164b5');
+  const ceerRep = keyChart.data.datasets.find((ds: ChartDataset) => ds._keyId === '3f2fe5b9-2991-4bb8-bc04-2852f58150ca');
   assert(menci);
   assert(ceerRep);
-  assertEquals(menci.borderColor, "#00e676");
-  assertEquals(menci.backgroundColor, "#00e67640");
-  assertEquals(ceerRep.borderColor, "#64ffda");
-  assertEquals(ceerRep.backgroundColor, "#64ffda40");
+  assertEquals(menci.borderColor, '#00e676');
+  assertEquals(menci.backgroundColor, '#00e67640');
+  assertEquals(ceerRep.borderColor, '#64ffda');
+  assertEquals(ceerRep.backgroundColor, '#64ffda40');
 });
 
-test("dashboardApp assigns new usage keys to reordered future color slots by creation order", () => {
+test('dashboardApp assigns new usage keys to reordered future color slots by creation order', () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenData = [
     usageRecord(-3, {
-      keyId: "new-key-1",
-      keyName: "Future A",
-      keyCreatedAt: "2026-05-01T00:00:00.000Z",
+      keyId: 'new-key-1',
+      keyName: 'Future A',
+      keyCreatedAt: '2026-05-01T00:00:00.000Z',
     }),
     usageRecord(-2, {
-      keyId: "new-key-2",
-      keyName: "Future B",
-      keyCreatedAt: "2026-05-02T00:00:00.000Z",
+      keyId: 'new-key-2',
+      keyName: 'Future B',
+      keyCreatedAt: '2026-05-02T00:00:00.000Z',
     }),
     usageRecord(-1, {
-      keyId: "new-key-3",
-      keyName: "Future C",
-      keyCreatedAt: "2026-05-03T00:00:00.000Z",
+      keyId: 'new-key-3',
+      keyName: 'Future C',
+      keyCreatedAt: '2026-05-03T00:00:00.000Z',
     }),
   ];
 
   app.renderTokenCharts();
 
   const keyChart = charts[0];
-  const colorsByKey = new Map(
-    keyChart.data.datasets.map((ds: ChartDataset) => [
-      ds._keyId,
-      ds.borderColor,
-    ]),
-  );
-  assertEquals(colorsByKey.get("new-key-1"), "#ff6e40");
-  assertEquals(colorsByKey.get("new-key-2"), "#40c4ff");
-  assertEquals(colorsByKey.get("new-key-3"), "#eeff41");
+  const colorsByKey = new Map(keyChart.data.datasets.map((ds: ChartDataset) => [ds._keyId, ds.borderColor]));
+  assertEquals(colorsByKey.get('new-key-1'), '#ff6e40');
+  assertEquals(colorsByKey.get('new-key-2'), '#40c4ff');
+  assertEquals(colorsByKey.get('new-key-3'), '#eeff41');
 });
 
-test("dashboardApp keeps future key colors stable when an earlier future key is absent", () => {
+test('dashboardApp keeps future key colors stable when an earlier future key is absent', () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenKeyMetadata = [
     {
-      id: "new-key-1",
-      name: "Future A",
-      createdAt: "2026-05-01T00:00:00.000Z",
+      id: 'new-key-1',
+      name: 'Future A',
+      createdAt: '2026-05-01T00:00:00.000Z',
     },
     {
-      id: "new-key-2",
-      name: "Future B",
-      createdAt: "2026-05-02T00:00:00.000Z",
+      id: 'new-key-2',
+      name: 'Future B',
+      createdAt: '2026-05-02T00:00:00.000Z',
     },
   ];
   app.tokenData = [
     usageRecord(-1, {
-      keyId: "new-key-2",
-      keyName: "Future B",
-      keyCreatedAt: "2026-05-02T00:00:00.000Z",
+      keyId: 'new-key-2',
+      keyName: 'Future B',
+      keyCreatedAt: '2026-05-02T00:00:00.000Z',
     }),
   ];
 
   app.renderTokenCharts();
 
   const keyChart = charts[0];
-  assertEquals(keyChart.data.datasets[0]._keyId, "new-key-2");
-  assertEquals(keyChart.data.datasets[0].borderColor, "#40c4ff");
-  assertEquals(keyChart.data.datasets[0].backgroundColor, "#40c4ff40");
+  assertEquals(keyChart.data.datasets[0]._keyId, 'new-key-2');
+  assertEquals(keyChart.data.datasets[0].borderColor, '#40c4ff');
+  assertEquals(keyChart.data.datasets[0].backgroundColor, '#40c4ff40');
 });
 
-test("dashboardApp uses key id to break future key creation-time ties", () => {
+test('dashboardApp uses key id to break future key creation-time ties', () => {
   const { app, charts } = createDashboardHarness();
   app.tokenKeyColorOrder = TEST_USAGE_KEY_COLOR_ORDER;
   app.tokenKeyMetadata = [
     {
-      id: "new-key-b",
-      name: "Alpha renamed",
-      createdAt: "2026-05-01T00:00:00.000Z",
+      id: 'new-key-b',
+      name: 'Alpha renamed',
+      createdAt: '2026-05-01T00:00:00.000Z',
     },
     {
-      id: "new-key-a",
-      name: "Zulu renamed",
-      createdAt: "2026-05-01T00:00:00.000Z",
+      id: 'new-key-a',
+      name: 'Zulu renamed',
+      createdAt: '2026-05-01T00:00:00.000Z',
     },
   ];
   app.tokenData = [
     usageRecord(-1, {
-      keyId: "new-key-b",
-      keyName: "Alpha renamed",
-      keyCreatedAt: "2026-05-01T00:00:00.000Z",
+      keyId: 'new-key-b',
+      keyName: 'Alpha renamed',
+      keyCreatedAt: '2026-05-01T00:00:00.000Z',
     }),
   ];
 
   app.renderTokenCharts();
 
   const keyChart = charts[0];
-  assertEquals(keyChart.data.datasets[0]._keyId, "new-key-b");
-  assertEquals(keyChart.data.datasets[0].borderColor, "#40c4ff");
-  assertEquals(keyChart.data.datasets[0].backgroundColor, "#40c4ff40");
+  assertEquals(keyChart.data.datasets[0]._keyId, 'new-key-b');
+  assertEquals(keyChart.data.datasets[0].borderColor, '#40c4ff');
+  assertEquals(keyChart.data.datasets[0].backgroundColor, '#40c4ff40');
 });
 
-test("dashboardApp keeps model colors on known model-id slots when earlier models are absent", () => {
+test('dashboardApp keeps model colors on known model-id slots when earlier models are absent', () => {
   const { app, charts } = createDashboardHarness();
-  app.allModels = [{ id: "model-a" }, { id: "model-b" }];
+  app.allModels = [{ id: 'model-a' }, { id: 'model-b' }];
   app.tokenData = [
     usageRecord(0, {
-      model: "model-b",
+      model: 'model-b',
     }),
   ];
 
   app.renderTokenCharts();
 
   const modelChart = charts[1];
-  assertEquals(modelChart.data.datasets[0]._model, "model-b");
-  assertEquals(modelChart.data.datasets[0].borderColor, "#00e676");
-  assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
+  assertEquals(modelChart.data.datasets[0]._model, 'model-b');
+  assertEquals(modelChart.data.datasets[0].borderColor, '#00e676');
+  assertEquals(modelChart.data.datasets[0].backgroundColor, '#00e67640');
 });
 
-test("dashboardApp uses merged-id model labels straight from the API", () => {
+test('dashboardApp uses merged-id model labels straight from the API', () => {
   const { app, charts } = createDashboardHarness();
-  app.allModels = [{ id: "claude-opus-4-7" }, { id: "claude-sonnet-4-7" }];
+  app.allModels = [{ id: 'claude-opus-4-7' }, { id: 'claude-sonnet-4-7' }];
   app.tokenData = [
     usageRecord(0, {
-      model: "claude-sonnet-4-7",
+      model: 'claude-sonnet-4-7',
     }),
   ];
 
   app.renderTokenCharts();
 
   const modelChart = charts[1];
-  assertEquals(modelChart.data.datasets[0]._model, "claude-sonnet-4-7");
-  assertEquals(modelChart.data.datasets[0].borderColor, "#00e676");
-  assertEquals(modelChart.data.datasets[0].backgroundColor, "#00e67640");
+  assertEquals(modelChart.data.datasets[0]._model, 'claude-sonnet-4-7');
+  assertEquals(modelChart.data.datasets[0].borderColor, '#00e676');
+  assertEquals(modelChart.data.datasets[0].backgroundColor, '#00e67640');
 });
 
-test("dashboardApp aggregates usage rows that already share a merged model id", () => {
+test('dashboardApp aggregates usage rows that already share a merged model id', () => {
   const { app, charts } = createDashboardHarness();
-  app.allModels = [{ id: "claude-opus-4-7" }];
+  app.allModels = [{ id: 'claude-opus-4-7' }];
   app.tokenData = [
     usageRecord(0, {
-      model: "claude-opus-4-7",
+      model: 'claude-opus-4-7',
       inputTokens: 2,
       outputTokens: 3,
     }),
     usageRecord(0, {
-      model: "claude-opus-4-7",
+      model: 'claude-opus-4-7',
       inputTokens: 5,
       outputTokens: 7,
     }),
     usageRecord(0, {
-      model: "claude-opus-4-7",
+      model: 'claude-opus-4-7',
       inputTokens: 11,
       outputTokens: 13,
     }),
@@ -1004,53 +929,53 @@ test("dashboardApp aggregates usage rows that already share a merged model id", 
 
   const modelChart = charts[1];
   assertEquals(modelChart.data.datasets.length, 1);
-  assertEquals(modelChart.data.datasets[0]._model, "claude-opus-4-7");
+  assertEquals(modelChart.data.datasets[0]._model, 'claude-opus-4-7');
   assertEquals(
-    modelChart.data.datasets[0].data.filter((value) => value !== 0),
+    modelChart.data.datasets[0].data.filter(value => value !== 0),
     [41],
   );
 });
 
-test("dashboardApp consumes merged model ids straight from /api/models", async () => {
+test('dashboardApp consumes merged model ids straight from /api/models', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (input) => {
+  globalThis.fetch = input => {
     const url = String(input);
-    if (url.startsWith("/api/models")) {
+    if (url.startsWith('/api/models')) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             data: [
               {
-                id: "claude-opus-4-7",
-                name: "Claude Opus 4.7",
+                id: 'claude-opus-4-7',
+                name: 'Claude Opus 4.7',
                 model_picker_enabled: true,
                 capabilities: {
-                  type: "chat",
+                  type: 'chat',
                   limits: {
                     max_context_window_tokens: 1000000,
                     max_prompt_tokens: 936000,
                     max_output_tokens: 64000,
                   },
                 },
-                supported_endpoints: ["/v1/messages"],
+                supported_endpoints: ['/v1/messages'],
               },
               {
-                id: "claude-sonnet-4-7",
-                name: "Claude Sonnet 4.7",
+                id: 'claude-sonnet-4-7',
+                name: 'Claude Sonnet 4.7',
                 model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/responses"],
+                capabilities: { type: 'chat', limits: {} },
+                supported_endpoints: ['/responses'],
               },
               {
-                id: "gpt-5.5",
-                name: "GPT 5.5",
+                id: 'gpt-5.5',
+                name: 'GPT 5.5',
                 model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/responses"],
+                capabilities: { type: 'chat', limits: {} },
+                supported_endpoints: ['/responses'],
               },
             ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
     }
@@ -1061,85 +986,79 @@ test("dashboardApp consumes merged model ids straight from /api/models", async (
     const { app } = createDashboardHarness();
     await app.loadModels();
 
-    assertEquals(app.allModels.map((m: { id: string }) => m.id), [
-      "claude-opus-4-7",
-      "claude-sonnet-4-7",
-      "gpt-5.5",
-    ]);
     assertEquals(
-      app.filteredChatModels
-        .filter((m: { _divider?: boolean }) => !m._divider)
-        .map((m: { id: string }) => m.id),
-      ["claude-opus-4-7", "claude-sonnet-4-7", "gpt-5.5"],
+      app.allModels.map((m: { id: string }) => m.id),
+      ['claude-opus-4-7', 'claude-sonnet-4-7', 'gpt-5.5'],
     );
-    assertEquals(app.claudeModelsBig, ["claude-opus-4-7"]);
-    assertEquals(app.codexModels, ["gpt-5.5", "claude-sonnet-4-7"]);
-    app.codexModel = "claude-sonnet-4-7";
+    assertEquals(
+      app.filteredChatModels.filter((m: { _divider?: boolean }) => !m._divider).map((m: { id: string }) => m.id),
+      ['claude-opus-4-7', 'claude-sonnet-4-7', 'gpt-5.5'],
+    );
+    assertEquals(app.claudeModelsBig, ['claude-opus-4-7']);
+    assertEquals(app.codexModels, ['gpt-5.5', 'claude-sonnet-4-7']);
+    app.codexModel = 'claude-sonnet-4-7';
     assertStringIncludes(app.codexSnippet(), 'model = "claude-sonnet-4-7"');
-    assertStringIncludes(
-      app.claudeCodeSnippet(),
-      "ANTHROPIC_MODEL=claude-opus-4-7[1m]",
-    );
+    assertStringIncludes(app.claudeCodeSnippet(), 'ANTHROPIC_MODEL=claude-opus-4-7[1m]');
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("dashboardApp waits for model metadata before first usage chart render", async () => {
+test('dashboardApp waits for model metadata before first usage chart render', async () => {
   const originalFetch = globalThis.fetch;
   let resolveModels!: () => void;
-  const modelsResponse = new Promise<Response>((resolve) => {
+  const modelsResponse = new Promise<Response>(resolve => {
     resolveModels = () =>
       resolve(
         new Response(
           JSON.stringify({
             data: [
               {
-                id: "model-a",
-                name: "Model A",
+                id: 'model-a',
+                name: 'Model A',
                 model_picker_enabled: true,
                 capabilities: {},
                 supported_endpoints: [],
               },
               {
-                id: "model-b",
-                name: "Model B",
+                id: 'model-b',
+                name: 'Model B',
                 model_picker_enabled: true,
                 capabilities: {},
                 supported_endpoints: [],
               },
             ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
   });
 
-  globalThis.fetch = (input) => {
+  globalThis.fetch = input => {
     const url = String(input);
-    if (url.startsWith("/api/models")) return modelsResponse;
-    if (url.startsWith("/api/token-usage")) {
+    if (url.startsWith('/api/models')) return modelsResponse;
+    if (url.startsWith('/api/token-usage')) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            records: [usageRecord(0, { model: "model-b" })],
+            records: [usageRecord(0, { model: 'model-b' })],
             keys: [],
             keyColorOrder: [],
           }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
     }
-    if (url.startsWith("/api/search-usage")) {
+    if (url.startsWith('/api/search-usage')) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             records: [],
             keys: [],
             keyColorOrder: [],
-            activeProvider: "disabled",
+            activeProvider: 'disabled',
           }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
     }
@@ -1151,7 +1070,7 @@ test("dashboardApp waits for model metadata before first usage chart render", as
     app.$nextTick = () => Promise.resolve();
     const usageReady = app.loadUsageTabData(app.loadModels());
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
     assertEquals(app.tokenLoading, true);
     assertEquals(charts.length, 0);
 
@@ -1160,284 +1079,216 @@ test("dashboardApp waits for model metadata before first usage chart render", as
 
     const modelChart = charts.at(-1);
     assert(modelChart);
-    assertEquals(modelChart.data.datasets[0]._model, "model-b");
-    assertEquals(modelChart.data.datasets[0].borderColor, "#00e676");
+    assertEquals(modelChart.data.datasets[0]._model, 'model-b');
+    assertEquals(modelChart.data.datasets[0].borderColor, '#00e676');
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("DashboardPage usage summary metric focus styling only shows borders on hover or focus-visible", () => {
+test('DashboardPage usage summary metric focus styling only shows borders on hover or focus-visible', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "border border-transparent cursor-pointer transition-colors hover:border-white/10 focus:outline-none focus-visible:border-accent-cyan/40",
-  );
-  assertFalse(html.includes("focus:ring"));
+  assertStringIncludes(html, 'border border-transparent cursor-pointer transition-colors hover:border-white/10 focus:outline-none focus-visible:border-accent-cyan/40');
+  assertFalse(html.includes('focus:ring'));
 });
 
-test("DashboardPage renders mobile-friendly dashboard chrome", () => {
+test('DashboardPage renders mobile-friendly dashboard chrome', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-8",
-  );
-  assertStringIncludes(
-    html,
-    "order-3 flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-surface-800 p-0.5 sm:order-none sm:w-fit",
-  );
-  assertStringIncludes(
-    html,
-    "shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm",
-  );
+  assertStringIncludes(html, 'max-w-6xl mx-auto px-4 sm:px-6 pt-4 sm:pt-5 pb-8');
+  assertStringIncludes(html, 'order-3 flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-surface-800 p-0.5 sm:order-none sm:w-fit');
+  assertStringIncludes(html, 'shrink-0 px-2 py-2 rounded-md text-xs font-medium transition-all sm:px-4 sm:text-sm');
 });
 
-test("DashboardPage renders mobile-friendly admin controls", () => {
+test('DashboardPage renders mobile-friendly admin controls', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center",
-  );
+  assertStringIncludes(html, 'flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center');
   assertStringIncludes(html, 'aria-label="Copy API key"');
   assertStringIncludes(html, 'aria-label="Rename API key"');
   assertStringIncludes(html, 'aria-label="Rotate API key"');
   assertStringIncludes(html, 'aria-label="Delete API key"');
-  assertStringIncludes(html, "min-h-9 min-w-9");
+  assertStringIncludes(html, 'min-h-9 min-w-9');
 });
 
-test("DashboardPage merges Upstream into leftmost Settings tab and places Models before API Keys", () => {
+test('DashboardPage merges Upstream into leftmost Settings tab and places Models before API Keys', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance'] : ['models', 'keys', 'usage', 'performance'];",
-  );
-  assertStringIncludes(
-    html,
-    "const defaultTab = isAdmin ? 'settings' : 'models';",
-  );
+  assertStringIncludes(html, "const TABS = isAdmin ? ['settings', 'models', 'keys', 'usage', 'performance'] : ['models', 'keys', 'usage', 'performance'];");
+  assertStringIncludes(html, "const defaultTab = isAdmin ? 'settings' : 'models';");
   assertFalse(html.includes("switchTab('upstream')"));
   assertFalse(html.includes("tab === 'upstream'"));
 
-  const settings = html.indexOf(
-    ">\n              Settings\n            </button>",
-  );
-  const models = html.indexOf(">\n            Models\n          </button>");
-  const apiKeys = html.indexOf(">\n            API Keys\n          </button>");
+  const settings = html.indexOf('>\n              Settings\n            </button>');
+  const models = html.indexOf('>\n            Models\n          </button>');
+  const apiKeys = html.indexOf('>\n            API Keys\n          </button>');
   assert(settings >= 0);
   assert(models > settings);
   assert(apiKeys > models);
 });
 
-test("DashboardPage renders Settings as masonry settings columns", () => {
+test('DashboardPage renders Settings as masonry settings columns', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "grid grid-cols-1 gap-5 lg:grid-cols-2");
-  assertStringIncludes(html, "flex flex-col gap-5");
-  assertStringIncludes(html, "GitHub Accounts");
-  assertStringIncludes(html, "Copilot Quota");
-  assertStringIncludes(html, "API Endpoints");
-  assertStringIncludes(html, "Web Search");
-  assertStringIncludes(html, "Custom Upstreams");
-  assertStringIncludes(html, "Enabled Fixes");
-  assertStringIncludes(html, "Path Overrides");
-  assertStringIncludes(html, "Export Data");
-  assertStringIncludes(html, "Import Data");
-  assertFalse(html.includes("Data Transfer"));
+  assertStringIncludes(html, 'grid grid-cols-1 gap-5 lg:grid-cols-2');
+  assertStringIncludes(html, 'flex flex-col gap-5');
+  assertStringIncludes(html, 'GitHub Accounts');
+  assertStringIncludes(html, 'Copilot Quota');
+  assertStringIncludes(html, 'API Endpoints');
+  assertStringIncludes(html, 'Web Search');
+  assertStringIncludes(html, 'Custom Upstreams');
+  assertStringIncludes(html, 'Enabled Fixes');
+  assertStringIncludes(html, 'Path Overrides');
+  assertStringIncludes(html, 'Export Data');
+  assertStringIncludes(html, 'Import Data');
+  assertFalse(html.includes('Data Transfer'));
 });
 
-test("DashboardPage renders compact Settings endpoint rows with docs links", () => {
+test('DashboardPage renders compact Settings endpoint rows with docs links', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap",
-  );
-  assertStringIncludes(html, "/v1/messages");
-  assertStringIncludes(html, "Anthropic Messages");
-  assertStringIncludes(html, "https://docs.anthropic.com/en/api/messages");
-  assertStringIncludes(html, "/v1/messages/count_tokens");
-  assertStringIncludes(html, "Anthropic Count Tokens");
-  assertStringIncludes(
-    html,
-    "https://docs.anthropic.com/en/api/messages-count-tokens",
-  );
-  assertStringIncludes(html, "/v1/responses");
-  assertStringIncludes(html, "OpenAI Responses");
-  assertStringIncludes(
-    html,
-    "https://platform.openai.com/docs/api-reference/responses/create",
-  );
-  assertStringIncludes(html, "/v1/chat/completions");
-  assertStringIncludes(html, "OpenAI Chat Completions");
-  assertStringIncludes(
-    html,
-    "https://platform.openai.com/docs/api-reference/chat/create",
-  );
-  assertStringIncludes(html, "/v1/embeddings");
-  assertStringIncludes(html, "OpenAI Embeddings");
-  assertStringIncludes(
-    html,
-    "https://platform.openai.com/docs/api-reference/embeddings/create",
-  );
-  assertStringIncludes(html, "/v1/models");
-  assertStringIncludes(html, "OpenAI Models");
-  assertStringIncludes(
-    html,
-    "https://platform.openai.com/docs/api-reference/models/list",
-  );
+  assertStringIncludes(html, 'flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap');
+  assertStringIncludes(html, '/v1/messages');
+  assertStringIncludes(html, 'Anthropic Messages');
+  assertStringIncludes(html, 'https://docs.anthropic.com/en/api/messages');
+  assertStringIncludes(html, '/v1/messages/count_tokens');
+  assertStringIncludes(html, 'Anthropic Count Tokens');
+  assertStringIncludes(html, 'https://docs.anthropic.com/en/api/messages-count-tokens');
+  assertStringIncludes(html, '/v1/responses');
+  assertStringIncludes(html, 'OpenAI Responses');
+  assertStringIncludes(html, 'https://platform.openai.com/docs/api-reference/responses/create');
+  assertStringIncludes(html, '/v1/chat/completions');
+  assertStringIncludes(html, 'OpenAI Chat Completions');
+  assertStringIncludes(html, 'https://platform.openai.com/docs/api-reference/chat/create');
+  assertStringIncludes(html, '/v1/embeddings');
+  assertStringIncludes(html, 'OpenAI Embeddings');
+  assertStringIncludes(html, 'https://platform.openai.com/docs/api-reference/embeddings/create');
+  assertStringIncludes(html, '/v1/models');
+  assertStringIncludes(html, 'OpenAI Models');
+  assertStringIncludes(html, 'https://platform.openai.com/docs/api-reference/models/list');
 });
 
-test("DashboardPage uses frontend-only selected GitHub account for quota display", () => {
+test('DashboardPage uses frontend-only selected GitHub account for quota display', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "selectedGithubAccountId: null");
+  assertStringIncludes(html, 'selectedGithubAccountId: null');
   assertStringIncludes(html, '@click="selectGithubAccount(acct.id)"');
-  assertStringIncludes(html, "selectedGithubAccountId === acct.id");
+  assertStringIncludes(html, 'selectedGithubAccountId === acct.id');
   assertStringIncludes(html, "'/api/copilot-quota?user_id='");
-  assertStringIncludes(html, "async selectGithubAccount(userId)");
+  assertStringIncludes(html, 'async selectGithubAccount(userId)');
   assertStringIncludes(html, 'class="ml-1 min-w-0 truncate text-gray-500"');
   assertStringIncludes(html, "'· @' + (githubAccounts.find");
-  assertStringIncludes(html, "usageData.copilot_plan");
-  assertFalse(html.includes("Selected account:"));
-  assertFalse(html.includes("/auth/github/switch"));
+  assertStringIncludes(html, 'usageData.copilot_plan');
+  assertFalse(html.includes('Selected account:'));
+  assertFalse(html.includes('/auth/github/switch'));
 });
 
-test("DashboardPage renders Settings import preview responsively", () => {
+test('DashboardPage renders Settings import preview responsively', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4",
-  );
-  assertStringIncludes(html, "flex flex-col gap-3 mb-4 sm:flex-row");
-  assertFalse(html.includes("grid grid-cols-4 gap-3 mb-4"));
+  assertStringIncludes(html, 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4');
+  assertStringIncludes(html, 'flex flex-col gap-3 mb-4 sm:flex-row');
+  assertFalse(html.includes('grid grid-cols-4 gap-3 mb-4'));
 });
 
-test("DashboardPage renders Models playground as a mobile stack", () => {
+test('DashboardPage renders Models playground as a mobile stack', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(
-    html,
-    "glass-card glow-border animate-in flex h-[calc(100dvh-130px)] min-h-[560px] flex-col overflow-hidden lg:h-[calc(100vh-140px)] lg:flex-row",
-  );
-  assertStringIncludes(
-    html,
-    "max-h-56 w-full shrink-0 border-b border-white/[0.06] flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r",
-  );
-  assertFalse(
-    html.includes(
-      'style="height: calc(100vh - 140px); display: flex; overflow: hidden;"',
-    ),
-  );
+  assertStringIncludes(html, 'glass-card glow-border animate-in flex h-[calc(100dvh-130px)] min-h-[560px] flex-col overflow-hidden lg:h-[calc(100vh-140px)] lg:flex-row');
+  assertStringIncludes(html, 'max-h-56 w-full shrink-0 border-b border-white/[0.06] flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r');
+  assertFalse(html.includes('style="height: calc(100vh - 140px); display: flex; overflow: hidden;"'));
 });
 
-test("DashboardPage renders search usage chart after token summary content", () => {
+test('DashboardPage renders search usage chart after token summary content', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "Search Usage — Per Key");
+  assertStringIncludes(html, 'Search Usage — Per Key');
   assertStringIncludes(html, "searchUsageActiveProvider !== 'disabled'");
-  assertStringIncludes(html, "searchUsageChartByKey");
-  assert(
-    html.indexOf("Search Usage — Per Key") > html.indexOf("Cache Hit Rate"),
-  );
+  assertStringIncludes(html, 'searchUsageChartByKey');
+  assert(html.indexOf('Search Usage — Per Key') > html.indexOf('Cache Hit Rate'));
 });
 
-test("DashboardPage import preview includes usage and performance records", () => {
+test('DashboardPage import preview includes usage and performance records', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "searchUsage: 0");
-  assertStringIncludes(html, "performance: 0");
-  assertStringIncludes(
-    html,
-    "searchUsage: Array.isArray(json.data.searchUsage) ? json.data.searchUsage.length : 0",
-  );
-  assertStringIncludes(
-    html,
-    "performance: Array.isArray(json.data.performance) ? json.data.performance.length : 0",
-  );
-  assertStringIncludes(html, "Search Usage Records");
+  assertStringIncludes(html, 'searchUsage: 0');
+  assertStringIncludes(html, 'performance: 0');
+  assertStringIncludes(html, 'searchUsage: Array.isArray(json.data.searchUsage) ? json.data.searchUsage.length : 0');
+  assertStringIncludes(html, 'performance: Array.isArray(json.data.performance) ? json.data.performance.length : 0');
+  assertStringIncludes(html, 'Search Usage Records');
   assertStringIncludes(html, 'x-text="importPreview.searchUsage"');
-  assertStringIncludes(html, "Performance Records");
+  assertStringIncludes(html, 'Performance Records');
   assertStringIncludes(html, 'x-text="importPreview.performance"');
-  assertStringIncludes(
-    html,
-    "result.imported.searchUsage + ' search usage records, '",
-  );
-  assertStringIncludes(
-    html,
-    "result.imported.performance + ' performance records'",
-  );
+  assertStringIncludes(html, 'result.imported.searchUsage');
+  assertStringIncludes(html, "' search usage records, '");
+  assertStringIncludes(html, 'result.imported.performance');
+  assertStringIncludes(html, "' performance records'");
 });
 
-test("DashboardPage makes performance export opt-in", () => {
+test('DashboardPage makes performance export opt-in', () => {
   const html = DashboardPage().toString();
 
-  assertStringIncludes(html, "exportIncludePerformance: false");
-  assertStringIncludes(html, "Include Performance Telemetry");
-  assertStringIncludes(html, "include_performance=1");
+  assertStringIncludes(html, 'exportIncludePerformance: false');
+  assertStringIncludes(html, 'Include Performance Telemetry');
+  assertStringIncludes(html, 'include_performance=1');
 });
 
-test("dashboardApp renders search usage per-key datasets for active provider only", () => {
+test('dashboardApp renders search usage per-key datasets for active provider only', () => {
   const { app, charts } = createDashboardHarness();
-  app.searchUsageActiveProvider = "tavily";
+  app.searchUsageActiveProvider = 'tavily';
   app.searchUsageData = [
     searchUsageRecord(-1, {
-      provider: "tavily",
-      keyId: "key-a",
-      keyName: "Search A",
+      provider: 'tavily',
+      keyId: 'key-a',
+      keyName: 'Search A',
       requests: 5,
     }),
     searchUsageRecord(0, {
-      provider: "microsoft-grounding",
-      keyId: "key-b",
-      keyName: "Search B",
+      provider: 'microsoft-grounding',
+      keyId: 'key-b',
+      keyName: 'Search B',
       requests: 7,
     }),
   ];
 
   app.renderTokenCharts();
 
-  const searchKeyChart = charts.find((chart) =>
-    (chart.canvas as { id?: string }).id === "searchUsageChartByKey"
-  );
+  const searchKeyChart = charts.find(chart => (chart.canvas as { id?: string }).id === 'searchUsageChartByKey');
   assert(searchKeyChart);
   assertEquals(searchKeyChart.data.datasets.length, 1);
-  assertEquals(searchKeyChart.data.datasets[0]._keyId, "key-a");
-  assertEquals(searchKeyChart.data.datasets[0].label, "Search A");
+  assertEquals(searchKeyChart.data.datasets[0]._keyId, 'key-a');
+  assertEquals(searchKeyChart.data.datasets[0].label, 'Search A');
   assert(searchKeyChart.data.datasets[0].data.includes(5));
   assertFalse(searchKeyChart.data.datasets[0].data.includes(7));
 });
 
-test("dashboardApp model search does not crash when model.name is missing", async () => {
+test('dashboardApp model search does not crash when model.name is missing', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input: any) => {
     const url = String(input);
-    if (url.startsWith("/api/models")) {
+    if (url.startsWith('/api/models')) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             data: [
               {
-                id: "custom-model-no-name",
+                id: 'custom-model-no-name',
                 model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/chat/completions"],
+                capabilities: { type: 'chat', limits: {} },
+                supported_endpoints: ['/chat/completions'],
               },
               {
-                id: "named-model",
-                name: "Named Model",
-                display_name: "Friendly Named Model",
+                id: 'named-model',
+                name: 'Named Model',
+                display_name: 'Friendly Named Model',
                 model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/chat/completions"],
+                capabilities: { type: 'chat', limits: {} },
+                supported_endpoints: ['/chat/completions'],
               },
             ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
     }
@@ -1448,61 +1299,53 @@ test("dashboardApp model search does not crash when model.name is missing", asyn
     const { app } = createDashboardHarness();
     await app.loadModels();
 
-    const nameless = app.allModels.find(
-      (m: { id: string }) => m.id === "custom-model-no-name",
-    );
-    assertEquals(nameless.name, "custom-model-no-name");
-    const named = app.allModels.find(
-      (m: { id: string }) => m.id === "named-model",
-    );
-    assertEquals(named.name, "Friendly Named Model");
+    const nameless = app.allModels.find((m: { id: string }) => m.id === 'custom-model-no-name');
+    assertEquals(nameless.name, 'custom-model-no-name');
+    const named = app.allModels.find((m: { id: string }) => m.id === 'named-model');
+    assertEquals(named.name, 'Friendly Named Model');
 
-    app.modelsSearch = "custom";
-    const filtered = app.filteredChatModels
-      .filter((m: { _divider?: boolean }) => !m._divider)
-      .map((m: { id: string }) => m.id);
-    assertEquals(filtered, ["custom-model-no-name"]);
+    app.modelsSearch = 'custom';
+    const filtered = app.filteredChatModels.filter((m: { _divider?: boolean }) => !m._divider).map((m: { id: string }) => m.id);
+    assertEquals(filtered, ['custom-model-no-name']);
 
-    app.modelsSearch = "Friendly";
-    const filtered2 = app.filteredChatModels
-      .filter((m: { _divider?: boolean }) => !m._divider)
-      .map((m: { id: string }) => m.id);
-    assertEquals(filtered2, ["named-model"]);
+    app.modelsSearch = 'Friendly';
+    const filtered2 = app.filteredChatModels.filter((m: { _divider?: boolean }) => !m._divider).map((m: { id: string }) => m.id);
+    assertEquals(filtered2, ['named-model']);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("dashboardApp filteredChatModels excludes embedding-only models", async () => {
+test('dashboardApp filteredChatModels excludes embedding-only models', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input: any) => {
     const url = String(input);
-    if (url.startsWith("/api/models")) {
+    if (url.startsWith('/api/models')) {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             data: [
               {
-                id: "chat-model",
-                name: "Chat Model",
+                id: 'chat-model',
+                name: 'Chat Model',
                 model_picker_enabled: true,
-                capabilities: { type: "chat", limits: {} },
-                supported_endpoints: ["/chat/completions"],
+                capabilities: { type: 'chat', limits: {} },
+                supported_endpoints: ['/chat/completions'],
               },
               {
-                id: "embed-only",
-                name: "Embed Only",
+                id: 'embed-only',
+                name: 'Embed Only',
                 model_picker_enabled: true,
-                supported_endpoints: ["/embeddings"],
+                supported_endpoints: ['/embeddings'],
               },
               {
-                id: "no-caps-embed",
+                id: 'no-caps-embed',
                 model_picker_enabled: true,
-                supported_endpoints: ["/embeddings"],
+                supported_endpoints: ['/embeddings'],
               },
             ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } },
+          { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
     }
@@ -1513,10 +1356,8 @@ test("dashboardApp filteredChatModels excludes embedding-only models", async () 
     const { app } = createDashboardHarness();
     await app.loadModels();
 
-    const ids = app.filteredChatModels
-      .filter((m: { _divider?: boolean }) => !m._divider)
-      .map((m: { id: string }) => m.id);
-    assertEquals(ids, ["chat-model"]);
+    const ids = app.filteredChatModels.filter((m: { _divider?: boolean }) => !m._divider).map((m: { id: string }) => m.id);
+    assertEquals(ids, ['chat-model']);
   } finally {
     globalThis.fetch = originalFetch;
   }

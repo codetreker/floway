@@ -1,4 +1,4 @@
-import type { ModelEndpoint, UpstreamModel } from "./types.ts";
+import type { ModelEndpoint, UpstreamModel } from './types.ts';
 
 export interface ModelCapabilities {
   maxOutputTokens?: number;
@@ -11,22 +11,17 @@ export interface ModelCapabilities {
   supportsAdaptiveThinking: boolean;
 }
 
-export const getModelCapabilities = (
-  model: UpstreamModel,
-): ModelCapabilities => {
+export const getModelCapabilities = (model: UpstreamModel): ModelCapabilities => {
   const supportedEndpoints = model.supportedEndpoints;
 
   return {
     maxOutputTokens: model?.capabilities?.limits?.max_output_tokens,
     supportedEndpoints,
-    supportsMessages: supportedEndpoints.includes("messages"),
-    supportsResponses: supportedEndpoints.includes("responses"),
-    supportsChatCompletions: supportedEndpoints.includes("chat_completions"),
-    supportsMessagesCountTokens: supportedEndpoints.includes(
-      "messages_count_tokens",
-    ),
-    supportsEmbeddings: supportedEndpoints.includes("embeddings"),
-    supportsAdaptiveThinking:
-      model?.capabilities?.supports?.adaptive_thinking === true,
+    supportsMessages: supportedEndpoints.includes('messages'),
+    supportsResponses: supportedEndpoints.includes('responses'),
+    supportsChatCompletions: supportedEndpoints.includes('chat_completions'),
+    supportsMessagesCountTokens: supportedEndpoints.includes('messages_count_tokens'),
+    supportsEmbeddings: supportedEndpoints.includes('embeddings'),
+    supportsAdaptiveThinking: model?.capabilities?.supports?.adaptive_thinking === true,
   };
 };

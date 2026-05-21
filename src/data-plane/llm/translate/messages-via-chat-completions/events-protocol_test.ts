@@ -1,8 +1,9 @@
-import { test } from "vitest";
-import { assertRejects } from "../../../../test-assert.ts";
-import type { ChatCompletionChunk } from "../../../shared/protocol/chat-completions.ts";
-import { eventFrame } from "../../shared/stream/types.ts";
-import { translateToSourceEvents } from "./events.ts";
+import { test } from 'vitest';
+
+import { translateToSourceEvents } from './events.ts';
+import { assertRejects } from '../../../../test-assert.ts';
+import type { ChatCompletionChunk } from '../../../shared/protocol/chat-completions.ts';
+import { eventFrame } from '../../shared/stream/types.ts';
 
 const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   for await (const _frame of frames) {
@@ -10,26 +11,22 @@ const drain = async <T>(frames: AsyncIterable<T>): Promise<void> => {
   }
 };
 
-test("translateToSourceEvents rejects Chat streams without DONE", async () => {
+test('translateToSourceEvents rejects Chat streams without DONE', async () => {
   async function* stream() {
-    yield eventFrame(
-      {
-        id: "chatcmpl_truncated",
-        object: "chat.completion.chunk",
-        created: 123,
-        model: "gpt-test",
-        choices: [{
+    yield eventFrame({
+      id: 'chatcmpl_truncated',
+      object: 'chat.completion.chunk',
+      created: 123,
+      model: 'gpt-test',
+      choices: [
+        {
           index: 0,
-          delta: { role: "assistant", content: "partial" },
-          finish_reason: "stop",
-        }],
-      } satisfies ChatCompletionChunk,
-    );
+          delta: { role: 'assistant', content: 'partial' },
+          finish_reason: 'stop',
+        },
+      ],
+    } satisfies ChatCompletionChunk);
   }
 
-  await assertRejects(
-    async () => await drain(translateToSourceEvents(stream())),
-    Error,
-    "Upstream Chat Completions stream ended without a DONE sentinel.",
-  );
+  await assertRejects(async () => await drain(translateToSourceEvents(stream())), Error, 'Upstream Chat Completions stream ended without a DONE sentinel.');
 });
