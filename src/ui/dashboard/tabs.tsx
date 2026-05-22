@@ -1583,14 +1583,35 @@ export function renderModelsTab() {
         <div class="flex-1 flex flex-col min-w-0 min-h-0">
           <!-- Model info bar -->
           <div x-show="chatModelInfo" class="shrink-0 p-4 border-b border-white/[0.06]">
-            <div class="flex items-start justify-between gap-4">
-              <div class="min-w-0">
-                <h3 class="text-sm font-semibold text-white" x-text="chatModelInfo?.name"></h3>
-                <p class="text-[11px] text-gray-500 mt-0.5 break-all">
-                  <span class="font-mono" x-text="chatModelInfo?.id"></span>
-                  <span class="mx-1 text-gray-700">/</span>
-                  <span x-text="chatModelInfo?.capabilities?.family" class="text-accent-cyan"></span>
-                </p>
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-x-2">
+                  <h3 class="text-sm font-semibold text-white" x-text="chatModelInfo?.name"></h3>
+                  <span x-show="chatModelInfo && chatModelInfo.name !== chatModelInfo.id" class="font-mono text-[11px] text-gray-500 break-all" x-text="chatModelInfo?.id"></span>
+                </div>
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                  <template x-if="chatModelInfo?.capabilities?.limits?.max_context_window_tokens">
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-600 text-gray-400">
+                      context: <span x-text="formatTokenLimit(chatModelInfo.capabilities.limits.max_context_window_tokens)"></span>
+                    </span>
+                  </template>
+                  <template x-if="chatModelInfo?.capabilities?.limits?.max_prompt_tokens">
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-600 text-gray-400">
+                      prompt: <span x-text="formatTokenLimit(chatModelInfo.capabilities.limits.max_prompt_tokens)"></span>
+                    </span>
+                  </template>
+                  <template x-if="chatModelInfo?.capabilities?.limits?.max_output_tokens">
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-600 text-gray-400">
+                      output: <span x-text="formatTokenLimit(chatModelInfo.capabilities.limits.max_output_tokens)"></span>
+                    </span>
+                  </template>
+                  <template x-for="cap in chatModelCaps" :key="cap">
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-accent-cyanGlow text-accent-cyanDim" x-text="cap"></span>
+                  </template>
+                  <template x-for="ep in (chatModelInfo?.supported_endpoints || [])" :key="ep">
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-700 text-gray-500" x-text="ep"></span>
+                  </template>
+                </div>
               </div>
               <button @click="clearChat()" class="btn-ghost text-[11px] flex shrink-0 items-center gap-1" :disabled="chatMessages.length === 0">
                 <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1598,24 +1619,6 @@ export function renderModelsTab() {
                 </svg>
                 Clear
               </button>
-            </div>
-            <div class="flex flex-wrap gap-1.5 mt-2">
-              <template x-if="chatModelInfo?.capabilities?.limits?.max_prompt_tokens">
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-600 text-gray-400">
-                  prompt: <span x-text="Math.round(chatModelInfo.capabilities.limits.max_prompt_tokens/1000)+'K'"></span>
-                </span>
-              </template>
-              <template x-if="chatModelInfo?.capabilities?.limits?.max_output_tokens">
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-600 text-gray-400">
-                  output: <span x-text="Math.round(chatModelInfo.capabilities.limits.max_output_tokens/1000)+'K'"></span>
-                </span>
-              </template>
-              <template x-for="cap in chatModelCaps" :key="cap">
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-accent-cyanGlow text-accent-cyanDim" x-text="cap"></span>
-              </template>
-              <template x-for="ep in (chatModelInfo?.supported_endpoints || [])" :key="ep">
-                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-700 text-gray-500" x-text="ep"></span>
-              </template>
             </div>
           </div>
 

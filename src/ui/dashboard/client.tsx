@@ -81,6 +81,17 @@ export function dashboardAssets() {
           return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
         }
 
+        // K/M with no trailing .0 for whole values; used by model-card limit badges
+        // where 1000000 should render as "1M", not "1.0M" or "1000K".
+        function formatTokenLimit(n) {
+          if (n >= 1e6) {
+            const m = n / 1e6;
+            return (m === Math.floor(m) ? m.toFixed(0) : m.toFixed(1)) + 'M';
+          }
+          const k = n / 1e3;
+          return (k === Math.floor(k) ? k.toFixed(0) : k.toFixed(1)) + 'K';
+        }
+
         function formatDurationMs(ms) {
           if (ms === null || ms === undefined) return '\\u2014';
           if (ms >= 60000) return (ms / 60000).toFixed(1) + 'm';
