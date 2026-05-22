@@ -114,9 +114,9 @@ Gemini source boundary:
   function declarations
 - drops `safetySettings`, which has no upstream target control
 - hides `thought: true` summary parts by default; they are only returned when
-  `generationConfig.thinkingConfig.includeThoughts === true`, while
-  `thoughtSignature` remains attached to the next visible text or function-call
-  action part
+  `generationConfig.thinkingConfig.includeThoughts === true`. Opaque
+  `thoughtSignature` values remain a Gemini source concern for Messages and
+  Chat targets, but are not translated into Responses reasoning state.
 - shapes errors as Google RPC Status payloads while preserving internal debug
   fields for gateway failures
 
@@ -171,9 +171,9 @@ Request mapping shared by the Gemini source translation pairs:
   lacks an ID, the translator pairs it with the earliest unmatched call of the
   same function name, then falls back to a deterministic ID.
 - Gemini `thought: true` text maps to target readable reasoning/thinking.
-- Gemini `thoughtSignature` maps to the target opaque reasoning signature field:
-  Messages `signature` or `redacted_thinking`, Responses `encrypted_content`,
-  and Chat `reasoning_opaque`.
+- Gemini `thoughtSignature` maps to Messages `signature` / `redacted_thinking`
+  or Chat `reasoning_opaque` when those targets are selected. Responses targets
+  ignore Gemini opaque signatures and keep only readable thought text.
 - `thinkingBudget` and `thinkingLevel` map to the target's closest reasoning or
   thinking controls. Budget `0` disables thinking via Messages
   `thinking.disabled`, Responses `reasoning.effort: "none"`, or Chat
@@ -192,10 +192,10 @@ Response mapping shared by the Gemini source translation pairs:
 - Target reasoning summaries or thinking deltas become Gemini thought-summary
   parts internally, then the Gemini source boundary removes them unless the
   client explicitly requested `includeThoughts: true`.
-- Target opaque reasoning signatures become Gemini `thoughtSignature` attached
-  to the next visible text or function-call action part. If no action arrives
-  before the finish event, the signature is flushed on an empty text part so
-  clients can echo it in the next turn.
+- Target opaque reasoning signatures from Messages or Chat become Gemini
+  `thoughtSignature` attached to the next visible text or function-call action
+  part. Responses targets do not emit opaque Gemini signatures; only readable
+  reasoning summaries become thought-summary parts.
 - Target tool/function calls become Gemini `functionCall` parts.
 - Target usage maps to Gemini `usageMetadata`; reasoning/thinking tokens map to
   `thoughtsTokenCount` when available.
@@ -238,17 +238,14 @@ Request mapping:
   source order relative to user text by splitting input items when necessary.
 - assistant text becomes `message` items with `output_text` content.
 - assistant `tool_use` blocks become `function_call` items.
-- assistant `thinking` and `redacted_thinking` blocks become `reasoning` input
-  items; `signature` / redacted data maps to `encrypted_content`. When the
-  opaque payload is packed as `${encrypted_content}@${id}`, the original
-  Responses reasoning item id is recovered.
+- assistant `thinking` blocks with readable text become `reasoning` input
+  items. `thinking.signature` and `redacted_thinking` data are ignored because
+  translated Responses requests do not bridge opaque encrypted reasoning.
 - `max_tokens`, `temperature`, `top_p`, `metadata`, and `stream` pass through
   when present.
 - `output_config.effort` maps directly to `reasoning.effort`; disabled thinking
   maps to `reasoning.effort: "none"`; enabled thinking without explicit effort
   is omitted.
-- `include: ["reasoning.encrypted_content"]` is added when explicit request-side
-  reasoning is present.
 - Messages tools become Responses function tools. Omitted Messages `strict`
   becomes Responses `strict: false`, preserving non-strict default behavior.
 - `tool_choice` maps `auto` -> `auto`, `any` -> `required`, named tool -> named
@@ -256,9 +253,9 @@ Request mapping:
 
 Response mapping:
 
-- assistant `thinking` / `redacted_thinking` output becomes Responses
-  `reasoning` output items; packed `${encrypted_content}@${id}` payloads recover
-  the original Responses item id.
+- assistant `thinking` output with readable text becomes Responses `reasoning`
+  output items. `redacted_thinking` and `signature_delta` data are ignored on
+  translated Responses responses.
 - assistant text becomes `message` output items and contributes to
   `output_text`.
 - assistant `tool_use` becomes `function_call` output items.
@@ -271,10 +268,8 @@ Known losses:
 
 - `stop_sequences`, `top_k`, and Messages `service_tier` have no Responses
   request counterpart and are omitted.
-- unpacked Anthropic signatures have no Responses item id slot, so the gateway
-  synthesizes `rs_*` ids for them. If such a payload was originally bound by an
-  upstream to a different Responses item id, upstream verification may still
-  fail; packed gateway-issued payloads avoid that loss.
+- Anthropic opaque thinking signatures have no Responses request counterpart on
+  translated paths and are omitted.
 - Anthropic `thinking: { type: "enabled" }` without explicit effort has no
   Responses request-side equivalent and is not emulated.
 
@@ -292,10 +287,8 @@ Request mapping:
 - `function_call` becomes assistant `tool_use`.
 - `function_call_output` becomes user `tool_result`; incomplete status marks the
   tool result as an error.
-- `reasoning` with readable summary becomes `thinking`; opaque-only reasoning
-  becomes `redacted_thinking`; `encrypted_content` maps to `signature` / data as
-  `${encrypted_content}@${id}` so the Responses reasoning item id survives the
-  Messages round-trip.
+- `reasoning` with readable summary becomes `thinking`; opaque-only reasoning is
+  omitted.
 - `max_output_tokens`, `temperature`, `top_p`, and `stream` pass through when
   present.
 - `reasoning.effort: "none"` maps to disabled thinking; any other explicit
@@ -307,8 +300,8 @@ Request mapping:
 Response mapping:
 
 - Responses output items are converted in output order.
-- `reasoning` maps to `thinking` or `redacted_thinking`, packing
-  `${encrypted_content}@${id}` when opaque reasoning is present.
+- `reasoning` maps to `thinking` only when it carries readable summary text;
+  opaque-only reasoning is omitted.
 - `message` content maps to text. `refusal` content is kept visible as text
   because Messages has no local refusal block.
 - `function_call` maps to `tool_use`.
@@ -400,8 +393,8 @@ Known losses:
 
 - Chat `message.name`, legacy `user`, and generic Chat metadata are omitted on
   translated Messages paths.
-- Chat `reasoning_items[]` is not a Messages bridge; it is only used for the
-  Chat <-> Responses path.
+- Chat `reasoning_items[]` is not a Messages bridge; readable summaries in that
+  shape are only used for the Chat <-> Responses path.
 - Chat image `detail` is not represented in Messages.
 - Multiple choices lose choice index and separation.
 
@@ -417,26 +410,24 @@ Request mapping:
 - assistant text becomes Responses assistant `output_text` content.
 - assistant `tool_calls` become `function_call` input items.
 - Chat `tool` messages become `function_call_output` input items.
-- Chat `reasoning_items[]` is preferred as the lossless Responses reasoning
-  carrier. If absent, scalar `reasoning_text` / `reasoning_opaque` becomes one
-  Responses `reasoning` item.
+- Chat `reasoning_items[]` entries with readable summaries are preferred over
+  scalar reasoning. If absent, scalar `reasoning_text` becomes one Responses
+  `reasoning` item; scalar `reasoning_opaque` is ignored.
 - `temperature`, `top_p`, `max_tokens` -> `max_output_tokens`, `metadata`,
   `stream`, `store`, `parallel_tool_calls`, `prompt_cache_key`,
   `safety_identifier`, and `service_tier` pass through when present.
 - `reasoning_effort` maps directly to `reasoning.effort` only when explicit.
 - `response_format` maps directly to Responses `text.format`, including explicit
   `null`.
-- `include: ["reasoning.encrypted_content"]` is always requested so opaque
-  reasoning can round-trip.
 - OpenAI function tools become Responses tools. Explicit `strict` is preserved;
   omitted Chat `strict` becomes Responses `strict: false`.
 
 Response mapping:
 
-- Chat `reasoning_items[]` is preferred over scalar reasoning and becomes
-  Responses reasoning output items.
-- scalar reasoning becomes one Responses reasoning output item when no carrier
-  is present.
+- Chat `reasoning_items[]` entries with readable summaries are preferred over
+  scalar reasoning and become Responses reasoning output items.
+- scalar `reasoning_text` becomes one Responses reasoning output item when no
+  readable carrier is present; scalar `reasoning_opaque` is ignored.
 - Chat content becomes one Responses `message` output item.
 - Chat tool calls become Responses `function_call` output items.
 - terminal Responses output is ordered by `output_index`, not completion time.
@@ -455,9 +446,9 @@ Request mapping:
 - `instructions` becomes a leading Chat `system` message.
 - string input becomes a user message.
 - input `message` items become Chat messages with matching roles.
-- input `reasoning` items attach to the surrounding assistant message as
-  `reasoning_items[]`; the first scalar-eligible group also projects to
-  `reasoning_text` / `reasoning_opaque`.
+- input `reasoning` items with readable summaries attach to the surrounding
+  assistant message as `reasoning_items[]`; the first scalar-eligible group also
+  projects to `reasoning_text`.
 - `function_call` items become assistant `tool_calls`.
 - `function_call_output` items become Chat `tool` messages.
 - `max_output_tokens`, `stream`, `temperature`, `top_p`, `metadata`, `store`,
@@ -472,10 +463,11 @@ Response mapping:
 - Responses `message` output text becomes Chat assistant `content`; refusal text
   is kept visible as text.
 - Responses `function_call` output becomes Chat `tool_calls`.
-- every Responses reasoning output item is preserved in Chat
-  `reasoning_items[]`.
-- legacy scalar `reasoning_text` / `reasoning_opaque` projects only the first
-  scalar-eligible reasoning group.
+- every Responses reasoning output item with readable summary text is preserved
+  in Chat `reasoning_items[]`.
+- legacy scalar `reasoning_text` projects only the first scalar-eligible
+  reasoning group; no `reasoning_opaque` value is synthesized from Responses
+  reasoning.
 - max-output incomplete maps to Chat `finish_reason: "length"`; completed with
   tool calls maps to `tool_calls`; other completed responses map to `stop`.
 
@@ -485,8 +477,8 @@ Known losses:
   explicit effort.
 - `previous_response_id` and other Responses-native state are not emulated on
   translated Chat paths.
-- multiple opaque reasoning blobs are never concatenated into scalar
-  `reasoning_opaque`; use `reasoning_items[]` for lossless transport.
+- opaque Responses reasoning state is not requested, translated, or preserved on
+  Chat fallback paths.
 
 ## Streaming Semantics
 
@@ -508,19 +500,15 @@ Known losses:
 
 ## Reasoning Policy
 
-- Chat `reasoning_items[]` is the lossless Chat <-> Responses carrier for
-  Responses reasoning items.
-- legacy Chat scalar reasoning fields represent exactly one scalar group: text
-  plus matching opaque payload, text only, or opaque only.
-- scalar reasoning fields never aggregate multiple readable thinking blocks and
-  never pair readable text with an unrelated opaque payload.
-- Anthropic `redacted_thinking`, Responses `encrypted_content`, and Chat
-  `reasoning_opaque` carry the same opaque model-side payload where the target
-  API can represent it.
-- Messages <-> Responses is the exception that also preserves Responses
-  reasoning item ids by packing `${encrypted_content}@${id}` into Anthropic
-  `thinking.signature` / `redacted_thinking.data`, then unpacking that shape
-  when translating back to Responses.
+- Translated Responses paths keep readable reasoning summaries and omit opaque
+  encrypted reasoning state.
+- Chat `reasoning_items[]` carries readable Responses reasoning summaries when
+  Chat is the fallback protocol.
+- legacy Chat scalar reasoning fields represent exactly one readable scalar
+  group on Chat <-> Responses paths: `reasoning_text` only.
+- Messages <-> Chat may still carry Anthropic opaque thinking through Chat
+  `reasoning_opaque`, because that is a Messages/Chat compatibility surface and
+  not a Responses encrypted-reasoning bridge.
 
 ## Standard OpenAI Field Policy
 

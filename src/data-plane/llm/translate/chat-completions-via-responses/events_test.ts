@@ -208,7 +208,6 @@ test('translateToSourceEvents preserves deferred reasoning and stream usage', as
           type: 'reasoning',
           id: 'rs_0',
           summary: [{ type: 'summary_text', text: 'trace' }],
-          encrypted_content: 'opaque_sig',
         },
       }),
       toProtocolFrame({
@@ -240,14 +239,12 @@ test('translateToSourceEvents preserves deferred reasoning and stream usage', as
     [
       { role: 'assistant' },
       { reasoning_text: 'trace' },
-      { reasoning_opaque: 'opaque_sig' },
       {
         reasoning_items: [
           {
             type: 'reasoning',
             id: 'rs_0',
             summary: [{ type: 'summary_text', text: 'trace' }],
-            encrypted_content: 'opaque_sig',
           },
         ],
       },

@@ -3,18 +3,13 @@ import type { ResponsesInterceptor } from '../../../../llm/interceptors.ts';
 import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts';
 
 /**
- * Copilot's `/responses` input items can be connection-bound in three ways:
+ * Copilot's `/responses` input items can be connection-bound in two ways:
  *
  * 1. **IDs**: Base64-encoded item IDs are tied to the originating connection.
  *    Upstream error: `input item ID does not belong to this connection`
  *    Fix: replace with stable hash-derived short IDs.
  *
- * 2. **encrypted_content**: Reasoning items carry ciphertext bound to the
- *    originating connection's encryption context.
- *    Upstream error: `input item does not belong to this connection`
- *    Fix: strip the `encrypted_content` field (reasoning summary survives).
- *
- * 3. **item_reference**: Reference items point to items on the originating
+ * 2. **item_reference**: Reference items point to items on the originating
  *    connection by ID. When the connection is gone, the reference dangles.
  *    item_reference IDs share the same cache space as regular item IDs.
  *    Fix: drop the entire item_reference (no inline content to preserve).
@@ -31,7 +26,6 @@ import type { ResponsesPayload } from '../../../../shared/protocol/responses.ts'
 
 const CACHE_TTL_MS = 3600_000;
 const SPOTTED_ID_PREFIX = 'spotted_invalid_id:';
-const SPOTTED_EC_PREFIX = 'spotted_invalid_ec:';
 
 type AnyItem = Record<string, unknown>;
 
@@ -133,49 +127,18 @@ const collectBase64Ids = (items: AnyItem[]): string[] =>
     return typeof id === 'string' && isBase64Id(id) ? [id] : [];
   });
 
-const stripSpottedEncryptedContent = async (items: AnyItem[]): Promise<boolean> => {
-  const withEc = items.filter(item => typeof item.encrypted_content === 'string');
-  if (withEc.length === 0) return false;
-
-  const hashes = await Promise.all(withEc.map(item => sha256Hex16(item.encrypted_content as string)));
-  const results = await Promise.all(hashes.map(h => cacheGet(`${SPOTTED_EC_PREFIX}${h}`)));
-
-  let stripped = false;
-  const refreshed: string[] = [];
-
-  for (let i = 0; i < withEc.length; i++) {
-    if (results[i] === null) continue;
-    delete withEc[i].encrypted_content;
-    stripped = true;
-    refreshed.push(hashes[i]);
-  }
-
-  if (refreshed.length > 0) {
-    await Promise.all(refreshed.map(h => cacheSet(`${SPOTTED_EC_PREFIX}${h}`)));
-  }
-  return stripped;
-};
-
-const collectEncryptedContentHashes = (items: AnyItem[]): Promise<string[]> => {
-  const withEc = items.filter(item => typeof item.encrypted_content === 'string');
-  return Promise.all(withEc.map(item => sha256Hex16(item.encrypted_content as string)));
-};
-
 const applySpottedFixes = async (payload: ResponsesPayload): Promise<void> => {
-  // fixSpottedIds handles both regular ID replacement and item_reference
-  // dropping, so encrypted_content stripping can run in parallel.
-  const items = getItems(payload);
-  await Promise.all([fixSpottedIds(payload), stripSpottedEncryptedContent(items)]);
+  await fixSpottedIds(payload);
 };
 
 const collectAndFixAll = async (payload: ResponsesPayload): Promise<boolean> => {
   const items = getItems(payload);
 
-  const [base64Ids, ecHashes] = await Promise.all([Promise.resolve(collectBase64Ids(items)), collectEncryptedContentHashes(items)]);
+  const base64Ids = collectBase64Ids(items);
 
-  if (base64Ids.length === 0 && ecHashes.length === 0) return false;
+  if (base64Ids.length === 0) return false;
 
-  await Promise.all([...base64Ids.map(id => cacheSet(`${SPOTTED_ID_PREFIX}${id}`)), ...ecHashes.map(h => cacheSet(`${SPOTTED_EC_PREFIX}${h}`))]);
+  await Promise.all(base64Ids.map(id => cacheSet(`${SPOTTED_ID_PREFIX}${id}`)));
 
   await applySpottedFixes(payload);
   return true;

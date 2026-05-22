@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 
 import { createMessagesToResponsesStreamState, translateMessagesEventToResponsesEvents } from './events.ts';
-import { assertEquals, assertFalse } from '../../../../test-assert.ts';
+import { assertEquals } from '../../../../test-assert.ts';
 import type { MessagesStreamEventData } from '../../../shared/protocol/messages.ts';
 import type { ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 
@@ -115,7 +115,7 @@ test('handles no cache fields (backward compat)', () => {
   assertEquals(result.usage!.input_tokens_details, undefined);
 });
 
-test('redacted_thinking stream block becomes opaque Responses reasoning', () => {
+test('redacted_thinking stream block is dropped for Responses output', () => {
   const state = createMessagesToResponsesStreamState('resp_test', 'claude-test');
 
   translateMessagesEventToResponsesEvents(
@@ -129,17 +129,10 @@ test('redacted_thinking stream block becomes opaque Responses reasoning', () => 
 
   translateMessagesEventToResponsesEvents({ type: 'content_block_stop', index: 0 } as MessagesStreamEventData, state);
 
-  assertEquals(state.completedItems, [
-    {
-      type: 'reasoning',
-      id: 'rs_0',
-      summary: [],
-      encrypted_content: 'opaque_sig',
-    },
-  ]);
+  assertEquals(state.completedItems, []);
 });
 
-test('redacted_thinking stream block recovers the upstream id from packed data', () => {
+test('packed redacted_thinking stream block is dropped for Responses output', () => {
   const state = createMessagesToResponsesStreamState('resp_test', 'claude-test');
 
   translateMessagesEventToResponsesEvents(
@@ -153,17 +146,10 @@ test('redacted_thinking stream block recovers the upstream id from packed data',
 
   translateMessagesEventToResponsesEvents({ type: 'content_block_stop', index: 0 } as MessagesStreamEventData, state);
 
-  assertEquals(state.completedItems, [
-    {
-      type: 'reasoning',
-      id: 'rs_88',
-      summary: [],
-      encrypted_content: 'opaque_sig',
-    },
-  ]);
+  assertEquals(state.completedItems, []);
 });
 
-test('thinking stream block recovers the upstream id from a packed signature_delta', () => {
+test('thinking stream block ignores signature_delta and keeps readable text', () => {
   const state = createMessagesToResponsesStreamState('resp_test', 'claude-test');
 
   translateMessagesEventToResponsesEvents(
@@ -195,14 +181,13 @@ test('thinking stream block recovers the upstream id from a packed signature_del
   assertEquals(state.completedItems, [
     {
       type: 'reasoning',
-      id: 'rs_33',
+      id: 'rs_0',
       summary: [{ type: 'summary_text', text: 'trace' }],
-      encrypted_content: 'enc_xyz',
     },
   ]);
 });
 
-test('thinking stream block start omits undefined encrypted_content', () => {
+test('thinking stream block start emits a plain reasoning item', () => {
   const state = createMessagesToResponsesStreamState('resp_test', 'claude-test');
 
   const events = translateMessagesEventToResponsesEvents(
@@ -222,10 +207,10 @@ test('thinking stream block start omits undefined encrypted_content', () => {
     throw new Error('expected reasoning item');
   }
 
-  assertFalse('encrypted_content' in added.item);
+  assertEquals(added.item, { type: 'reasoning', id: 'rs_0', summary: [] });
 });
 
-test('thinking stream block stop omits undefined encrypted_content', () => {
+test('thinking stream block stop emits a plain reasoning item', () => {
   const state = createMessagesToResponsesStreamState('resp_test', 'claude-test');
 
   translateMessagesEventToResponsesEvents(
@@ -254,7 +239,11 @@ test('thinking stream block stop omits undefined encrypted_content', () => {
     throw new Error('expected reasoning item');
   }
 
-  assertFalse('encrypted_content' in done.item);
+  assertEquals(done.item, {
+    type: 'reasoning',
+    id: 'rs_0',
+    summary: [{ type: 'summary_text', text: 'trace' }],
+  });
 });
 
 test('max_tokens stream stop becomes response.incomplete', () => {

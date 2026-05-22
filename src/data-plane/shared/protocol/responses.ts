@@ -53,7 +53,6 @@ export interface ResponseInputReasoning {
   type: 'reasoning';
   id: string;
   summary: { type: 'summary_text'; text: string }[];
-  encrypted_content?: string;
 }
 
 interface ResponseFunctionToolCallItem {
@@ -165,7 +164,6 @@ export interface ResponseOutputReasoning {
   type: 'reasoning';
   id: string;
   summary: { type: 'summary_text'; text: string }[];
-  encrypted_content?: string;
 }
 
 // ── Stream event types ──

@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { createResponsesToMessagesStreamState, translateResponsesStreamEventToMessagesEvents, translateResponsesToMessagesResponse } from './events.ts';
 import { assertEquals, assertFalse } from '../../../../test-assert.ts';
 
-test('opaque-only Responses reasoning stream becomes redacted_thinking with packed id', () => {
+test('Responses reasoning stream without readable summary emits no Messages block', () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents(
@@ -14,22 +14,12 @@ test('opaque-only Responses reasoning stream becomes redacted_thinking with pack
         type: 'reasoning',
         id: 'rs_0',
         summary: [],
-        encrypted_content: 'opaque_sig',
       },
     },
     state,
   );
 
-  assertEquals(events, [
-    {
-      type: 'content_block_start',
-      index: 0,
-      content_block: {
-        type: 'redacted_thinking',
-        data: 'opaque_sig@rs_0',
-      },
-    },
-  ]);
+  assertEquals(events, []);
 });
 
 test('text-only Responses reasoning stream omits signature deltas', () => {
@@ -75,7 +65,7 @@ test('text-only Responses reasoning stream omits signature deltas', () => {
   assertFalse(events.some(event => event.type === 'content_block_delta' && event.delta.type === 'signature_delta'));
 });
 
-test('Responses reasoning stream packs id into signature when done summary is empty after text delta', () => {
+test('Responses reasoning stream keeps summary text from deltas when done summary is empty', () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -97,7 +87,6 @@ test('Responses reasoning stream packs id into signature when done summary is em
           type: 'reasoning',
           id: 'rs_0',
           summary: [],
-          encrypted_content: 'sig',
         },
       },
       state,
@@ -114,11 +103,6 @@ test('Responses reasoning stream packs id into signature when done summary is em
       type: 'content_block_delta',
       index: 0,
       delta: { type: 'thinking_delta', thinking: 'trace' },
-    },
-    {
-      type: 'content_block_delta',
-      index: 0,
-      delta: { type: 'signature_delta', signature: 'sig@rs_0' },
     },
   ]);
 });
@@ -210,7 +194,7 @@ test('done-only Responses reasoning summary stream emits every summary part once
   );
 });
 
-test('opaque-only Responses reasoning stream preserves source order when opaque data arrives late', () => {
+test('opaque-only Responses reasoning stream releases later text when done', () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = [
@@ -240,7 +224,6 @@ test('opaque-only Responses reasoning stream preserves source order when opaque 
           type: 'reasoning',
           id: 'rs_0',
           summary: [],
-          encrypted_content: 'opaque_sig',
         },
       },
       state,
@@ -251,17 +234,11 @@ test('opaque-only Responses reasoning stream preserves source order when opaque 
     {
       type: 'content_block_start',
       index: 0,
-      content_block: { type: 'redacted_thinking', data: 'opaque_sig@rs_0' },
-    },
-    { type: 'content_block_stop', index: 0 },
-    {
-      type: 'content_block_start',
-      index: 1,
       content_block: { type: 'text', text: '' },
     },
     {
       type: 'content_block_delta',
-      index: 1,
+      index: 0,
       delta: { type: 'text_delta', text: 'answer' },
     },
   ]);
@@ -295,7 +272,6 @@ test('Responses reasoning stream preserves source order when later reasoning fin
           type: 'reasoning',
           id: 'rs_1',
           summary: [{ type: 'summary_text', text: 'second' }],
-          encrypted_content: 'enc_second',
         },
       },
       state,
@@ -308,7 +284,6 @@ test('Responses reasoning stream preserves source order when later reasoning fin
           type: 'reasoning',
           id: 'rs_0',
           summary: [{ type: 'summary_text', text: 'first' }],
-          encrypted_content: 'enc_first',
         },
       },
       state,
@@ -326,11 +301,6 @@ test('Responses reasoning stream preserves source order when later reasoning fin
       index: 0,
       delta: { type: 'thinking_delta', thinking: 'first' },
     },
-    {
-      type: 'content_block_delta',
-      index: 0,
-      delta: { type: 'signature_delta', signature: 'enc_first@rs_0' },
-    },
     { type: 'content_block_stop', index: 0 },
     {
       type: 'content_block_start',
@@ -341,11 +311,6 @@ test('Responses reasoning stream preserves source order when later reasoning fin
       type: 'content_block_delta',
       index: 1,
       delta: { type: 'thinking_delta', thinking: 'second' },
-    },
-    {
-      type: 'content_block_delta',
-      index: 1,
-      delta: { type: 'signature_delta', signature: 'enc_second@rs_1' },
     },
   ]);
 });
@@ -442,7 +407,7 @@ test('Responses stream keeps later text deferred until earlier tool block is don
   ]);
 });
 
-test('reasoning stream with neither summary nor encrypted_content emits no block', () => {
+test('reasoning stream with no summary emits no block', () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents(
@@ -457,7 +422,7 @@ test('reasoning stream with neither summary nor encrypted_content emits no block
   assertEquals(events, []);
 });
 
-test('reasoning stream with explicit undefined encrypted_content emits no block', () => {
+test('reasoning stream with no readable summary emits no block', () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents(
@@ -468,7 +433,6 @@ test('reasoning stream with explicit undefined encrypted_content emits no block'
         type: 'reasoning',
         id: 'rs_undef',
         summary: [],
-        encrypted_content: undefined,
       },
     },
     state,
@@ -477,7 +441,7 @@ test('reasoning stream with explicit undefined encrypted_content emits no block'
   assertEquals(events, []);
 });
 
-test('reasoning stream with whitespace-only summary and encrypted_content becomes redacted_thinking with packed id', () => {
+test('reasoning stream with whitespace-only summary emits no block', () => {
   const state = createResponsesToMessagesStreamState();
 
   const events = translateResponsesStreamEventToMessagesEvents(
@@ -488,22 +452,12 @@ test('reasoning stream with whitespace-only summary and encrypted_content become
         type: 'reasoning',
         id: 'rs_ws',
         summary: [{ type: 'summary_text', text: '   \n  ' }],
-        encrypted_content: 'opaque_sig',
       },
     },
     state,
   );
 
-  assertEquals(events, [
-    {
-      type: 'content_block_start',
-      index: 0,
-      content_block: {
-        type: 'redacted_thinking',
-        data: 'opaque_sig@rs_ws',
-      },
-    },
-  ]);
+  assertEquals(events, []);
 });
 
 test('translateResponsesToMessagesResponse omits signature for text-only reasoning', () => {
@@ -532,7 +486,7 @@ test('translateResponsesToMessagesResponse omits signature for text-only reasoni
   assertFalse('signature' in block);
 });
 
-test('translateResponsesToMessagesResponse packs reasoning id into opaque-only redacted_thinking data', () => {
+test('translateResponsesToMessagesResponse drops opaque-only reasoning output', () => {
   const result = translateResponsesToMessagesResponse({
     id: 'resp_123',
     object: 'response',
@@ -542,7 +496,6 @@ test('translateResponsesToMessagesResponse packs reasoning id into opaque-only r
         type: 'reasoning',
         id: 'rs_1',
         summary: [],
-        encrypted_content: 'opaque_sig',
       },
     ],
     output_text: '',
@@ -554,15 +507,10 @@ test('translateResponsesToMessagesResponse packs reasoning id into opaque-only r
     },
   });
 
-  assertEquals(result.content, [
-    {
-      type: 'redacted_thinking',
-      data: 'opaque_sig@rs_1',
-    },
-  ]);
+  assertEquals(result.content, []);
 });
 
-test('translateResponsesToMessagesResponse drops reasoning with neither summary nor encrypted_content', () => {
+test('translateResponsesToMessagesResponse drops reasoning with no summary', () => {
   const result = translateResponsesToMessagesResponse({
     id: 'resp_drop',
     object: 'response',
@@ -583,7 +531,7 @@ test('translateResponsesToMessagesResponse drops reasoning with neither summary 
   assertEquals(result.content, [{ type: 'text', text: 'hello' }]);
 });
 
-test('translateResponsesToMessagesResponse drops reasoning with explicit undefined encrypted_content', () => {
+test('translateResponsesToMessagesResponse drops reasoning with no readable summary', () => {
   const result = translateResponsesToMessagesResponse({
     id: 'resp_undef',
     object: 'response',
@@ -593,7 +541,6 @@ test('translateResponsesToMessagesResponse drops reasoning with explicit undefin
         type: 'reasoning',
         id: 'rs_undef',
         summary: [],
-        encrypted_content: undefined,
       },
     ],
     output_text: '',
@@ -604,7 +551,7 @@ test('translateResponsesToMessagesResponse drops reasoning with explicit undefin
   assertEquals(result.content, []);
 });
 
-test('translateResponsesToMessagesResponse treats whitespace-only summary as opaque-only reasoning and packs id', () => {
+test('translateResponsesToMessagesResponse drops whitespace-only reasoning summary', () => {
   const result = translateResponsesToMessagesResponse({
     id: 'resp_ws',
     object: 'response',
@@ -614,7 +561,6 @@ test('translateResponsesToMessagesResponse treats whitespace-only summary as opa
         type: 'reasoning',
         id: 'rs_ws',
         summary: [{ type: 'summary_text', text: '   \n  ' }],
-        encrypted_content: 'opaque_sig',
       },
     ],
     output_text: '',
@@ -622,10 +568,5 @@ test('translateResponsesToMessagesResponse treats whitespace-only summary as opa
     usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
   });
 
-  assertEquals(result.content, [
-    {
-      type: 'redacted_thinking',
-      data: 'opaque_sig@rs_ws',
-    },
-  ]);
+  assertEquals(result.content, []);
 });

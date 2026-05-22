@@ -205,7 +205,6 @@ test('reassembleChatCompletionChunks appends reasoning_items deltas in order', a
                   type: 'reasoning',
                   id: 'rs_1',
                   summary: [{ type: 'summary_text', text: 'first' }],
-                  encrypted_content: 'enc_1',
                 },
               ],
             },
@@ -229,7 +228,6 @@ test('reassembleChatCompletionChunks appends reasoning_items deltas in order', a
                   type: 'reasoning',
                   id: 'rs_2',
                   summary: [],
-                  encrypted_content: 'enc_2',
                 },
               ],
             },
@@ -263,13 +261,11 @@ test('reassembleChatCompletionChunks appends reasoning_items deltas in order', a
       type: 'reasoning',
       id: 'rs_1',
       summary: [{ type: 'summary_text', text: 'first' }],
-      encrypted_content: 'enc_1',
     },
     {
       type: 'reasoning',
       id: 'rs_2',
       summary: [],
-      encrypted_content: 'enc_2',
     },
   ]);
   assertEquals(result.choices[0].message.content, 'reply');

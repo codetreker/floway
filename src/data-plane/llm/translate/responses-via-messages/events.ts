@@ -9,7 +9,6 @@ import type {
 import type { ResponseOutputItem, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import type { ResponsesStreamEvent } from '../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
-import { unpackReasoningSignature } from '../shared/messages-responses-signature.ts';
 import { makeResponsesReasoningId } from '../shared/reasoning.ts';
 import * as responses from '../shared/responses-event-builder.ts';
 
@@ -34,13 +33,6 @@ type OutputBlockInfo =
     outputIndex: number;
     itemId: string;
     thinkingText: string;
-    signature: string | null;
-  }
-  | {
-    type: 'redacted_thinking';
-    outputIndex: number;
-    itemId: string;
-    encryptedContent: string;
   }
   | {
     type: 'text';
@@ -96,37 +88,23 @@ const handleMessageStart = (event: MessagesMessageStartEvent, state: MessagesToR
 };
 
 const handleContentBlockStart = (event: MessagesContentBlockStartEvent, state: MessagesToResponsesStreamState): ResponseStreamEvent[] => {
-  const outputIndex = state.outputIndex++;
-
   switch (event.content_block.type) {
   case 'thinking': {
+    const outputIndex = state.outputIndex++;
     const itemId = makeResponsesReasoningId(outputIndex);
     state.blockMap.set(event.index, {
       type: 'thinking',
       outputIndex,
       itemId,
       thinkingText: '',
-      signature: null,
     });
 
     return responses.reasoningStart(state, outputIndex, itemId);
   }
-  case 'redacted_thinking': {
-    // Unpack `${encrypted_content}@${id}` so the Responses-shape stream we
-    // fabricate carries the original upstream item id. See
-    // `../shared/messages-responses-signature.ts` for the why.
-    const unpacked = unpackReasoningSignature(event.content_block.data);
-    const itemId = unpacked.id ?? makeResponsesReasoningId(outputIndex);
-    state.blockMap.set(event.index, {
-      type: 'redacted_thinking',
-      outputIndex,
-      itemId,
-      encryptedContent: unpacked.encryptedContent,
-    });
-
-    return responses.itemAdded(state, outputIndex, responses.reasoningItem(itemId, ''));
-  }
+  case 'redacted_thinking':
+    return [];
   case 'text': {
+    const outputIndex = state.outputIndex++;
     const itemId = `msg_${outputIndex}`;
     state.blockMap.set(event.index, {
       type: 'text',
@@ -138,6 +116,7 @@ const handleContentBlockStart = (event: MessagesContentBlockStartEvent, state: M
     return responses.textStart(state, outputIndex, itemId);
   }
   case 'tool_use': {
+    const outputIndex = state.outputIndex++;
     const itemId = `fc_${outputIndex}`;
     const info: OutputBlockInfo = {
       type: 'tool_use',
@@ -166,9 +145,6 @@ const handleContentBlockDelta = (event: MessagesContentBlockDeltaEvent, state: M
       info.thinkingText += event.delta.thinking;
       return responses.reasoningDelta(state, info.outputIndex, info.itemId, event.delta.thinking);
     }
-    if (event.delta.type === 'signature_delta') {
-      info.signature = (info.signature ?? '') + event.delta.signature;
-    }
     return [];
   case 'text':
     if (event.delta.type !== 'text_delta') return [];
@@ -179,8 +155,6 @@ const handleContentBlockDelta = (event: MessagesContentBlockDeltaEvent, state: M
     if (event.delta.type !== 'input_json_delta') return [];
     info.toolArguments += event.delta.partial_json;
     return responses.argumentsDelta(state, info.outputIndex, info.itemId, event.delta.partial_json);
-  case 'redacted_thinking':
-    return [];
   }
 };
 
@@ -192,30 +166,12 @@ const handleContentBlockStop = (event: MessagesContentBlockStopEvent, state: Mes
 
   if (info.type === 'thinking') {
     const summaryText = info.thinkingText;
-    // Unpack `${encrypted_content}@${id}` so the materialized reasoning item
-    // carries the original upstream id (and a clean encrypted_content blob).
-    // See `../shared/messages-responses-signature.ts` for why.
-    const unpacked = info.signature !== null ? unpackReasoningSignature(info.signature) : undefined;
-    const itemId = unpacked?.id ?? info.itemId;
-    const item = responses.reasoningItem(itemId, summaryText, unpacked?.encryptedContent);
+    const itemId = info.itemId;
+    const item = responses.reasoningItem(itemId, summaryText);
 
     state.completedItems.push(item);
 
     return responses.reasoningDone(state, info.outputIndex, itemId, summaryText, item);
-  }
-
-  if (info.type === 'redacted_thinking') {
-    const item = responses.reasoningItem(info.itemId, '', info.encryptedContent);
-
-    state.completedItems.push(item);
-
-    return responses.seq(state, [
-      {
-        type: 'response.output_item.done',
-        output_index: info.outputIndex,
-        item,
-      },
-    ]);
   }
 
   if (info.type === 'text') {

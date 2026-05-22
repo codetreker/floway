@@ -2,7 +2,7 @@ import type { MessagesAssistantContentBlock, MessagesResponse, MessagesStreamEve
 import type { ResponseOutputContentBlock, ResponseOutputItem, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import type { ResponsesStreamEvent } from '../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
-import { packReasoningSignature, responsesReasoningToMessagesBlock } from '../shared/messages-responses-signature.ts';
+import { responsesReasoningToMessagesBlock } from '../shared/messages-responses-reasoning.ts';
 import { createResponsesOutputOrderState, recordResponseOutputOrderEvent, type ResponsesOutputOrderState, shouldDeferForEarlierResponseOutput } from '../shared/responses-stream-order.ts';
 import { type ResponseEvent, responsePartKey } from '../shared/responses-stream.ts';
 import { checkWhitespaceOverflow, parseToolArgumentsObject } from '../shared/tool-arguments.ts';
@@ -134,7 +134,7 @@ interface ResponsesToMessagesStreamState {
   >;
 }
 
-type ContentBlockInit = { type: 'text'; text: '' } | { type: 'thinking'; thinking: '' } | { type: 'redacted_thinking'; data: string };
+type ContentBlockInit = { type: 'text'; text: '' } | { type: 'thinking'; thinking: '' };
 
 const openBlock = (state: ResponsesToMessagesStreamState, key: string, contentBlock: ContentBlockInit, events: MessagesStreamEventData[]): number => {
   let blockIndex = state.blockIndexByKey.get(key);
@@ -162,9 +162,6 @@ const openTextBlock = (state: ResponsesToMessagesStreamState, outputIndex: numbe
 
 const openThinkingBlock = (state: ResponsesToMessagesStreamState, outputIndex: number, events: MessagesStreamEventData[]): number =>
   openBlock(state, `${outputIndex}:0`, { type: 'thinking', thinking: '' }, events);
-
-const openRedactedThinkingBlock = (state: ResponsesToMessagesStreamState, outputIndex: number, signature: string, events: MessagesStreamEventData[]): number =>
-  openBlock(state, `${outputIndex}:0`, { type: 'redacted_thinking', data: signature }, events);
 
 const closeOpenBlocks = (state: ResponsesToMessagesStreamState, events: MessagesStreamEventData[]): void => {
   for (const blockIndex of state.openBlocks) {
@@ -241,26 +238,13 @@ const handleOutputItemAdded = (event: ResponseEvent<'response.output_item.added'
 const handleOutputItemDone = (event: ResponseEvent<'response.output_item.done'>, state: ResponsesToMessagesStreamState): MessagesStreamEventData[] => {
   if (event.item.type !== 'reasoning') return [];
 
-  const encryptedContent = event.item.encrypted_content;
-  const hasEncryptedContent = encryptedContent !== undefined;
   const hasEmittedSummary = hasResponsePartForOutput(state.emittedReasoningSummaryKeys, event.output_index);
   const trimmedSummary = event.item.summary
     .map(part => part.text)
     .join('')
     .trim();
 
-  // No prior summary delta and no usable summary text: either round-trip the
-  // opaque blob as `redacted_thinking{data}` (the valid signature-only Messages
-  // shape) or drop entirely when there is nothing the target can verify. The
-  // Responses item id is packed into the signature/data slot so upstream
-  // reasoning-continuity checks can pass on the next turn; see
-  // `../shared/messages-responses-signature.ts`.
   if (!hasEmittedSummary && trimmedSummary === '') {
-    if (hasEncryptedContent) {
-      const events: MessagesStreamEventData[] = [];
-      openRedactedThinkingBlock(state, event.output_index, packReasoningSignature(event.item.id, encryptedContent), events);
-      return events;
-    }
     return [];
   }
 
@@ -277,17 +261,6 @@ const handleOutputItemDone = (event: ResponseEvent<'response.output_item.done'>,
       delta: { type: 'thinking_delta', thinking: part.text },
     });
     state.emittedReasoningSummaryKeys.add(key);
-  }
-
-  if (hasEncryptedContent) {
-    events.push({
-      type: 'content_block_delta',
-      index: blockIndex,
-      delta: {
-        type: 'signature_delta',
-        signature: packReasoningSignature(event.item.id, encryptedContent),
-      },
-    });
   }
 
   return events;

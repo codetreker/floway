@@ -14,7 +14,6 @@ test('translateResponsesToChatCompletions merges adjacent assistant reasoning te
         type: 'reasoning',
         id: 'rs_1',
         summary: [{ type: 'summary_text', text: 'trace' }],
-        encrypted_content: 'enc_1',
       },
       {
         type: 'message',
@@ -80,13 +79,11 @@ test('translateResponsesToChatCompletions merges adjacent assistant reasoning te
       role: 'assistant',
       content: 'Hello',
       reasoning_text: 'trace',
-      reasoning_opaque: 'enc_1',
       reasoning_items: [
         {
           type: 'reasoning',
           id: 'rs_1',
           summary: [{ type: 'summary_text', text: 'trace' }],
-          encrypted_content: 'enc_1',
         },
       ],
       tool_calls: [
@@ -116,13 +113,11 @@ test('translateResponsesToChatCompletions preserves all reasoning items and proj
         type: 'reasoning',
         id: 'rs_1',
         summary: [{ type: 'summary_text', text: 'first' }],
-        encrypted_content: 'enc_1',
       },
       {
         type: 'reasoning',
         id: 'rs_2',
         summary: [{ type: 'summary_text', text: 'second' }],
-        encrypted_content: 'enc_2',
       },
     ],
     instructions: null,
@@ -142,19 +137,16 @@ test('translateResponsesToChatCompletions preserves all reasoning items and proj
       role: 'assistant',
       content: null,
       reasoning_text: 'first',
-      reasoning_opaque: 'enc_1',
       reasoning_items: [
         {
           type: 'reasoning',
           id: 'rs_1',
           summary: [{ type: 'summary_text', text: 'first' }],
-          encrypted_content: 'enc_1',
         },
         {
           type: 'reasoning',
           id: 'rs_2',
           summary: [{ type: 'summary_text', text: 'second' }],
-          encrypted_content: 'enc_2',
         },
       ],
     },
@@ -252,7 +244,7 @@ test('translateResponsesToChatCompletions does not double-wrap an already-wrappe
   });
 });
 
-test('translateResponsesEventToChatCompletionsChunks emits a completed opaque reasoning item before completion', () => {
+test('translateResponsesEventToChatCompletionsChunks drops reasoning items without readable summary', () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   const created = translateResponsesEventToChatCompletionsChunks(
@@ -280,22 +272,11 @@ test('translateResponsesEventToChatCompletionsChunks emits a completed opaque re
         type: 'reasoning',
         id: 'rs_1',
         summary: [],
-        encrypted_content: 'enc_1',
       },
     },
     state,
   );
-  assertEquals(during.length, 2);
-  assertEquals(during[0].choices[0].delta.reasoning_opaque, 'enc_1');
-  assertEquals(during[0].choices[0].finish_reason, null);
-  assertEquals(during[1].choices[0].delta.reasoning_items, [
-    {
-      type: 'reasoning',
-      id: 'rs_1',
-      summary: [],
-      encrypted_content: 'enc_1',
-    },
-  ]);
+  assertEquals(during, []);
 
   const completed = translateResponsesEventToChatCompletionsChunks(
     {
@@ -329,7 +310,7 @@ test('translateResponsesEventToChatCompletionsChunks emits a completed opaque re
   });
 });
 
-test('translateResponsesEventToChatCompletionsChunks does not fill scalar opaque from a later stream item', () => {
+test('translateResponsesEventToChatCompletionsChunks does not fill scalar opaque from later empty reasoning', () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks(
@@ -378,7 +359,6 @@ test('translateResponsesEventToChatCompletionsChunks does not fill scalar opaque
           type: 'reasoning',
           id: 'rs_2',
           summary: [],
-          encrypted_content: 'enc_2',
         },
       },
       state,
@@ -401,13 +381,13 @@ test('translateResponsesEventToChatCompletionsChunks does not fill scalar opaque
   );
 
   assertEquals(
-    [...chunks, ...completed].some(chunk => chunk.choices[0]?.delta.reasoning_opaque === 'enc_2'),
+    [...chunks, ...completed].some(chunk => chunk.choices[0]?.delta.reasoning_opaque !== undefined),
     false,
   );
   assertEquals(completed[0].usage, undefined);
 });
 
-test('translateResponsesEventToChatCompletionsChunks emits reasoning_items for every completed reasoning item', () => {
+test('translateResponsesEventToChatCompletionsChunks drops multiple reasoning items without readable summaries', () => {
   const state = createResponsesToChatCompletionsStreamState();
 
   translateResponsesEventToChatCompletionsChunks(
@@ -433,7 +413,6 @@ test('translateResponsesEventToChatCompletionsChunks emits reasoning_items for e
         type: 'reasoning',
         id: 'rs_1',
         summary: [],
-        encrypted_content: 'enc_1',
       },
     },
     state,
@@ -446,7 +425,6 @@ test('translateResponsesEventToChatCompletionsChunks emits reasoning_items for e
         type: 'reasoning',
         id: 'rs_2',
         summary: [],
-        encrypted_content: 'enc_2',
       },
     },
     state,
@@ -472,23 +450,8 @@ test('translateResponsesEventToChatCompletionsChunks emits reasoning_items for e
     state,
   );
 
-  assertEquals(firstReasoning[0].choices[0].delta.reasoning_opaque, 'enc_1');
-  assertEquals(firstReasoning[1].choices[0].delta.reasoning_items, [
-    {
-      type: 'reasoning',
-      id: 'rs_1',
-      summary: [],
-      encrypted_content: 'enc_1',
-    },
-  ]);
-  assertEquals(secondReasoning[0].choices[0].delta.reasoning_items, [
-    {
-      type: 'reasoning',
-      id: 'rs_2',
-      summary: [],
-      encrypted_content: 'enc_2',
-    },
-  ]);
+  assertEquals(firstReasoning, []);
+  assertEquals(secondReasoning, []);
   assertEquals(completed.length, 2);
   assertEquals(completed[0].choices[0].finish_reason, 'stop');
   assertEquals(completed[0].usage, undefined);
@@ -673,7 +636,7 @@ test('translateResponsesEventToChatCompletionsChunks emits stream usage as a usa
   });
 });
 
-test('translateResponsesEventToChatCompletionsChunks preserves reasoning before text when opaque data arrives late', () => {
+test('translateResponsesEventToChatCompletionsChunks preserves text order around empty reasoning', () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks(
@@ -716,7 +679,6 @@ test('translateResponsesEventToChatCompletionsChunks preserves reasoning before 
           type: 'reasoning',
           id: 'rs_0',
           summary: [],
-          encrypted_content: 'opaque_sig',
         },
       },
       state,
@@ -734,7 +696,6 @@ test('translateResponsesEventToChatCompletionsChunks preserves reasoning before 
               type: 'reasoning',
               id: 'rs_0',
               summary: [],
-              encrypted_content: 'opaque_sig',
             },
             {
               type: 'message',
@@ -753,24 +714,13 @@ test('translateResponsesEventToChatCompletionsChunks preserves reasoning before 
     chunks.map(chunk => chunk.choices[0]?.delta),
     [
       { role: 'assistant' },
-      { reasoning_opaque: 'opaque_sig' },
-      {
-        reasoning_items: [
-          {
-            type: 'reasoning',
-            id: 'rs_0',
-            summary: [],
-            encrypted_content: 'opaque_sig',
-          },
-        ],
-      },
       { content: 'answer' },
       {},
     ],
   );
 });
 
-test('translateResponsesEventToChatCompletionsChunks preserves reasoning before later text after reasoning is done', () => {
+test('translateResponsesEventToChatCompletionsChunks preserves later text after empty reasoning is done', () => {
   const state = createResponsesToChatCompletionsStreamState();
   const chunks = [
     translateResponsesEventToChatCompletionsChunks(
@@ -803,7 +753,6 @@ test('translateResponsesEventToChatCompletionsChunks preserves reasoning before 
           type: 'reasoning',
           id: 'rs_0',
           summary: [],
-          encrypted_content: 'opaque_sig',
         },
       },
       state,
@@ -831,7 +780,6 @@ test('translateResponsesEventToChatCompletionsChunks preserves reasoning before 
               type: 'reasoning',
               id: 'rs_0',
               summary: [],
-              encrypted_content: 'opaque_sig',
             },
             {
               type: 'message',
@@ -850,17 +798,6 @@ test('translateResponsesEventToChatCompletionsChunks preserves reasoning before 
     chunks.map(chunk => chunk.choices[0]?.delta),
     [
       { role: 'assistant' },
-      { reasoning_opaque: 'opaque_sig' },
-      {
-        reasoning_items: [
-          {
-            type: 'reasoning',
-            id: 'rs_0',
-            summary: [],
-            encrypted_content: 'opaque_sig',
-          },
-        ],
-      },
       { content: 'answer' },
       {},
     ],
@@ -1127,7 +1064,6 @@ test('translateResponsesEventToChatCompletionsChunks keeps first scalar reasonin
           type: 'reasoning',
           id: 'rs_1',
           summary: [{ type: 'summary_text', text: 'second' }],
-          encrypted_content: 'enc_second',
         },
       },
       state,
@@ -1140,7 +1076,6 @@ test('translateResponsesEventToChatCompletionsChunks keeps first scalar reasonin
           type: 'reasoning',
           id: 'rs_0',
           summary: [{ type: 'summary_text', text: 'first' }],
-          encrypted_content: 'enc_first',
         },
       },
       state,
@@ -1152,20 +1087,17 @@ test('translateResponsesEventToChatCompletionsChunks keeps first scalar reasonin
     [
       { role: 'assistant' },
       { reasoning_text: 'first' },
-      { reasoning_opaque: 'enc_first' },
       {
         reasoning_items: [
           {
             type: 'reasoning',
             id: 'rs_0',
             summary: [{ type: 'summary_text', text: 'first' }],
-            encrypted_content: 'enc_first',
           },
           {
             type: 'reasoning',
             id: 'rs_1',
             summary: [{ type: 'summary_text', text: 'second' }],
-            encrypted_content: 'enc_second',
           },
         ],
       },

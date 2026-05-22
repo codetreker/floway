@@ -77,13 +77,6 @@ test('buildTargetRequest maps assistant reasoning, function calls, and call-orde
       type: 'reasoning',
       id: 'gemini_reasoning_0_0',
       summary: [{ type: 'summary_text', text: 'private trace' }],
-      encrypted_content: 'sig_1',
-    },
-    {
-      type: 'reasoning',
-      id: 'gemini_reasoning_0_1',
-      summary: [],
-      encrypted_content: 'sig_only',
     },
     {
       type: 'message',
@@ -119,7 +112,7 @@ test('buildTargetRequest maps assistant reasoning, function calls, and call-orde
   ]);
 });
 
-test('buildTargetRequest preserves model action parts that carry only a thought signature', () => {
+test('buildTargetRequest ignores thought signatures when translating to Responses', () => {
   const payload: GeminiGenerateContentRequest = {
     contents: [
       {
@@ -137,21 +130,9 @@ test('buildTargetRequest preserves model action parts that carry only a thought 
 
   assertEquals(buildTargetRequest(payload, 'gpt-test', false).input, [
     {
-      type: 'reasoning',
-      id: 'gemini_reasoning_0_0',
-      summary: [],
-      encrypted_content: 'sig_text',
-    },
-    {
       type: 'message',
       role: 'assistant',
       content: [{ type: 'output_text', text: 'Signed answer.' }],
-    },
-    {
-      type: 'reasoning',
-      id: 'gemini_reasoning_0_1',
-      summary: [],
-      encrypted_content: 'sig_call',
     },
     {
       type: 'function_call',

@@ -54,7 +54,6 @@ export interface ChatReasoningItem {
   type: 'reasoning';
   id?: string;
   summary?: { type: 'summary_text'; text: string }[];
-  encrypted_content?: string;
 }
 
 export interface ToolCall {

@@ -59,15 +59,13 @@ const buildFunctionCall = (part: GeminiPart, turnIndex: number, partIndex: numbe
 
 const buildReasoningItem = (part: GeminiPart, turnIndex: number, partIndex: number): ResponseInputItem | null => {
   const text = geminiThoughtText(part) ?? '';
-  const hasSignature = part.thoughtSignature !== undefined;
 
-  if (!text && !hasSignature) return null;
+  if (!text) return null;
 
   return {
     type: 'reasoning',
     id: geminiReasoningId(turnIndex, partIndex),
     summary: text ? [{ type: 'summary_text', text }] : [],
-    ...(hasSignature ? { encrypted_content: part.thoughtSignature } : {}),
   };
 };
 

@@ -82,11 +82,10 @@ export const seq = (state: ResponsesSequenceState, events: ResponseStreamEvent[]
     role: 'assistant',
     content: [textPart(text)],
   }),
-  reasoningItem = (id: string, summaryText: string, encryptedContent?: string): ResponseOutputReasoning => ({
+  reasoningItem = (id: string, summaryText: string): ResponseOutputReasoning => ({
     type: 'reasoning',
     id,
     summary: summaryText ? [summaryPart(summaryText)] : [],
-    ...(encryptedContent !== undefined ? { encrypted_content: encryptedContent } : {}),
   }),
   functionCallItem = (callId: string, name: string, args: string, status: ResponseOutputFunctionCall['status']): ResponseOutputFunctionCall => ({
     type: 'function_call',

@@ -1527,7 +1527,7 @@ test('/v1/messages falls back to chat completions and translates both directions
   assertEquals(((upstreamBody!.tools as Array<Record<string, unknown>>)[0].function as Record<string, unknown>).strict, true);
 });
 
-test('/v1/messages falls back to responses and preserves reasoning round-trip details', async () => {
+test('/v1/messages falls back to responses and preserves readable reasoning without opaque Responses state', async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1544,7 +1544,6 @@ test('/v1/messages falls back to responses and preserves reasoning round-trip de
         type: 'reasoning',
         id: 'rs_1',
         summary: [{ type: 'summary_text', text: 'brief reasoning' }],
-        encrypted_content: 'enc_abc',
       },
       {
         type: 'message',
@@ -1623,11 +1622,7 @@ test('/v1/messages falls back to responses and preserves reasoning round-trip de
       assertEquals(body.usage.input_tokens, 25);
       assertEquals(body.usage.cache_read_input_tokens, 5);
       assertEquals(body.content[0].type, 'thinking');
-      // Packed `${encrypted_content}@${id}` smuggles the Responses item id
-      // through the Anthropic signature slot so a next-turn submission survives
-      // upstream per-item signature verification. See
-      // `src/data-plane/llm/translate/shared/messages-responses-signature.ts`.
-      assertEquals(body.content[0].signature, 'enc_abc@rs_1');
+      assertFalse('signature' in body.content[0]);
       assertEquals(body.content[1].text, 'Answer text');
     },
   );
@@ -1725,7 +1720,7 @@ test('/v1/messages preserves output_config.effort max when translating to respon
 
   assertExists(upstreamBody);
   assertEquals((upstreamBody!.reasoning as Record<string, unknown>).effort, 'max');
-  assertEquals(upstreamBody!.include, ['reasoning.encrypted_content']);
+  assertFalse('include' in upstreamBody!);
 });
 
 test('/v1/messages prefers responses on dual-endpoint models when native messages is unavailable', async () => {

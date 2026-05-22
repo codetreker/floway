@@ -20,7 +20,7 @@ import type {
   ResponseTool,
   ResponseToolChoice,
 } from '../../../shared/protocol/responses.ts';
-import { responsesReasoningToMessagesBlock } from '../shared/messages-responses-signature.ts';
+import { responsesReasoningToMessagesBlock } from '../shared/messages-responses-reasoning.ts';
 import { fetchRemoteImage, type RemoteImageLoader, resolveImageUrlToMessagesImage } from '../shared/remote-images.ts';
 import { parseToolArgumentsObject } from '../shared/tool-arguments.ts';
 

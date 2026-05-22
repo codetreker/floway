@@ -86,31 +86,22 @@ test('translateChatCompletionsToResponses prefers reasoning_items over scalar re
             type: 'reasoning',
             id: 'rs_existing',
             summary: [{ type: 'summary_text', text: 'first' }],
-            encrypted_content: 'enc_1',
           },
           {
             type: 'reasoning',
             summary: [],
-            encrypted_content: 'enc_2',
           },
         ],
-      } as never,
+      },
     ],
   });
 
   if (!Array.isArray(result.input)) throw new Error('expected input array');
-  assertEquals(result.input.slice(0, 2), [
+  assertEquals(result.input.filter(item => item.type === 'reasoning'), [
     {
       type: 'reasoning',
       id: 'rs_existing',
       summary: [{ type: 'summary_text', text: 'first' }],
-      encrypted_content: 'enc_1',
-    },
-    {
-      type: 'reasoning',
-      id: 'rs_1',
-      summary: [],
-      encrypted_content: 'enc_2',
     },
   ]);
 });
@@ -149,7 +140,7 @@ test('translateChatCompletionsToResponses preserves translated OpenAI request fi
   assertEquals(result.reasoning, { effort: 'medium' });
   assertEquals(result.prompt_cache_key, 'cache-key');
   assertEquals(result.safety_identifier, 'safe-id');
-  assertEquals(result.include, ['reasoning.encrypted_content']);
+  assertFalse('include' in result);
 });
 
 test('translateChatCompletionsToResponses omits store when Chat omits store', () => {
@@ -258,7 +249,6 @@ test('translateChatCompletionsChunkToResponsesEvents keeps late opaque with prio
     type: 'reasoning',
     id: 'rs_0',
     summary: [{ type: 'summary_text', text: 'trace' }],
-    encrypted_content: 'sig',
   });
 });
 
@@ -275,7 +265,6 @@ test('translateChatCompletionsChunkToResponsesEvents prefers reasoning_items ove
             type: 'reasoning',
             id: 'rs_carrier',
             summary: [{ type: 'summary_text', text: 'trace' }],
-            encrypted_content: 'sig',
           },
         ],
       }),
@@ -294,14 +283,12 @@ test('translateChatCompletionsChunkToResponsesEvents prefers reasoning_items ove
     type: 'reasoning',
     id: 'rs_carrier',
     summary: [{ type: 'summary_text', text: 'trace' }],
-    encrypted_content: 'sig',
   });
   assertEquals(completed?.response.output, [
     {
       type: 'reasoning',
       id: 'rs_carrier',
       summary: [{ type: 'summary_text', text: 'trace' }],
-      encrypted_content: 'sig',
     },
     {
       type: 'message',
@@ -335,7 +322,6 @@ test('translateChatCompletionsChunkToResponsesEvents keeps terminal output order
             type: 'reasoning',
             id: 'rs_after_tool',
             summary: [{ type: 'summary_text', text: 'trace' }],
-            encrypted_content: 'sig',
           },
         ],
       }),
@@ -375,7 +361,6 @@ test('translateChatCompletionsChunkToResponsesEvents discards scalar reasoning w
             type: 'reasoning',
             id: 'rs_carrier',
             summary: [{ type: 'summary_text', text: 'trace' }],
-            encrypted_content: 'sig',
           },
         ],
       }),
@@ -394,14 +379,12 @@ test('translateChatCompletionsChunkToResponsesEvents discards scalar reasoning w
     type: 'reasoning',
     id: 'rs_carrier',
     summary: [{ type: 'summary_text', text: 'trace' }],
-    encrypted_content: 'sig',
   });
   assertEquals(completed?.response.output, [
     {
       type: 'reasoning',
       id: 'rs_carrier',
       summary: [{ type: 'summary_text', text: 'trace' }],
-      encrypted_content: 'sig',
     },
     {
       type: 'message',

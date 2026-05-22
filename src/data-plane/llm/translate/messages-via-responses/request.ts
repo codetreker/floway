@@ -12,7 +12,7 @@ import {
   type MessagesWebSearchToolResultBlock,
 } from '../../../shared/protocol/messages.ts';
 import type { ResponseInputContent, ResponseInputItem, ResponsesPayload, ResponseTool, ResponseToolChoice } from '../../../shared/protocol/responses.ts';
-import { messagesReasoningBlockToResponsesReasoning } from '../shared/messages-responses-signature.ts';
+import { messagesReasoningBlockToResponsesReasoning } from '../shared/messages-responses-reasoning.ts';
 
 const flushPendingContent = (pending: ResponseInputContent[], input: ResponseInputItem[], role: 'user' | 'assistant'): void => {
   if (pending.length === 0) return;
@@ -120,7 +120,8 @@ const translateAssistantMessage = (message: MessagesAssistantMessage): ResponseI
 
     if (block.type === 'thinking' || block.type === 'redacted_thinking') {
       flushPendingContent(pendingContent, input, 'assistant');
-      input.push(messagesReasoningBlockToResponsesReasoning(block, input.length));
+      const reasoning = messagesReasoningBlockToResponsesReasoning(block, input.length);
+      if (reasoning) input.push(reasoning);
       continue;
     }
 
@@ -208,10 +209,7 @@ export const translateMessagesToResponses = (payload: MessagesPayload): Response
     tool_choice: translateToolChoice(payload.tool_choice, clientTools),
     ...(payload.metadata ? { metadata: { ...payload.metadata } } : {}),
     ...(payload.stream !== undefined ? { stream: payload.stream } : {}),
-    // Preserve opaque reasoning across translated multi-turn requests without
-    // turning on Responses summaries when the Messages source did not ask for
-    // readable reasoning output.
-    ...(reasoning ? { reasoning, include: ['reasoning.encrypted_content'] } : {}),
+    ...(reasoning ? { reasoning } : {}),
   };
 };
 

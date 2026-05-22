@@ -48,7 +48,7 @@ export const translateChatCompletionsToResponses = (payload: ChatCompletionsPayl
 
     if (message.role === 'assistant') {
       const reasoningItems = translateChatReasoningItems<ResponseInputReasoning>(message.reasoning_items, () => input.length);
-      const scalarReasoning = scalarToResponseReasoningItem<ResponseInputReasoning>(message.reasoning_text, message.reasoning_opaque, makeResponsesReasoningId(input.length));
+      const scalarReasoning = scalarToResponseReasoningItem<ResponseInputReasoning>(message.reasoning_text, makeResponsesReasoningId(input.length));
       if (reasoningItems) {
         input.push(...reasoningItems);
       } else if (scalarReasoning) {
@@ -136,10 +136,6 @@ export const translateChatCompletionsToResponses = (payload: ChatCompletionsPayl
     ...(payload.prompt_cache_key !== undefined ? { prompt_cache_key: payload.prompt_cache_key } : {}),
     ...(payload.safety_identifier !== undefined ? { safety_identifier: payload.safety_identifier } : {}),
     ...(payload.service_tier !== undefined ? { service_tier: payload.service_tier } : {}),
-    // Chat exposes opaque reasoning as scalar `reasoning_opaque`; ask Responses
-    // for encrypted content so translated multi-turn Chat clients can round-trip
-    // it without inventing a gateway-private state store.
-    include: ['reasoning.encrypted_content'],
   };
 };
 

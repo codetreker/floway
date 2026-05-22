@@ -36,7 +36,7 @@ const drain = async (input: ProtocolFrame<ResponseStreamEvent>[]): Promise<void>
   await collect(input);
 };
 
-test('translateToSourceEvents maps reasoning text, attaches signature to text, and maps completion usage', async () => {
+test('translateToSourceEvents maps readable reasoning text without opaque Responses state', async () => {
   const frames = await collect([
     eventFrame({
       type: 'response.reasoning_summary_text.delta',
@@ -52,7 +52,6 @@ test('translateToSourceEvents maps reasoning text, attaches signature to text, a
         type: 'reasoning',
         id: 'rs_1',
         summary: [],
-        encrypted_content: 'sig_1',
       },
     }),
     eventFrame({
@@ -91,7 +90,7 @@ test('translateToSourceEvents maps reasoning text, attaches signature to text, a
           index: 0,
           content: {
             role: 'model',
-            parts: [{ text: 'answer', thoughtSignature: 'sig_1' }],
+            parts: [{ text: 'answer' }],
           },
         },
       ],
@@ -114,7 +113,7 @@ test('translateToSourceEvents maps reasoning text, attaches signature to text, a
   ]);
 });
 
-test('translateToSourceEvents flushes an unclaimed reasoning signature at completion', async () => {
+test('translateToSourceEvents drops reasoning without readable summary at completion', async () => {
   const frames = await collect([
     eventFrame({
       type: 'response.output_item.done',
@@ -123,7 +122,6 @@ test('translateToSourceEvents flushes an unclaimed reasoning signature at comple
         type: 'reasoning',
         id: 'rs_1',
         summary: [],
-        encrypted_content: 'sig_only',
       },
     }),
     eventFrame({ type: 'response.completed', response: response('completed') }),
@@ -134,10 +132,7 @@ test('translateToSourceEvents flushes an unclaimed reasoning signature at comple
       candidates: [
         {
           index: 0,
-          content: {
-            role: 'model',
-            parts: [{ text: '', thoughtSignature: 'sig_only' }],
-          },
+          content: { role: 'model', parts: [] },
           finishReason: 'STOP',
         },
       ],
@@ -145,7 +140,7 @@ test('translateToSourceEvents flushes an unclaimed reasoning signature at comple
   ]);
 });
 
-test('translateToSourceEvents accumulates function call arguments and attaches pending signature', async () => {
+test('translateToSourceEvents accumulates function call arguments after empty reasoning', async () => {
   const frames = await collect([
     eventFrame({
       type: 'response.output_item.done',
@@ -154,7 +149,6 @@ test('translateToSourceEvents accumulates function call arguments and attaches p
         type: 'reasoning',
         id: 'rs_1',
         summary: [],
-        encrypted_content: 'sig_tool',
       },
     }),
     eventFrame({
@@ -208,7 +202,6 @@ test('translateToSourceEvents accumulates function call arguments and attaches p
                   name: 'lookup',
                   args: { query: 'docs' },
                 },
-                thoughtSignature: 'sig_tool',
               },
             ],
           },

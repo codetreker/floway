@@ -89,7 +89,7 @@ test('translateResponsesToMessages uses fallbackMaxOutputTokens over the gateway
   assertEquals(result.max_tokens, 4096);
 });
 
-test('translateResponsesToMessages packs reasoning id into the Anthropic signature', async () => {
+test('translateResponsesToMessages preserves reasoning summaries without Anthropic signatures', async () => {
   const result = await translateResponsesToMessages({
     model: 'claude-test',
     input: [
@@ -97,7 +97,6 @@ test('translateResponsesToMessages packs reasoning id into the Anthropic signatu
         type: 'reasoning',
         id: 'rs_42',
         summary: [{ type: 'summary_text', text: 'trace' }],
-        encrypted_content: 'enc_abc',
       },
     ],
     instructions: null,
@@ -120,7 +119,6 @@ test('translateResponsesToMessages packs reasoning id into the Anthropic signatu
   assertEquals(assistant.content[0], {
     type: 'thinking',
     thinking: 'trace',
-    signature: 'enc_abc@rs_42',
   });
 });
 
@@ -196,7 +194,7 @@ test('translateResponsesToMessages resolves remote input images through the shar
   ]);
 });
 
-test('translateResponsesToMessages drops opaque-only reasoning input with explicit undefined encrypted_content', async () => {
+test('translateResponsesToMessages drops reasoning input without readable summary', async () => {
   const result = await translateResponsesToMessages({
     model: 'gpt-test',
     input: [
@@ -205,7 +203,6 @@ test('translateResponsesToMessages drops opaque-only reasoning input with explic
         type: 'reasoning',
         id: 'rs_undef',
         summary: [],
-        encrypted_content: undefined,
       },
       { type: 'message', role: 'user', content: 'follow up' },
     ],
@@ -221,9 +218,6 @@ test('translateResponsesToMessages drops opaque-only reasoning input with explic
     parallel_tool_calls: true,
   });
 
-  // The undefined-encrypted_content reasoning item is dropped, so the two
-  // adjacent user messages remain side-by-side without an injected assistant
-  // turn.
   assertEquals(
     result.messages.map(m => ({ role: m.role, content: m.content })),
     [

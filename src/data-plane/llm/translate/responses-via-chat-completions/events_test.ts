@@ -93,7 +93,6 @@ test('translateChatCompletionsChunkToResponsesEvents replaces buffered scalar re
           type: 'reasoning',
           id: 'rs_carrier',
           summary: [{ type: 'summary_text', text: 'trace' }],
-          encrypted_content: 'sig',
         },
       ],
     }),
@@ -107,7 +106,6 @@ test('translateChatCompletionsChunkToResponsesEvents replaces buffered scalar re
       type: 'reasoning',
       id: 'rs_carrier',
       summary: [{ type: 'summary_text', text: 'trace' }],
-      encrypted_content: 'sig',
     },
     {
       type: 'message',

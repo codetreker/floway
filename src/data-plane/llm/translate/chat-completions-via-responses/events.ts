@@ -69,6 +69,8 @@ export const createResponsesToChatCompletionsStreamState = (): ResponsesToChatCo
 
 const trackReasoningOutputItem = (item: ResponseOutputItem): boolean => item.type === 'reasoning';
 
+const hasReadableSummary = (item: ChatReasoningItem): boolean => item.summary?.some(part => part.text) === true;
+
 const flushPendingReasoningChunks = (state: ResponsesToChatCompletionsStreamState): ChatCompletionChunk[] => {
   if (state.reasoningItems.length === 0) return [];
 
@@ -191,20 +193,13 @@ export const translateResponsesEventToChatCompletionsChunks = (event: ResponseSt
     if (item.type !== 'reasoning') return [];
 
     const chunks: ChatCompletionChunk[] = [];
-    state.reasoningItems.push(toChatReasoningItem(item));
+    const reasoningItem = toChatReasoningItem(item);
+    if (hasReadableSummary(reasoningItem)) state.reasoningItems.push(reasoningItem);
 
     for (const [summaryIndex, part] of item.summary.entries()) {
       chunks.push(...emitReasoningSummaryText(output_index, summaryIndex, part.text, state, 'done-fallback'));
     }
     chunks.push(...flushReasoningSummaryDoneFallbacks(state, output_index));
-
-    if (Object.hasOwn(item, 'encrypted_content') && shouldProjectScalarReasoning(output_index, state)) {
-      chunks.push(
-        makeChunk(state, {
-          reasoning_opaque: item.encrypted_content,
-        }),
-      );
-    }
 
     return [...chunks, ...flushReadyDeferredChatChunks(state, true), ...flushPendingReasoningChunks(state), ...flushReadyDeferredChatChunks(state)];
   }

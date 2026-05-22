@@ -90,7 +90,6 @@ test('withDeepseekReasoningDialect synthesizes reasoning_content from reasoning_
               { type: 'summary_text', text: 'step one. ' },
               { type: 'summary_text', text: 'step two.' },
             ],
-            encrypted_content: 'opaque-blob',
           },
         ],
         tool_calls: [
@@ -136,7 +135,6 @@ test('withDeepseekReasoningDialect strips reasoning_items even when no summaries
         reasoning_items: [
           {
             type: 'reasoning',
-            encrypted_content: 'opaque-only',
           },
         ],
         reasoning_opaque: 'opaque-chain',

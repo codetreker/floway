@@ -1,4 +1,4 @@
-import type { ChatCompletionChunk, ChatCompletionResponse } from '../../../shared/protocol/chat-completions.ts';
+import type { ChatCompletionChunk, ChatCompletionResponse, ChatReasoningItem } from '../../../shared/protocol/chat-completions.ts';
 import type { ResponseOutputItem, ResponseOutputReasoning, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import type { ResponsesStreamEvent } from '../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
@@ -36,7 +36,6 @@ const upstreamChatCompletionEventsUntilDone = async function* (frames: AsyncIter
 
 interface PendingScalarReasoningItem {
   text: string;
-  encryptedContent?: string;
 }
 
 interface PendingTextItem {
@@ -140,7 +139,7 @@ const commitPendingScalarReasoning = (state: ChatCompletionsToResponsesStreamSta
   const reasoning = state.pendingScalarReasoning;
   state.pendingScalarReasoning = undefined;
   const outputIndex = state.outputIndex++;
-  const item = responses.reasoningItem(makeResponsesReasoningId(outputIndex), reasoning.text, reasoning.encryptedContent);
+  const item = responses.reasoningItem(makeResponsesReasoningId(outputIndex), reasoning.text);
 
   return emitCompletedReasoningItem(item, outputIndex, state);
 };
@@ -180,6 +179,8 @@ const openScalarReasoning = (state: ChatCompletionsToResponsesStreamState): Pend
   (state.pendingScalarReasoning ??= {
     text: '',
   });
+
+const hasReadableSummary = (item: ChatReasoningItem): boolean => item.summary?.some(part => part.text) === true;
 
 const openText = (state: ChatCompletionsToResponsesStreamState): { item: PendingTextItem; events: ResponseStreamEvent[] } => {
   if (state.openText) return { item: state.openText, events: [] };
@@ -302,9 +303,9 @@ export const translateChatCompletionsChunkToResponsesEvents = (chunk: ChatComple
   }
 
   for (const choice of chunk.choices) {
-    const reasoningOpaque = choice.delta.reasoning_opaque;
+    const readableReasoningItems = choice.delta.reasoning_items?.filter(hasReadableSummary) ?? [];
 
-    if (choice.delta.reasoning_items?.length) {
+    if (readableReasoningItems.length) {
       const hadPendingScalarReasoning = state.pendingScalarReasoning !== undefined;
       state.reasoningItemsSeen = true;
 
@@ -319,7 +320,7 @@ export const translateChatCompletionsChunkToResponsesEvents = (chunk: ChatComple
         events.push(...closeText(state));
       }
 
-      for (const item of choice.delta.reasoning_items) {
+      for (const item of readableReasoningItems) {
         const outputIndex = state.outputIndex++;
         events.push(...emitCompletedReasoningItem(toResponseReasoningItem<ResponseOutputReasoning>(item, makeResponsesReasoningId(outputIndex)), outputIndex, state));
       }
@@ -328,17 +329,13 @@ export const translateChatCompletionsChunkToResponsesEvents = (chunk: ChatComple
         events.push(...commitReasoningAndReplayDeferredDeltas(state));
         if (state.completed) return events;
       }
-    } else if (choice.delta.reasoning_text || reasoningOpaque != null) {
+    } else if (choice.delta.reasoning_text) {
       if (!state.reasoningItemsSeen) {
         if (!state.pendingScalarReasoning) events.push(...closeText(state));
         const reasoning = openScalarReasoning(state);
 
         if (choice.delta.reasoning_text) {
           reasoning.text += choice.delta.reasoning_text;
-        }
-
-        if (reasoningOpaque != null) {
-          reasoning.encryptedContent = `${reasoning.encryptedContent ?? ''}${reasoningOpaque}`;
         }
       }
     }

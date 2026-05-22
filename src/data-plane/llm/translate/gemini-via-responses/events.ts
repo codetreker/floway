@@ -2,7 +2,7 @@ import type { GeminiFinishReason, GeminiPart, GeminiStreamEvent, GeminiUsageMeta
 import type { ResponseOutputFunctionCall, ResponseOutputReasoning, ResponsesResult, ResponseStreamEvent } from '../../../shared/protocol/responses.ts';
 import { eventFrame, type ProtocolFrame } from '../../shared/stream/types.ts';
 import { geminiResponse } from '../shared/gemini-response.ts';
-import { appendGeminiThoughtSignature, flushGeminiThoughtSignature, type GeminiThoughtSignatureState, parseStrictJsonObject, signGeminiPart } from '../shared/gemini.ts';
+import { parseStrictJsonObject } from '../shared/gemini.ts';
 
 type ResponseTerminalEvent = Extract<ResponseStreamEvent, { type: 'response.completed' } | { type: 'response.incomplete' } | { type: 'response.failed' }>;
 
@@ -70,7 +70,7 @@ interface ResponseFunctionCallDraft {
   argsJson: string;
 }
 
-interface GeminiViaResponsesStreamState extends GeminiThoughtSignatureState {
+interface GeminiViaResponsesStreamState {
   functionCalls: Map<number, ResponseFunctionCallDraft>;
   emittedReasoningKeys: Set<string>;
   emittedTextKeys: Set<string>;
@@ -78,7 +78,7 @@ interface GeminiViaResponsesStreamState extends GeminiThoughtSignatureState {
 
 const responsePartKey = (outputIndex: number, partIndex: number): string => `${outputIndex}:${partIndex}`;
 
-const emitTextPart = (part: GeminiPart, state: GeminiViaResponsesStreamState): ProtocolFrame<GeminiStreamEvent> => eventFrame(geminiResponse([signGeminiPart(state, part)]));
+const emitTextPart = (part: GeminiPart): ProtocolFrame<GeminiStreamEvent> => eventFrame(geminiResponse([part]));
 
 const reasoningItemDoneFrames = function* (item: ResponseOutputReasoning, outputIndex: number, state: GeminiViaResponsesStreamState): Generator<ProtocolFrame<GeminiStreamEvent>> {
   for (const [summaryIndex, part] of item.summary.entries()) {
@@ -87,10 +87,6 @@ const reasoningItemDoneFrames = function* (item: ResponseOutputReasoning, output
 
     state.emittedReasoningKeys.add(key);
     yield eventFrame(geminiResponse([{ text: part.text, thought: true }]));
-  }
-
-  if (item.encrypted_content !== undefined) {
-    appendGeminiThoughtSignature(state, item.encrypted_content);
   }
 };
 
@@ -118,12 +114,11 @@ const functionCallDoneFrame = (item: ResponseOutputFunctionCall, outputIndex: nu
         args: argsJson ? parseStrictJsonObject(argsJson, 'Responses function call arguments') : {},
       },
     },
-    state,
   );
 };
 
-const handleTerminal = (event: ResponseTerminalEvent, state: GeminiViaResponsesStreamState): ProtocolFrame<GeminiStreamEvent> =>
-  eventFrame(geminiResponse(flushGeminiThoughtSignature(state), mapTerminalFinishReason(event), mapUsage(event.response.usage)));
+const handleTerminal = (event: ResponseTerminalEvent): ProtocolFrame<GeminiStreamEvent> =>
+  eventFrame(geminiResponse([], mapTerminalFinishReason(event), mapUsage(event.response.usage)));
 
 export const translateToSourceEvents = async function* (frames: AsyncIterable<ProtocolFrame<ResponseStreamEvent>>): AsyncGenerator<ProtocolFrame<GeminiStreamEvent>> {
   const state: GeminiViaResponsesStreamState = {
@@ -158,7 +153,7 @@ export const translateToSourceEvents = async function* (frames: AsyncIterable<Pr
       if (textEvent.type === 'response.output_text.done' && state.emittedTextKeys.has(key)) break;
 
       state.emittedTextKeys.add(key);
-      yield emitTextPart({ text }, state);
+      yield emitTextPart({ text });
       break;
     }
 
@@ -201,7 +196,7 @@ export const translateToSourceEvents = async function* (frames: AsyncIterable<Pr
     case 'response.completed':
     case 'response.incomplete':
     case 'response.failed':
-      yield handleTerminal(event as ResponseTerminalEvent, state);
+      yield handleTerminal(event as ResponseTerminalEvent);
       break;
 
     case 'error': {

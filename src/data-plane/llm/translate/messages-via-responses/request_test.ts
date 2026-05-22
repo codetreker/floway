@@ -4,7 +4,7 @@ import { translateMessagesToResponses } from './request.ts';
 import { assertEquals, assertFalse } from '../../../../test-assert.ts';
 import type { ResponseInputReasoning } from '../../../shared/protocol/responses.ts';
 
-test('translateMessagesToResponses synthesizes an rs-prefixed id when the signature is not packed', () => {
+test('translateMessagesToResponses ignores thinking signatures and preserves readable thinking text', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
     max_tokens: 256,
@@ -18,12 +18,14 @@ test('translateMessagesToResponses synthesizes an rs-prefixed id when the signat
 
   if (!Array.isArray(result.input)) throw new Error('expected input array');
   const reasoning = result.input[0] as ResponseInputReasoning;
-  assertEquals(reasoning.type, 'reasoning');
-  assertEquals(reasoning.id, 'rs_0');
-  assertEquals(reasoning.encrypted_content, 'sig');
+  assertEquals(reasoning, {
+    type: 'reasoning',
+    id: 'rs_0',
+    summary: [{ type: 'summary_text', text: 'trace' }],
+  });
 });
 
-test('translateMessagesToResponses recovers the upstream id from a packed thinking.signature', () => {
+test('translateMessagesToResponses does not recover Responses ids from thinking signatures', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
     max_tokens: 256,
@@ -43,8 +45,11 @@ test('translateMessagesToResponses recovers the upstream id from a packed thinki
 
   if (!Array.isArray(result.input)) throw new Error('expected input array');
   const reasoning = result.input[0] as ResponseInputReasoning;
-  assertEquals(reasoning.id, 'rs_42');
-  assertEquals(reasoning.encrypted_content, 'enc_abc');
+  assertEquals(reasoning, {
+    type: 'reasoning',
+    id: 'rs_0',
+    summary: [{ type: 'summary_text', text: 'trace' }],
+  });
 });
 
 test('translateMessagesToResponses drops filtered-native tool_choice and rewrites assistant native web-search history as function-call history', () => {
@@ -108,7 +113,7 @@ test('translateMessagesToResponses maps output_config.effort directly to reasoni
   });
 
   assertEquals(result.reasoning, { effort: 'xhigh' });
-  assertEquals(result.include, ['reasoning.encrypted_content']);
+  assertFalse('include' in result);
 });
 
 test('translateMessagesToResponses prefers output_config.effort over thinking.disabled', () => {
@@ -153,7 +158,7 @@ test('translateMessagesToResponses maps thinking.disabled to reasoning.effort no
   });
 
   assertEquals(result.reasoning, { effort: 'none' });
-  assertEquals(result.include, ['reasoning.encrypted_content']);
+  assertFalse('include' in result);
 });
 
 test('translateMessagesToResponses ignores non-disabled thinking without output_config.effort', () => {
@@ -204,7 +209,7 @@ test('translateMessagesToResponses joins multi-block system text with double new
   assertEquals(result.instructions, 'Alpha\n\nBeta');
 });
 
-test('translateMessagesToResponses preserves redacted_thinking as opaque reasoning input', () => {
+test('translateMessagesToResponses drops redacted_thinking because Responses encrypted reasoning is not preserved', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
     max_tokens: 256,
@@ -217,15 +222,10 @@ test('translateMessagesToResponses preserves redacted_thinking as opaque reasoni
   });
 
   if (!Array.isArray(result.input)) throw new Error('expected input array');
-  assertEquals(result.input[0], {
-    type: 'reasoning',
-    id: 'rs_0',
-    summary: [],
-    encrypted_content: 'opaque_sig',
-  });
+  assertEquals(result.input, []);
 });
 
-test('translateMessagesToResponses recovers the upstream id from packed redacted_thinking.data', () => {
+test('translateMessagesToResponses drops packed redacted_thinking data', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
     max_tokens: 256,
@@ -238,15 +238,10 @@ test('translateMessagesToResponses recovers the upstream id from packed redacted
   });
 
   if (!Array.isArray(result.input)) throw new Error('expected input array');
-  assertEquals(result.input[0], {
-    type: 'reasoning',
-    id: 'rs_99',
-    summary: [],
-    encrypted_content: 'opaque_sig',
-  });
+  assertEquals(result.input, []);
 });
 
-test('translateMessagesToResponses omits encrypted_content for text-only thinking input', () => {
+test('translateMessagesToResponses preserves text-only thinking input', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
     max_tokens: 256,
@@ -265,5 +260,4 @@ test('translateMessagesToResponses omits encrypted_content for text-only thinkin
     id: 'rs_0',
     summary: [{ type: 'summary_text', text: 'trace' }],
   });
-  assertFalse('encrypted_content' in reasoning);
 });
