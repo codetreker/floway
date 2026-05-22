@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../shared/copilot.ts';
 import { assertEquals, assertExists } from '../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, flushAsyncWork, jsonResponse, requestApp, setupAppTest, withMockedFetch } from '../../test-helpers.ts';
-import { clearModelsCache } from '../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../providers/models-store.ts';
 
 test('/v1/embeddings wraps scalar string input for Copilot upstream', async () => {
   const { apiKey } = await setupAppTest();
@@ -209,7 +209,7 @@ test('/v1/embeddings records request and upstream performance', async () => {
 test('/v1/embeddings routes to custom upstream when model is only declared there', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -281,7 +281,7 @@ test('/v1/embeddings routes to custom upstream when model is only declared there
 test('/v1/embeddings rejects model on custom upstream without /embeddings capability', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -334,7 +334,7 @@ test('/v1/embeddings rejects model on custom upstream without /embeddings capabi
 test('/v1/embeddings preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -384,7 +384,7 @@ test('/v1/embeddings preserves custom upstream /models HTTP errors', async () =>
 
 test('/v1/embeddings preserves model-load errors hidden by another provider', async () => {
   const { apiKey, repo } = await setupAppTest();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

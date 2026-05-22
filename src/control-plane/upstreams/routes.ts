@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 
 import { upstreamRecordToJson } from './serialize.ts';
 import { getFixCatalog, isKnownFixId } from '../../data-plane/providers/fixes.ts';
-import { clearModelsCache, invalidateUpstreamModels } from '../../data-plane/providers/upstream-model-cache.ts';
+import { clearModelsStore, invalidateModelsStore } from '../../data-plane/providers/models-store.ts';
 import { getRepo } from '../../repo/index.ts';
 import type { UpstreamProviderKind, UpstreamRecord } from '../../repo/types.ts';
 import { clearCopilotTokenCache, isCopilotAccountType, type CopilotAccountType } from '../../shared/copilot.ts';
@@ -267,7 +267,7 @@ export const createUpstream = async (c: Context) => {
 
   const record = { ...upstream, config: config.value };
   await getRepo().upstreams.save(record);
-  await invalidateUpstreamModels(record.id);
+  await invalidateModelsStore(record.id);
   return c.json(upstreamRecordToJson(record), 201);
 };
 
@@ -316,7 +316,7 @@ export const updateUpstream = async (c: Context) => {
   next = { ...next, config: config.value };
 
   await getRepo().upstreams.save(next);
-  await invalidateUpstreamModels(next.id);
+  await invalidateModelsStore(next.id);
   return c.json(upstreamRecordToJson(next));
 };
 
@@ -324,7 +324,7 @@ export const deleteUpstream = async (c: Context) => {
   const id = c.req.param('id') ?? '';
   const deleted = await getRepo().upstreams.delete(id);
   if (!deleted) return c.json({ error: 'Upstream not found' }, 404);
-  await invalidateUpstreamModels(id);
+  await invalidateModelsStore(id);
   return c.json({ ok: true });
 };
 
@@ -346,7 +346,7 @@ export const testUpstream = async (c: Context) => {
     upstream = createCustomUpstream(record);
   }
 
-  await invalidateUpstreamModels(id);
+  await invalidateModelsStore(id);
 
   if (record.provider === 'azure') {
     const azure = assertAzureUpstreamRecord(record);
@@ -482,8 +482,8 @@ export const copilotAuthPoll = async (c: Context) => {
 
     await repo.save(record);
     await clearCopilotTokenCache();
-    clearModelsCache();
-    await invalidateUpstreamModels(record.id);
+    clearModelsStore();
+    await invalidateModelsStore(record.id);
     return c.json({ status: 'complete', user, upstream: upstreamRecordToJson(record) });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

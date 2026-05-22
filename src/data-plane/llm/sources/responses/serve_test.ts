@@ -4,7 +4,7 @@ import { clearCopilotTokenCache } from '../../../../shared/copilot.ts';
 import { assertEquals, assertExists, assertFalse, assertStringIncludes } from '../../../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, parseSSEText, requestApp, setupAppTest, sseChatCompletionsResponse, sseResponse, sseResponsesResponse, withMockedFetch } from '../../../../test-helpers.ts';
 import { FakeTime } from '../../../../test-time.ts';
-import { clearModelsCache } from '../../../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../../../providers/models-store.ts';
 import { DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS } from '../../shared/stream/proxy-sse.ts';
 
 type PromiseState<T> = { type: 'pending' } | { type: 'fulfilled'; value: T } | { type: 'rejected'; error: unknown };
@@ -1313,7 +1313,7 @@ test('/v1/responses prefers messages over chat completions when both translated 
 test('/v1/responses preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

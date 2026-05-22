@@ -1,7 +1,51 @@
 import type { ModelMetadata } from './types.ts';
-import type { CachedModelInfo } from './upstream-model-cache.ts';
 
-export type RawModelMetadata = CachedModelInfo;
+export interface RawModelMetadata {
+  id: string;
+  object?: string;
+  name?: string;
+  version?: string;
+  owned_by?: string;
+  created?: number;
+  display_name?: string;
+  created_at?: string;
+  description?: string;
+  supported_endpoints?: string[];
+  capabilities?: {
+    family?: string;
+    type?: string;
+    limits?: {
+      max_context_window_tokens?: number;
+      max_non_streaming_output_tokens?: number;
+      max_prompt_tokens?: number;
+      max_output_tokens?: number;
+    };
+    supports?: {
+      tool_calls?: boolean;
+      parallel_tool_calls?: boolean;
+      streaming?: boolean;
+      vision?: boolean;
+      adaptive_thinking?: boolean;
+      reasoning_effort?: string[];
+    };
+  };
+  supports_generation?: boolean;
+  model_picker_enabled?: boolean;
+  billing?: {
+    is_premium?: boolean;
+    multiplier?: number;
+    restricted_to?: string[];
+  };
+  policy?: {
+    state?: string;
+    terms?: string;
+  };
+}
+
+export interface RawModelsResponse<TModel extends RawModelMetadata = RawModelMetadata> {
+  object: string;
+  data: TModel[];
+}
 
 export const withModelInfoDefaults = (model: RawModelMetadata): ModelMetadata => {
   const metadata: ModelMetadata = {

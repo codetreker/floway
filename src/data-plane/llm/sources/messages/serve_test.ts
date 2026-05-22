@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../../../shared/copilot.ts';
 import { assertEquals, assertExists, assertFalse, assertStringIncludes } from '../../../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, parseSSEText, requestApp, setupAppTest, sseMessagesResponse, sseResponse, withMockedFetch } from '../../../../test-helpers.ts';
-import { clearModelsCache } from '../../../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../../../providers/models-store.ts';
 import type { ResponsesResult } from '../../../shared/protocol/responses.ts';
 import type { SearchConfig } from '../../../tools/web-search/types.ts';
 
@@ -2240,7 +2240,7 @@ test('/v1/messages strips cache_control.scope only for Copilot Messages', async 
 test('/v1/messages preserves cache_control.scope for custom Messages providers', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -2339,7 +2339,7 @@ test('/v1/messages forwards native web search unchanged to custom Messages provi
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -2419,7 +2419,7 @@ test('/v1/messages applies native web search shim to custom Messages providers w
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -2508,7 +2508,7 @@ test('/v1/messages applies native web search shim to custom Responses targets', 
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -2618,7 +2618,7 @@ test('/v1/messages applies native web search shim to custom Chat Completions tar
     searchConfig: ENABLED_SEARCH_CONFIG,
   });
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -3564,7 +3564,7 @@ test('/v1/messages routes native web search through translated /chat/completions
 test('/v1/messages rejects embedding-only custom upstream model instead of legacy chat fallback', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -3617,7 +3617,7 @@ test('/v1/messages rejects embedding-only custom upstream model instead of legac
 test('/v1/messages preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

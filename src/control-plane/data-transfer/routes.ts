@@ -3,7 +3,7 @@
 import type { Context } from 'hono';
 
 import { isKnownFixId } from '../../data-plane/providers/fixes.ts';
-import { invalidateUpstreamModels } from '../../data-plane/providers/upstream-model-cache.ts';
+import { invalidateModelsStore } from '../../data-plane/providers/models-store.ts';
 import { normalizeSearchConfig } from '../../data-plane/tools/web-search/search-config.ts';
 import type { SearchConfig } from '../../data-plane/tools/web-search/types.ts';
 import { getRepo } from '../../repo/index.ts';
@@ -484,7 +484,7 @@ export const importData = async (c: Context) => {
     const deletes = [repo.apiKeys.deleteAll(), repo.usage.deleteAll(), repo.searchUsage.deleteAll(), repo.upstreams.deleteAll()];
     if (performanceIncluded) deletes.push(repo.performance.deleteAll());
     await Promise.all(deletes);
-    await Promise.all([...existingUpstreams, ...upstreams].map(upstream => invalidateUpstreamModels(upstream.id)));
+    await Promise.all([...existingUpstreams, ...upstreams].map(upstream => invalidateModelsStore(upstream.id)));
   }
 
   for (const key of apiKeys) await repo.apiKeys.save(key);
@@ -492,7 +492,7 @@ export const importData = async (c: Context) => {
   for (const record of searchUsage) await repo.searchUsage.set(record);
   for (const upstream of upstreams) {
     await repo.upstreams.save(upstream);
-    await invalidateUpstreamModels(upstream.id);
+    await invalidateModelsStore(upstream.id);
   }
   for (const record of performance) await repo.performance.set(record);
   await repo.searchConfig.save(searchConfig);

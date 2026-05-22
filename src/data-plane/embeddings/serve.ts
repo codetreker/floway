@@ -6,9 +6,9 @@ import type { Context } from 'hono';
 import type { BackgroundScheduler } from '../../runtime/background.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { toInternalDebugError } from '../llm/shared/errors/internal-debug-error.ts';
+import { httpResponseToResponse, ProviderModelsUnavailableError } from '../providers/models-store.ts';
 import { resolveModelForRequest } from '../providers/registry.ts';
 import type { ProviderModelRecord } from '../providers/types.ts';
-import { ModelsFetchError } from '../providers/upstream-model-cache.ts';
 import type { PerformanceTelemetryContext } from '../shared/telemetry/performance.ts';
 import { recordPerformanceError, recordPerformanceLatency, recordRequestPerformanceForApiKey, runtimeLocationFromRequest } from '../shared/telemetry/performance.ts';
 import { recordTokenUsageForApiKey, tokenUsageFromPromptTokenResponse } from '../shared/telemetry/usage.ts';
@@ -49,12 +49,7 @@ const prepareEmbeddingsRequest = (body: string): { type: 'ok'; body: Record<stri
 };
 
 const modelsLoadErrorResponse = (error: unknown): Response | null =>
-  error instanceof ModelsFetchError
-    ? new Response(error.body, {
-        status: error.status,
-        headers: new Headers(error.headers),
-      })
-    : null;
+  error instanceof ProviderModelsUnavailableError ? httpResponseToResponse(error.httpResponse) : null;
 
 const apiErrorResponse = (c: Context, message: string, status: 400 | 404): Response => c.json({ error: { message, type: 'api_error' } }, status);
 

@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../../../shared/copilot.ts';
 import { assertEquals, assertExists, assertFalse, assertStringIncludes } from '../../../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, parseSSEText, requestApp, setupAppTest, sseChatCompletionsResponse, sseResponse, withMockedFetch } from '../../../../test-helpers.ts';
-import { clearModelsCache } from '../../../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../../../providers/models-store.ts';
 
 const mockTokenAndModels = (request: Request, models: Parameters<typeof copilotModels>[0]): Response | null => {
   const url = new URL(request.url);
@@ -685,7 +685,7 @@ test('/v1beta/models/:model:generateContent accepts admin playground access', as
 test('/v1beta/models/:model:generateContent preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

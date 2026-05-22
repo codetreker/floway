@@ -210,7 +210,7 @@ test('/api/upstreams/copilot/auth/poll updates an existing row for the same GitH
   const existing = buildCopilotUpstreamRecord(githubAccount, { id: 'up_existing_copilot', name: 'Pinned Copilot', sortOrder: 9 });
   await repo.upstreams.deleteAll();
   await repo.upstreams.save(existing);
-  await repo.cache.set('models_cache_v2:up_existing_copilot', 'stale');
+  await repo.cache.set('models_store:up_existing_copilot', 'stale');
 
   await withMockedFetch(
     request => {
@@ -242,5 +242,5 @@ test('/api/upstreams/copilot/auth/poll updates an existing row for the same GitH
   assertEquals(rows[0].sortOrder, 9);
   assertEquals((rows[0].config as Record<string, any>).githubToken, 'ghu_refreshed');
   assertEquals((rows[0].config as Record<string, any>).accountType, 'business');
-  assertEquals(await repo.cache.get('models_cache_v2:up_existing_copilot'), null);
+  assertEquals(await repo.cache.get('models_store:up_existing_copilot'), null);
 });

@@ -2,9 +2,9 @@ import type { Context } from 'hono';
 
 import type { ModelInfo, ModelsResponse } from '../../data-plane/models/types.ts';
 import { modelEndpointsToPublicPaths } from '../../data-plane/providers/endpoints.ts';
+import { ProviderModelsUnavailableError } from '../../data-plane/providers/models-store.ts';
 import { getModels } from '../../data-plane/providers/registry.ts';
 import type { ModelMetadata, ResolvedModel } from '../../data-plane/providers/types.ts';
-import { ModelsFetchError, ModelsRequestError } from '../../data-plane/providers/upstream-model-cache.ts';
 import type { UpstreamProviderKind } from '../../repo/types.ts';
 
 interface ControlPlaneModelInfo extends ModelInfo {
@@ -64,8 +64,6 @@ const toControlPlaneModelInfo = (model: ResolvedModel): ControlPlaneModelInfo =>
 
 const modelListingFailureMessage = 'Upstream model listing failed';
 
-const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
 export const controlPlaneModels = async (c: Context): Promise<Response> => {
   try {
     const models = await getModels();
@@ -75,12 +73,13 @@ export const controlPlaneModels = async (c: Context): Promise<Response> => {
     };
     return Response.json(response);
   } catch (e: unknown) {
-    if (e instanceof ModelsFetchError) {
-      return Response.json({ error: { message: modelListingFailureMessage, type: 'api_error' } }, { status: e.status });
+    // Genuine upstream HTTP/parse failures are squashed to a generic 502 so
+    // the control plane does not leak provider identity. Other errors
+    // (e.g. the registry's "no upstream configured" hint) carry actionable
+    // operator guidance and surface verbatim.
+    if (e instanceof ProviderModelsUnavailableError) {
+      return c.json({ error: { message: modelListingFailureMessage, type: 'api_error' } }, 502);
     }
-    if (e instanceof ModelsRequestError) {
-      return Response.json({ error: { message: modelListingFailureMessage, type: 'api_error' } }, { status: 502 });
-    }
-    return c.json({ error: { message: errorMessage(e), type: 'api_error' } }, 502);
+    return c.json({ error: { message: e instanceof Error ? e.message : String(e), type: 'api_error' } }, 502);
   }
 };

@@ -134,7 +134,7 @@ test('PATCH /api/upstreams preserves omitted secrets and invalidates model cache
 
   const create = await requestApp('/api/upstreams', authed(adminKey, createBody()));
   const created = (await create.json()) as Record<string, string>;
-  await repo.cache.set(`models_cache_v2:${created.id}`, 'stale');
+  await repo.cache.set(`models_store:${created.id}`, 'stale');
 
   const patch = await requestApp(`/api/upstreams/${created.id}`, {
     method: 'PATCH',
@@ -151,7 +151,7 @@ test('PATCH /api/upstreams preserves omitted secrets and invalidates model cache
   const stored = await repo.upstreams.getById(created.id);
   assertEquals((stored?.config as Record<string, unknown>).bearerToken, 'sk-test');
   assertEquals((stored?.config as Record<string, unknown>).supportedEndpoints, ['/responses']);
-  assertEquals(await repo.cache.get(`models_cache_v2:${created.id}`), null);
+  assertEquals(await repo.cache.get(`models_store:${created.id}`), null);
 });
 
 test('PATCH /api/upstreams keeps Azure as a single endpoint config', async () => {

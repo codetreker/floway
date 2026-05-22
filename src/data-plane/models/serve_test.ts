@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../shared/copilot.ts';
 import { assertEquals } from '../../test-assert.ts';
 import { buildCopilotUpstreamRecord, buildCustomUpstreamRecord, copilotModels, jsonResponse, requestApp, setupAppTest, withMockedFetch } from '../../test-helpers.ts';
-import { clearModelsCache } from '../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../providers/models-store.ts';
 
 const SECOND_ACCOUNT = {
   token: 'ghu_second',
@@ -219,7 +219,7 @@ test('/models returns Anthropic-shaped model list', async () => {
 test('/v1/models hides upstream identity when a provider returns an invalid model list', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
   await repo.upstreams.save(buildCustomUpstreamRecord({
     id: 'up_secret_provider',
@@ -247,7 +247,7 @@ test('/v1/models hides upstream identity when a provider returns an invalid mode
 
       assertEquals(response.status, 502);
       const body = (await response.json()) as { error: { message: string } };
-      assertEquals(body.error.message, 'Invalid upstream /models response');
+      assertEquals(body.error.message, 'Upstream model listing failed');
     },
   );
 });
@@ -255,7 +255,7 @@ test('/v1/models hides upstream identity when a provider returns an invalid mode
 test('public model list endpoints hide upstream HTTP error bodies and headers', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
   await repo.upstreams.save(buildCustomUpstreamRecord({
     id: 'up_http_secret_provider',
@@ -287,7 +287,7 @@ test('public model list endpoints hide upstream HTTP error bodies and headers', 
         const response = await requestApp(path, {
           headers: { 'x-api-key': apiKey.key },
         });
-        assertEquals(response.status, 403);
+        assertEquals(response.status, 502);
         assertEquals(response.headers.get('x-upstream-id'), null);
         assertEquals(await response.json(), {
           error: {
@@ -303,7 +303,7 @@ test('public model list endpoints hide upstream HTTP error bodies and headers', 
 test('public model list endpoints hide thrown upstream request errors', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
   await repo.upstreams.save(buildCustomUpstreamRecord({
     id: 'up_throw_secret_provider',
@@ -344,7 +344,7 @@ test('public model list endpoints hide thrown upstream request errors', async ()
 test('public model list endpoints hide malformed upstream response bodies', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
   await repo.upstreams.save(buildCustomUpstreamRecord({
     id: 'up_malformed_secret_provider',
@@ -376,7 +376,7 @@ test('public model list endpoints hide malformed upstream response bodies', asyn
         assertEquals(response.status, 502);
         assertEquals(await response.json(), {
           error: {
-            message: 'Invalid upstream /models response',
+            message: 'Upstream model listing failed',
             type: 'api_error',
           },
         });
@@ -385,10 +385,10 @@ test('public model list endpoints hide malformed upstream response bodies', asyn
   );
 });
 
-test('/v1/models reports an upstream configuration error when no provider is configured', async () => {
+test('/v1/models surfaces the actionable "no upstream configured" hint when no provider is configured', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   const response = await requestApp('/v1/models', {
@@ -396,8 +396,12 @@ test('/v1/models reports an upstream configuration error when no provider is con
   });
 
   assertEquals(response.status, 502);
-  const body = (await response.json()) as { error: { message: string } };
-  assertEquals(body.error.message, 'No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
+  assertEquals(await response.json(), {
+    error: {
+      message: 'No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard',
+      type: 'api_error',
+    },
+  });
 });
 
 test('/v1/models returns the id-sorted union of every connected GitHub account', async () => {

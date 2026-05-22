@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
 
 import { getModelCapabilities } from '../../../../providers/capabilities.ts';
+import { ProviderModelsUnavailableError } from '../../../../providers/models-store.ts';
 import { resolveModelForRequest } from '../../../../providers/registry.ts';
-import { ModelsFetchError } from '../../../../providers/upstream-model-cache.ts';
 import type { GeminiContent, GeminiGenerateContentRequest } from '../../../../shared/protocol/gemini.ts';
 import { buildTargetRequest as buildMessagesTargetRequest } from '../../../translate/gemini-via-messages/request.ts';
 import { stripUnsupportedPartFieldsFromPayload } from '../interceptors/strip-unsupported-part-fields.ts';
@@ -74,8 +74,8 @@ export const countGeminiTokens = async (c: Context, model: string): Promise<Resp
 
     return Response.json({ totalTokens });
   } catch (error) {
-    if (error instanceof ModelsFetchError) {
-      return geminiRpcErrorResponse(error.status, error.body);
+    if (error instanceof ProviderModelsUnavailableError && error.httpResponse) {
+      return geminiRpcErrorResponse(error.httpResponse.status, error.httpResponse.body);
     }
 
     return geminiInternalRpcErrorResponse(500, error);

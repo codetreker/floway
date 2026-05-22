@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
 
+import { ProviderModelsUnavailableError } from '../providers/models-store.ts';
 import { getCatalogModels } from '../providers/registry.ts';
 import type { CatalogModel, ModelPricing } from '../providers/types.ts';
-import { ModelsFetchError, ModelsRequestError } from '../providers/upstream-model-cache.ts';
 
 type GeminiGenerationMethod = 'generateContent' | 'streamGenerateContent' | 'countTokens';
 
@@ -75,14 +75,14 @@ const geminiError = (status: number, message: string): Response => {
 
 const modelListingFailureMessage = 'Upstream model listing failed';
 
+// Same split as the OpenAI-shaped /models endpoint: ProviderModelsUnavailableError
+// is genuine upstream HTTP/parse failure and must not leak upstream identity;
+// other errors (e.g. the registry's "no upstream configured" hint) carry
+// actionable operator guidance and surface verbatim.
 const geminiModelLoadError = (error: unknown): Response => {
-  if (error instanceof ModelsFetchError) {
-    return geminiError(error.status, modelListingFailureMessage);
-  }
-  if (error instanceof ModelsRequestError) {
+  if (error instanceof ProviderModelsUnavailableError) {
     return geminiError(502, modelListingFailureMessage);
   }
-
   return geminiError(502, error instanceof Error ? error.message : String(error));
 };
 

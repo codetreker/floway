@@ -1,6 +1,6 @@
 import { app } from './app.ts';
+import { clearModelsStore } from './data-plane/providers/models-store.ts';
 import type { ModelProvider, UpstreamModel } from './data-plane/providers/types.ts';
-import { clearModelsCache } from './data-plane/providers/upstream-model-cache.ts';
 import type { SearchConfig } from './data-plane/tools/web-search/types.ts';
 import { initRepo } from './repo/index.ts';
 import { InMemoryRepo } from './repo/memory.ts';
@@ -100,7 +100,7 @@ export async function setupAppTest(options: SetupOptions = {}): Promise<AppTestC
   initEnv(name => (name === 'ADMIN_KEY' ? adminKey : ''));
 
   await clearCopilotTokenCache();
-  clearModelsCache();
+  clearModelsStore();
 
   const apiKey = options.apiKey ?? {
     id: `key_${crypto.randomUUID()}`,

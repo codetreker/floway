@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../../../shared/copilot.ts';
 import { assertEquals, assertExists, assertStringIncludes } from '../../../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, parseSSEText, requestApp, setupAppTest, sseChatCompletionsResponse, sseMessagesResponse, sseResponse, withMockedFetch } from '../../../../test-helpers.ts';
-import { clearModelsCache } from '../../../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../../../providers/models-store.ts';
 
 const getUsageOnlyChatChunks = (events: Array<{ event: string; data: string }>): Array<Record<string, unknown>> =>
   events.flatMap(event => {
@@ -1777,7 +1777,7 @@ test('/v1/chat/completions fills missing max_tokens from model limits on the mes
 test('/v1/chat/completions preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../../../../shared/copilot.ts';
 import { assertEquals, assertExists } from '../../../../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, requestApp, setupAppTest, withMockedFetch } from '../../../../../test-helpers.ts';
-import { clearModelsCache } from '../../../../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../../../../providers/models-store.ts';
 
 test('/v1beta/models/:model:countTokens translates Gemini request to Messages count_tokens', async () => {
   const { apiKey } = await setupAppTest();
@@ -163,7 +163,7 @@ test('/v1beta/models/:model:countTokens internal failures include debug fields',
 test('/v1beta/models/:model:countTokens rejects custom-upstream-only models', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -217,7 +217,7 @@ test('/v1beta/models/:model:countTokens rejects custom-upstream-only models', as
 test('/v1beta/models/:model:countTokens preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../shared/copilot.ts';
 import { assertEquals } from '../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, requestApp, setupAppTest, withMockedFetch } from '../../test-helpers.ts';
-import { clearModelsCache } from '../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../providers/models-store.ts';
 
 test('/v1beta/models lists Copilot LLM models in Gemini model shape', async () => {
   const { apiKey } = await setupAppTest();
@@ -135,7 +135,7 @@ test('/v1beta/models/:modelId returns one Gemini model or Google RPC 404', async
 test('/v1beta/models includes custom upstream LLM models', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -187,7 +187,7 @@ test('/v1beta/models includes custom upstream LLM models', async () => {
 test('/v1beta/models excludes custom upstream embedding-only models', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -229,7 +229,7 @@ test('/v1beta/models excludes custom upstream embedding-only models', async () =
 test('/v1beta/models hides upstream identity when a provider returns an invalid model list', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -262,7 +262,7 @@ test('/v1beta/models hides upstream identity when a provider returns an invalid 
       assertEquals(await response.json(), {
         error: {
           code: 502,
-          message: 'Invalid upstream /models response',
+          message: 'Upstream model listing failed',
           status: 'UNAVAILABLE',
         },
       });
@@ -273,7 +273,7 @@ test('/v1beta/models hides upstream identity when a provider returns an invalid 
 test('/v1beta/models hides upstream HTTP error bodies', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -305,12 +305,12 @@ test('/v1beta/models hides upstream HTTP error bodies', async () => {
       const response = await requestApp('/v1beta/models', {
         headers: { 'x-api-key': apiKey.key },
       });
-      assertEquals(response.status, 403);
+      assertEquals(response.status, 502);
       assertEquals(await response.json(), {
         error: {
-          code: 403,
+          code: 502,
           message: 'Upstream model listing failed',
-          status: 'PERMISSION_DENIED',
+          status: 'UNAVAILABLE',
         },
       });
     },
@@ -320,7 +320,7 @@ test('/v1beta/models hides upstream HTTP error bodies', async () => {
 test('/v1beta/models hides thrown upstream request errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -364,7 +364,7 @@ test('/v1beta/models hides thrown upstream request errors', async () => {
 test('/v1beta/models hides malformed upstream response bodies', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -400,7 +400,7 @@ test('/v1beta/models hides malformed upstream response bodies', async () => {
       assertEquals(await response.json(), {
         error: {
           code: 502,
-          message: 'Invalid upstream /models response',
+          message: 'Upstream model listing failed',
           status: 'UNAVAILABLE',
         },
       });

@@ -1,16 +1,10 @@
 import type { Context } from 'hono';
 
+import { httpResponseToResponse, ProviderModelsUnavailableError } from '../../../../providers/models-store.ts';
 import { resolveModelForRequest } from '../../../../providers/registry.ts';
-import { ModelsFetchError } from '../../../../providers/upstream-model-cache.ts';
 import type { MessagesPayload } from '../../../../shared/protocol/messages.ts';
 import { toInternalDebugError } from '../../../shared/errors/internal-debug-error.ts';
 import { bodyAnthropicBetaResponse, bodyBetaParam, parseAnthropicBeta } from '../serve.ts';
-
-const modelsLoadErrorResponse = (error: ModelsFetchError): Response =>
-  new Response(error.body, {
-    status: error.status,
-    headers: new Headers(error.headers),
-  });
 
 export const countTokens = async (c: Context) => {
   try {
@@ -66,7 +60,10 @@ export const countTokens = async (c: Context) => {
       },
     });
   } catch (e) {
-    if (e instanceof ModelsFetchError) return modelsLoadErrorResponse(e);
+    if (e instanceof ProviderModelsUnavailableError) {
+      const proxied = httpResponseToResponse(e.httpResponse);
+      if (proxied) return proxied;
+    }
 
     return c.json({ error: toInternalDebugError(e, 'messages') }, 502);
   }

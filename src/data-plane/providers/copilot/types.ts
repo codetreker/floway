@@ -1,5 +1,5 @@
-import type { CachedModelInfo, CachedModelsResponse } from '../upstream-model-cache.ts';
+import type { RawModelMetadata, RawModelsResponse } from '../model-info.ts';
 
-export type CopilotRawModel = CachedModelInfo;
+export type CopilotRawModel = RawModelMetadata;
 
-export type CopilotModelsResponse = CachedModelsResponse<CopilotRawModel>;
+export type CopilotModelsResponse = RawModelsResponse<CopilotRawModel>;

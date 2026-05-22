@@ -1,5 +1,5 @@
 import type { UpstreamErrorResult } from './result.ts';
-import { ModelsFetchError } from '../../../providers/upstream-model-cache.ts';
+import { ProviderModelsUnavailableError } from '../../../providers/models-store.ts';
 import type { PerformanceTelemetryContext } from '../../../shared/telemetry/performance.ts';
 
 interface ThrownUpstreamError {
@@ -9,11 +9,11 @@ interface ThrownUpstreamError {
 }
 
 export const thrownUpstreamError = (error: unknown): ThrownUpstreamError | null => {
-  if (error instanceof ModelsFetchError) {
+  if (error instanceof ProviderModelsUnavailableError && error.httpResponse) {
     return {
-      status: error.status,
-      headers: new Headers(error.headers),
-      body: error.body,
+      status: error.httpResponse.status,
+      headers: new Headers(error.httpResponse.headers),
+      body: error.httpResponse.body,
     };
   }
 

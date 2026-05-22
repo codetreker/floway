@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import { clearCopilotTokenCache } from '../../../../../shared/copilot.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import { buildCustomUpstreamRecord, copilotModels, jsonResponse, requestApp, setupAppTest, withMockedFetch } from '../../../../../test-helpers.ts';
-import { clearModelsCache } from '../../../../providers/upstream-model-cache.ts';
+import { clearModelsStore } from '../../../../providers/models-store.ts';
 
 function copilotTokenResponse() {
   return jsonResponse({
@@ -253,7 +253,7 @@ test('/v1/messages/count_tokens resolves Claude compatibility models before prox
 test('/v1/messages/count_tokens rejects custom-upstream-only models', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({
@@ -308,7 +308,7 @@ test('/v1/messages/count_tokens rejects custom-upstream-only models', async () =
 test('/v1/messages/count_tokens preserves custom upstream /models HTTP errors', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsCache();
+  clearModelsStore();
   await clearCopilotTokenCache();
 
   await repo.upstreams.save(buildCustomUpstreamRecord({

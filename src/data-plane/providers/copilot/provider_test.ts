@@ -3,6 +3,7 @@ import { test } from 'vitest';
 import { createCopilotProvider } from './provider.ts';
 import { assertEquals, assertRejects } from '../../../test-assert.ts';
 import { copilotModels, jsonResponse, setupAppTest, withMockedFetch } from '../../../test-helpers.ts';
+import { clearModelsStore, ProviderModelsUnavailableError } from '../models-store.ts';
 import { messagesCopilotSourceInterceptors } from './interceptors/messages/index.ts';
 
 test('Copilot provider exposes the highest-priority non-Claude endpoint', async () => {
@@ -327,4 +328,143 @@ test('Copilot provider forces stream=true for streaming endpoints and leaves cou
   assertEquals(bodies['/v1/messages'].stream, true);
   assertEquals('stream' in bodies['/v1/messages/count_tokens'], false);
   assertEquals('stream' in bodies['/embeddings'], false);
+});
+
+const withMutableNow = async <T>(initial: number, run: (setNow: (value: number) => void) => Promise<T>): Promise<T> => {
+  const originalNow = Date.now;
+  let now = initial;
+  Date.now = () => now;
+  try {
+    return await run(value => { now = value; });
+  } finally {
+    Date.now = originalNow;
+  }
+};
+
+const copilotPreflight = (request: Request): Response | null => {
+  const url = new URL(request.url);
+  if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+  if (url.pathname === '/copilot_internal/v2/token') {
+    return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+  }
+  return null;
+};
+
+test('Copilot provider keeps a model in the ledger for 24 h even when the next fetch omits it', async () => {
+  const { copilotUpstream } = await setupAppTest();
+  clearModelsStore();
+
+  let fetches = 0;
+  await withMockedFetch(
+    request => {
+      const pre = copilotPreflight(request);
+      if (pre) return pre;
+      const url = new URL(request.url);
+      if (url.pathname === '/models') {
+        fetches++;
+        const data = fetches === 1
+          ? [{ id: 'a', supported_endpoints: ['/v1/messages'] }, { id: 'b', supported_endpoints: ['/v1/messages'] }]
+          : [{ id: 'a', supported_endpoints: ['/v1/messages'] }];
+        return jsonResponse({ object: 'list', data });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const instance = await createCopilotProvider(copilotUpstream);
+      await withMutableNow(1_000_000, async setNow => {
+        const first = await instance.provider.getProvidedModels();
+        assertEquals(first.map(m => m.id).sort(), ['a', 'b']);
+        setNow(1_000_000 + 11 * 60_000); // past soft window so we re-fetch
+        clearModelsStore();
+        const second = await instance.provider.getProvidedModels();
+        assertEquals(second.map(m => m.id).sort(), ['a', 'b'], 'b should still appear from the ledger');
+      });
+    },
+  );
+  assertEquals(fetches, 2);
+});
+
+test('Copilot provider drops a model after 24 h of continuous absence', async () => {
+  const { copilotUpstream } = await setupAppTest();
+  clearModelsStore();
+
+  let fetches = 0;
+  await withMockedFetch(
+    request => {
+      const pre = copilotPreflight(request);
+      if (pre) return pre;
+      const url = new URL(request.url);
+      if (url.pathname === '/models') {
+        fetches++;
+        const data = fetches === 1
+          ? [{ id: 'a', supported_endpoints: ['/v1/messages'] }, { id: 'b', supported_endpoints: ['/v1/messages'] }]
+          : [{ id: 'a', supported_endpoints: ['/v1/messages'] }];
+        return jsonResponse({ object: 'list', data });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const instance = await createCopilotProvider(copilotUpstream);
+      await withMutableNow(1_000_000, async setNow => {
+        await instance.provider.getProvidedModels();
+        setNow(1_000_000 + 25 * 60 * 60_000); // 25h after first fetch
+        clearModelsStore();
+        const after = await instance.provider.getProvidedModels();
+        assertEquals(after.map(m => m.id), ['a']);
+      });
+    },
+  );
+  assertEquals(fetches, 2);
+});
+
+test('Copilot provider returns ledger projection when fetch fails but ledger is non-empty', async () => {
+  const { copilotUpstream } = await setupAppTest();
+  clearModelsStore();
+
+  let fetches = 0;
+  await withMockedFetch(
+    request => {
+      const pre = copilotPreflight(request);
+      if (pre) return pre;
+      const url = new URL(request.url);
+      if (url.pathname === '/models') {
+        fetches++;
+        if (fetches === 1) return jsonResponse({ object: 'list', data: [{ id: 'a', supported_endpoints: ['/v1/messages'] }] });
+        return new Response('unavailable', { status: 503 });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const instance = await createCopilotProvider(copilotUpstream);
+      await withMutableNow(1_000_000, async setNow => {
+        await instance.provider.getProvidedModels();
+        setNow(1_000_000 + 11 * 60_000);
+        clearModelsStore();
+        const after = await instance.provider.getProvidedModels();
+        assertEquals(after.map(m => m.id), ['a']);
+      });
+    },
+  );
+});
+
+test('Copilot provider throws ProviderModelsUnavailableError when ledger is empty and fetch fails', async () => {
+  const { copilotUpstream } = await setupAppTest();
+  clearModelsStore();
+
+  let thrown: unknown;
+  await withMockedFetch(
+    request => {
+      const pre = copilotPreflight(request);
+      if (pre) return pre;
+      const url = new URL(request.url);
+      if (url.pathname === '/models') return new Response('unavailable', { status: 503 });
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const instance = await createCopilotProvider(copilotUpstream);
+      try { await instance.provider.getProvidedModels(); } catch (e) { thrown = e; }
+    },
+  );
+  if (!(thrown instanceof ProviderModelsUnavailableError)) throw new Error('expected ProviderModelsUnavailableError');
+  assertEquals(thrown.httpResponse?.status, 503);
 });

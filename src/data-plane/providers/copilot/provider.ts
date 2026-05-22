@@ -1,10 +1,12 @@
+import { fetchCopilotModels } from './fetch-models.ts';
 import { messagesCopilotInterceptors, messagesCopilotSourceInterceptors } from './interceptors/messages/index.ts';
 import { responsesCopilotInterceptors } from './interceptors/responses/index.ts';
+import { emptyLedger, mergeLedger, projectLedger, type CopilotLedger } from './ledger.ts';
 import { mergeClaudeVariants } from './merge-claude-variants.ts';
 import { copilotPublicModelId, copilotRequestedModelAliasTarget } from './model-name.ts';
 import { hasContext1mBeta, type ModelSelectionHints, resolveCopilotRawModel } from './model-selection.ts';
 import { pricingForCopilotModelKey, pricingForCopilotPublicModelId } from './pricing.ts';
-import type { CopilotModelsResponse, CopilotRawModel } from './types.ts';
+import type { CopilotRawModel } from './types.ts';
 import type { UpstreamRecord } from '../../../repo/types.ts';
 import { isCopilotAccountType, type CopilotAccountType } from '../../../shared/copilot.ts';
 import { createCopilotUpstream } from '../../../shared/upstream/copilot.ts';
@@ -15,8 +17,8 @@ import type { ResponsesPayload } from '../../shared/protocol/responses.ts';
 import { isStreamingEndpoint, publicPathsToModelEndpoints } from '../endpoints.ts';
 import type { OptionalFixId } from '../fixes.ts';
 import { withModelInfoDefaults } from '../model-info.ts';
+import { inProcessMemo, readModelsStore, writeModelsStore } from '../models-store.ts';
 import type { ModelEndpoint, ModelProvider, ModelProviderInstance, ProviderCallResult, UpstreamModel } from '../types.ts';
-import { loadModels } from '../upstream-model-cache.ts';
 
 interface CopilotProviderData {
   rawModels: CopilotRawModel[];
@@ -44,6 +46,9 @@ const COPILOT_DEFAULT_FIXES = ['retry-cyber-policy'] as const satisfies readonly
 
 const ALLOWED_ANTHROPIC_BETAS = new Set(['interleaved-thinking-2025-05-14', 'context-management-2025-06-27', 'advanced-tool-use-2025-11-20']);
 const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
+
+const SOFT_MS = 10 * 60 * 1000;
+const L1_TTL_MS = 120_000;
 
 const providerData = (model: UpstreamModel): CopilotProviderData => model.providerData as CopilotProviderData;
 
@@ -203,6 +208,30 @@ const copilotEmbeddingsBody = (body: Record<string, unknown>): Record<string, un
   return { ...body, input: [body.input] };
 };
 
+const finalizeCopilotModels = (rawModels: CopilotRawModel[]): UpstreamModel[] => {
+  const merged = mergeClaudeVariants({ object: 'list', data: rawModels });
+  const groups = new Map<string, CopilotRawModel[]>();
+  for (const rawModel of rawModels) {
+    const id = copilotPublicModelId(rawModel.id);
+    groups.set(id, [...(groups.get(id) ?? []), rawModel]);
+  }
+
+  const models: UpstreamModel[] = [];
+  for (const mergedModel of merged.data) {
+    const variants = groups.get(mergedModel.id) ?? [mergedModel];
+    const endpoints = copilotModelEndpoints(mergedModel, variants);
+    const model = withModelInfoDefaults(mergedModel);
+    const cost = pricingForCopilotPublicModelId(mergedModel.id);
+    models.push({
+      ...model,
+      supportedEndpoints: endpoints,
+      providerData: { rawModels: variants } satisfies CopilotProviderData,
+      ...(cost ? { cost } : {}),
+    });
+  }
+  return models;
+};
+
 export const createCopilotProvider = async (record: UpstreamRecord): Promise<ModelProviderInstance> => {
   const copilot = assertCopilotUpstreamRecord(record);
   const upstream = createCopilotUpstream(copilot.id, copilot.name, copilot.config.githubToken, copilot.config.accountType);
@@ -247,39 +276,24 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Mod
     };
 
   const provider: ModelProvider = {
-    async getProvidedModels() {
-      const result = await loadModels(upstream, {
-        canReuseStaleOnModelLoadStatus: status => status === 403 || status === 429 || status === 500,
-      });
-      if (result.type === 'error') throw result.error;
-
-      const rawResponse = result.data as CopilotModelsResponse;
-      const rawModels = rawResponse.data.filter(model => model.id);
-      const merged = mergeClaudeVariants({
-        object: rawResponse.object,
-        data: rawModels,
-      });
-      const groups = new Map<string, CopilotRawModel[]>();
-      for (const rawModel of rawModels) {
-        const id = copilotPublicModelId(rawModel.id);
-        groups.set(id, [...(groups.get(id) ?? []), rawModel]);
-      }
-
-      const models: UpstreamModel[] = [];
-      for (const mergedModel of merged.data) {
-        const variants = groups.get(mergedModel.id) ?? [mergedModel];
-        const endpoints = copilotModelEndpoints(mergedModel, variants);
-        const model = withModelInfoDefaults(mergedModel);
-        const cost = pricingForCopilotPublicModelId(mergedModel.id);
-        models.push({
-          ...model,
-          supportedEndpoints: endpoints,
-          providerData: { rawModels: variants } satisfies CopilotProviderData,
-          ...(cost ? { cost } : {}),
-        });
-      }
-      return models;
-    },
+    getProvidedModels: () =>
+      inProcessMemo(copilot.id, L1_TTL_MS, async () => {
+        const ledger = (await readModelsStore<CopilotLedger>(copilot.id)) ?? emptyLedger();
+        const now = Date.now();
+        const initial = projectLedger(ledger, now);
+        if (now - ledger.fetchedAt < SOFT_MS && initial.length > 0) {
+          return finalizeCopilotModels(initial);
+        }
+        try {
+          const response = await fetchCopilotModels(upstream);
+          const merged = mergeLedger(ledger, response, now);
+          await writeModelsStore<CopilotLedger>(copilot.id, merged);
+          return finalizeCopilotModels(projectLedger(merged, now));
+        } catch (err) {
+          if (initial.length > 0) return finalizeCopilotModels(initial);
+          throw err;
+        }
+      }),
     getPricingForModelKey: pricingForCopilotModelKey,
     callChatCompletions: (model, body, signal) => {
       const rawModel = rawModelFor(model, 'chat_completions', {
