@@ -606,7 +606,6 @@ export function dashboardAssets() {
           claudeSmallModel: '',
           codexModels: [],
           codexModel: '',
-          modelPickerSeparator: '',
           tokenRange: 'today',
           tokenChartMetric: 'total',
           tokenData: [],
@@ -699,10 +698,7 @@ export function dashboardAssets() {
               const q = this.modelsSearch.toLowerCase();
               models = models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q) || (m.display_name || '').toLowerCase().includes(q));
             }
-            const enabled = models.filter(m => m.model_picker_enabled);
-            const legacy = models.filter(m => !m.model_picker_enabled);
-            if (enabled.length && legacy.length) return [...enabled, { _divider: true }, ...legacy];
-            return [...enabled, ...legacy];
+            return models;
           },
 
           get activeKey() {
@@ -908,90 +904,39 @@ export function dashboardAssets() {
 
               this.allModels = data;
               if (!this.chatModelId) {
-                const first = this.filteredChatModels.find(m => !m._divider);
+                const first = this.filteredChatModels[0];
                 if (first) this.chatModelId = first.id;
               }
 
-              // Split models into Copilot and non-Copilot upstream groups so the
-              // dashboard can present them separately. Copilot lists are
-              // sorted by Claude tier (so claude-* SKUs sit near the top of
-              // their respective pickers) while other upstream lists are
-              // surfaced as-is — admins configure those by hand and there
-              // is no canonical "tier" to apply.
+              // All pickers list every capable model regardless of upstream
+              // provider. Backend model merging has already collapsed dated
+              // and variant aliases (-xhigh, -1m) into base ids, so we just
+              // dedupe by id and apply the picker-specific sort.
+              const dedupeIds = ms => [...new Set(ms.map(m => m.id))];
+
+              this.claudeContextMap = Object.fromEntries(data.filter(m => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages')).map(m => [m.id, modelContextWindow(m)]));
+
               const messagesCapable = data.filter(m => {
                 const eps = m.supported_endpoints ?? [];
                 return eps.includes('/v1/messages') || eps.includes('/responses') || eps.includes('/chat/completions');
               });
+              const claudeIds = dedupeIds(messagesCapable);
+              this.claudeModelsBig = [...claudeIds].sort(sortClaudeBig);
+              this.claudeModelsSonnet = [...claudeIds].sort(sortClaudeSonnet);
+              this.claudeModelsSmall = [...claudeIds].sort(sortClaudeSmall);
+              this.claudeModel = this.claudeModelsBig[0] || '';
+              this.claudeSonnetModel = this.claudeModelsSonnet[0] || '';
+              this.claudeSmallModel = this.claudeModelsSmall[0] || '';
 
-              // Context window map — backend model listing has already
-              // collapsed dated/variant aliases into base ids, so we can
-              // key directly by model id.
-              this.claudeContextMap = Object.fromEntries(data.filter(m => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages')).map(m => [m.id, modelContextWindow(m)]));
-
-              const SEPARATOR = '── Upstreams ──';
-              const isCopilot = m => m.provider === 'copilot';
-              const dedupe = ids => [...new Set(ids)];
-              // Restrict the Copilot Claude segment to claude-* SKUs that
-              // natively speak /v1/messages. Other Copilot SKUs (gpt-*,
-              // gemini-*, ...) are not useful as a Claude Code backend, and
-              // claude SKUs that are translation-only on Copilot are too
-              // narrow to be the right default for the Claude pickers.
-              // Non-Copilot upstreams are admin-curated and surfaced in full,
-              // including Azure models served through Messages translation.
-              //
-              // Backend model merging has already collapsed dated and
-              // variant aliases (-xhigh, -1m) into base ids, so we key
-              // directly by model id without configModelName dedupe.
-              const copilotIds = dedupe(
-                messagesCapable
-                  .filter(isCopilot)
-                  .filter(m => m.id.startsWith('claude-'))
-                  .filter(m => m.supported_endpoints?.includes('/v1/messages'))
-                  .map(m => m.id),
-              );
-              const upstreamClaudeIds = messagesCapable
-                .filter(m => !isCopilot(m))
-                .map(m => m.id)
-                .sort((a, b) => a.localeCompare(b));
-
-              const buildClaudePicker = sortFn => {
-                const copilotSorted = [...copilotIds].sort(sortFn);
-                // Only insert the separator when both segments are
-                // non-empty. With no Copilot models the picker would
-                // otherwise lead with a disabled separator row.
-                return copilotSorted.length > 0 && upstreamClaudeIds.length > 0 ? [...copilotSorted, SEPARATOR, ...upstreamClaudeIds] : [...copilotSorted, ...upstreamClaudeIds];
-              };
-
-              this.claudeModelsBig = buildClaudePicker(sortClaudeBig);
-              this.claudeModelsSonnet = buildClaudePicker(sortClaudeSonnet);
-              this.claudeModelsSmall = buildClaudePicker(sortClaudeSmall);
-              const pickFirst = list => list.find(id => id !== SEPARATOR) || '';
-              this.claudeModel = pickFirst(this.claudeModelsBig);
-              this.claudeSonnetModel = pickFirst(this.claudeModelsSonnet);
-              this.claudeSmallModel = pickFirst(this.claudeModelsSmall);
-
-              // Codex CLI talks the Responses protocol; any
-              // upstream that supports /responses natively or that
-              // can be served by responses-via-chat-completions
-              // translation qualifies. Backend model listing has already
-              // collapsed variants, so we key by id directly.
+              // Codex CLI talks the Responses protocol; any upstream that
+              // supports /responses natively or that can be served by
+              // responses-via-chat-completions translation qualifies.
               const codexCapable = data.filter(m => {
                 const eps = m.supported_endpoints ?? [];
                 return eps.includes('/responses') || eps.includes('/chat/completions');
               });
-              const copilotCodex = dedupe(
-                codexCapable
-                  .filter(isCopilot)
-                  .filter(m => m.supported_endpoints?.includes('/responses'))
-                  .map(m => m.id),
-              ).sort(sortCodex);
-              const customCodex = codexCapable
-                .filter(m => !isCopilot(m))
-                .map(m => m.id)
-                .sort((a, b) => a.localeCompare(b));
-              this.codexModels = copilotCodex.length > 0 && customCodex.length > 0 ? [...copilotCodex, SEPARATOR, ...customCodex] : [...copilotCodex, ...customCodex];
-              this.codexModel = pickFirst(this.codexModels);
-              this.modelPickerSeparator = SEPARATOR;
+              this.codexModels = dedupeIds(codexCapable).sort(sortCodex);
+              this.codexModel = this.codexModels[0] || '';
 
               this.modelsLoaded = true;
               if (this.tab === 'usage' && this.chartsReady) {

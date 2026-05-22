@@ -996,10 +996,10 @@ test('dashboardApp consumes merged model ids straight from /api/models', async (
       ['claude-opus-4-7', 'claude-sonnet-4-7', 'gpt-5.5'],
     );
     assertEquals(
-      app.filteredChatModels.filter((m: { _divider?: boolean }) => !m._divider).map((m: { id: string }) => m.id),
+      app.filteredChatModels.map((m: { id: string }) => m.id),
       ['claude-opus-4-7', 'claude-sonnet-4-7', 'gpt-5.5'],
     );
-    assertEquals(app.claudeModelsBig, ['claude-opus-4-7']);
+    assertEquals(app.claudeModelsBig, ['claude-opus-4-7', 'claude-sonnet-4-7', 'gpt-5.5']);
     assertEquals(app.codexModels, ['gpt-5.5', 'claude-sonnet-4-7']);
     app.codexModel = 'claude-sonnet-4-7';
     assertStringIncludes(app.codexSnippet(), 'model = "claude-sonnet-4-7"');
@@ -1009,7 +1009,7 @@ test('dashboardApp consumes merged model ids straight from /api/models', async (
   }
 });
 
-test('dashboardApp groups model pickers by provider field', async () => {
+test('dashboardApp lists every capable model in pickers without provider grouping', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = input => {
     const url = String(input);
@@ -1063,9 +1063,8 @@ test('dashboardApp groups model pickers by provider field', async () => {
     const { app } = createDashboardHarness();
     await app.loadModels();
 
-    assertFalse(app.modelPickerSeparator.includes('Custom'));
-    assertEquals(app.claudeModelsBig, ['claude-opus-4-7', app.modelPickerSeparator, 'azure-gpt-5.4', 'claude-haiku-4-7']);
-    assertEquals(app.codexModels, ['gpt-5.5', app.modelPickerSeparator, 'azure-gpt-5.4']);
+    assertEquals(app.claudeModelsBig, ['claude-opus-4-7', 'claude-haiku-4-7', 'gpt-5.5', 'azure-gpt-5.4']);
+    assertEquals(app.codexModels, ['gpt-5.5', 'azure-gpt-5.4']);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1775,7 +1774,7 @@ test('dashboardApp model search does not crash when model.name is missing', asyn
     assertEquals(named.name, 'Friendly Named Model');
 
     app.modelsSearch = 'custom';
-    const filtered = app.filteredChatModels.filter((m: { _divider?: boolean }) => !m._divider).map((m: { id: string }) => m.id);
+    const filtered = app.filteredChatModels.map((m: { id: string }) => m.id);
     assertEquals(filtered, ['custom-model-no-name']);
 
     app.modelsSearch = 'Friendly';

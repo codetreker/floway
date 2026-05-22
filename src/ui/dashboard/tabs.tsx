@@ -418,7 +418,7 @@ export function renderKeysTab() {
                     class="max-w-full text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer"
                   >
                     <template x-for="m in claudeModelsBig" :key="m">
-                      <option :value="m" x-text="m" :disabled="m === modelPickerSeparator"></option>
+                      <option :value="m" x-text="m"></option>
                     </template>
                   </select>
                 </div>
@@ -429,7 +429,7 @@ export function renderKeysTab() {
                     class="max-w-full text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer"
                   >
                     <template x-for="m in claudeModelsSonnet" :key="m">
-                      <option :value="m" x-text="m" :disabled="m === modelPickerSeparator"></option>
+                      <option :value="m" x-text="m"></option>
                     </template>
                   </select>
                 </div>
@@ -440,7 +440,7 @@ export function renderKeysTab() {
                     class="max-w-full text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer"
                   >
                     <template x-for="m in claudeModelsSmall" :key="m">
-                      <option :value="m" x-text="m" :disabled="m === modelPickerSeparator"></option>
+                      <option :value="m" x-text="m"></option>
                     </template>
                   </select>
                 </div>
@@ -462,7 +462,7 @@ export function renderKeysTab() {
                   class="max-w-full text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer"
                 >
                   <template x-for="m in codexModels" :key="m">
-                    <option :value="m" x-text="m" :disabled="m === modelPickerSeparator"></option>
+                    <option :value="m" x-text="m"></option>
                   </template>
                 </select>
               </div>
@@ -1558,22 +1558,18 @@ export function renderModelsTab() {
             <input type="text" x-model="modelsSearch" placeholder="Filter models..." style="padding:8px 12px; font-size:12px; border-radius:8px;" />
           </div>
           <div class="flex-1 overflow-y-auto">
-            <template x-for="(m, i) in filteredChatModels" :key="m.id || ('div-'+i)">
-              <div>
-                <div x-show="m._divider" class="border-t border-white/[0.1] mx-3 my-1"></div>
-                <button
-                  x-show="!m._divider"
-                  @click="selectChatModel(m.id)"
-                  class="w-full min-h-11 text-left px-4 py-2.5 transition-colors border-l-2"
-                  :class="[chatModelId === m.id
-                    ? 'bg-accent-cyanGlow text-accent-cyan border-l-accent-cyan'
-                    : 'text-gray-400 hover:bg-white/[0.03] hover:text-gray-200 border-l-transparent',
-                    (() => { const next = filteredChatModels[i+1]; return next && !next._divider ? 'border-b border-white/[0.03]' : ''; })()]"
-                >
-                  <div class="text-[13px] truncate" :class="chatModelId === m.id ? 'text-white' : 'text-gray-300'" x-text="m.name"></div>
-                  <div class="text-[11px] font-mono truncate mt-0.5 opacity-60" x-text="m.id"></div>
-                </button>
-              </div>
+            <template x-for="(m, i) in filteredChatModels" :key="m.id">
+              <button
+                @click="selectChatModel(m.id)"
+                class="w-full min-h-11 text-left px-4 py-2.5 transition-colors border-l-2"
+                :class="[chatModelId === m.id
+                  ? 'bg-accent-cyanGlow text-accent-cyan border-l-accent-cyan'
+                  : 'text-gray-400 hover:bg-white/[0.03] hover:text-gray-200 border-l-transparent',
+                  i < filteredChatModels.length - 1 ? 'border-b border-white/[0.03]' : '']"
+              >
+                <div class="text-[13px] truncate" :class="chatModelId === m.id ? 'text-white' : 'text-gray-300'" x-text="m.name"></div>
+                <div class="text-[11px] font-mono truncate mt-0.5 opacity-60" x-text="m.id"></div>
+              </button>
             </template>
             <div x-show="filteredChatModels.length === 0" class="p-4 text-center text-gray-600 text-xs">No models found</div>
           </div>
