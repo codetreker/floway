@@ -114,6 +114,40 @@ const modelWithProviderInstances = (model: ResolvedModel, providers: ReadonlySet
   };
 };
 
+// Public-facing model-id ordering, applied in getModels() to every list that
+// crosses a gateway boundary (data-plane /v1/models, /models, /v1beta/models
+// and the control-plane /api/models that backs the dashboard models page).
+// Provider upstreams return models in arbitrary order; sorting here gives the
+// dashboard and downstream clients a stable, family-grouped view.
+//
+// Sort keys, evaluated in order:
+//   0. Whether the id contains a '/'. Slashed ids (Microsoft Foundry router
+//      model ids like "accounts/msft/routers/x") are pushed to the tail so
+//      the typical flat ids stay on top.
+//   1. Leading [a-zA-Z]+ prefix, case-insensitive, ascending. Groups model
+//      families: "claude-haiku-4-5" -> "claude", "deepseek-v4-pro" ->
+//      "deepseek".
+//   2. Array of isolated single digits (a digit surrounded on both sides by a
+//      non-digit, with start/end of string counting as non-digit), compared
+//      element by element as integers, DESCENDING — newer/larger versions
+//      first: "claude-opus-4-7" -> [4, 7] beats "claude-opus-4-5" -> [4, 5];
+//      "gpt-5.5" -> [5, 5] beats "gpt-4o" -> [4]. Multi-digit runs (dates,
+//      "20300101") are intentionally not counted as version parts.
+//   3. Full string lex order, DESCENDING, case-folded first then raw — keeps
+//      "GPT-4o" and "gpt-4o" adjacent while giving longer/later suffixes
+//      priority within an otherwise tied group.
+export const compareModelIds = (a: string, b: string): number => {
+  const cmp = <T>(x: T, y: T, dir = 1) => (x < y ? -dir : x > y ? dir : 0);
+  const prefix = (s: string) => /^[a-zA-Z]+/.exec(s)?.[0].toLowerCase() ?? '';
+  const digits = (s: string) => [...s.matchAll(/(?<!\d)\d(?!\d)/g)].map(m => +m[0]);
+  const [da, db] = [digits(a), digits(b)];
+  return cmp(+a.includes('/'), +b.includes('/'))
+    || cmp(prefix(a), prefix(b))
+    || (da.slice(0, Math.min(da.length, db.length)).map((v, i) => db[i] - v).find(d => d !== 0) ?? db.length - da.length)
+    || cmp(a.toLowerCase(), b.toLowerCase(), -1)
+    || cmp(a, b, -1);
+};
+
 export const getModels = async (): Promise<ResolvedModel[]> => {
   const providers = await listModelProviders();
   if (providers.length === 0) {
@@ -122,7 +156,7 @@ export const getModels = async (): Promise<ResolvedModel[]> => {
 
   const { models, sawSuccess, lastError } = await collectProviderModels(providers);
 
-  if (sawSuccess) return models;
+  if (sawSuccess) return [...models].sort((a, b) => compareModelIds(a.id, b.id));
   if (lastError) throw lastError;
   return [];
 };

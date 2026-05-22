@@ -1,9 +1,83 @@
 import { test } from 'vitest';
 
-import { getCatalogModels, listModelProviders, resolveModelForRequest } from './registry.ts';
+import { compareModelIds, getCatalogModels, listModelProviders, resolveModelForRequest } from './registry.ts';
 import { assertEquals } from '../../test-assert.ts';
 import { buildCopilotUpstreamRecord, buildCustomUpstreamRecord, copilotModels, jsonResponse, setupAppTest, withMockedFetch } from '../../test-helpers.ts';
 import { createCopilotProvider } from './copilot/provider.ts';
+
+const sortedIds = (ids: readonly string[]): string[] => [...ids].sort(compareModelIds);
+
+test('compareModelIds pushes ids containing "/" to the tail', () => {
+  assertEquals(sortedIds(['accounts/msft/x', 'gpt-4o', 'accounts/msft/y', 'claude-opus-4-7']), [
+    'claude-opus-4-7',
+    'gpt-4o',
+    // Within the slashed group, the remaining keys still apply: same alpha
+    // prefix "accounts", empty isolated-digit arrays, then descending lex.
+    'accounts/msft/y',
+    'accounts/msft/x',
+  ]);
+});
+
+test('compareModelIds groups by leading [a-zA-Z]+ prefix, case-insensitive ascending', () => {
+  // gpt and GPT collapse on key 1; their tied [4] digit array falls to
+  // descending lex (lowercased), so 'gpt-4o-mini' beats 'gpt-4o'.
+  assertEquals(sortedIds(['gpt-4o', 'claude-haiku-4-5', 'deepseek-v4-pro', 'GPT-4o-mini']), [
+    'claude-haiku-4-5',
+    'deepseek-v4-pro',
+    'GPT-4o-mini',
+    'gpt-4o',
+  ]);
+});
+
+test('compareModelIds orders isolated single digits descending element by element', () => {
+  // Digit arrays: claude-opus-4-7 [4,7], claude-sonnet-4-6 [4,6],
+  // claude-opus-4-5 / claude-haiku-4-5 [4,5]. Within the [4,5] tie, lex
+  // descending picks 'claude-opus-4-5' over 'claude-haiku-4-5'.
+  assertEquals(sortedIds(['claude-opus-4-7', 'claude-opus-4-5', 'claude-haiku-4-5', 'claude-sonnet-4-6']), [
+    'claude-opus-4-7',
+    'claude-sonnet-4-6',
+    'claude-opus-4-5',
+    'claude-haiku-4-5',
+  ]);
+});
+
+test('compareModelIds puts longer digit arrays before shorter ones (descending)', () => {
+  // [5,5] beats every [4]; within the tied-[4] group, descending lex on the
+  // full id puts 'gpt-4o' first, then 'gpt-4-turbo', then 'gpt-4' last.
+  assertEquals(sortedIds(['gpt-5.5', 'gpt-4', 'gpt-4o', 'gpt-4-turbo']), [
+    'gpt-5.5',
+    'gpt-4o',
+    'gpt-4-turbo',
+    'gpt-4',
+  ]);
+});
+
+test('compareModelIds ignores multi-digit runs such as dates', () => {
+  // Both have digit array [4, 7]; descending lex tie-break puts the longer
+  // dated id first.
+  assertEquals(sortedIds(['claude-opus-4-7-20300101', 'claude-opus-4-7']), [
+    'claude-opus-4-7-20300101',
+    'claude-opus-4-7',
+  ]);
+});
+
+test('compareModelIds sorts ids without a leading alpha prefix first', () => {
+  assertEquals(sortedIds(['gpt-4o', 'o1-mini', '128k-context-model']), [
+    '128k-context-model',
+    'gpt-4o',
+    'o1-mini',
+  ]);
+});
+
+test('compareModelIds keeps case-only differences adjacent via lowercase tie-break', () => {
+  // All lowercase to 'gpt-4o' so case-folded lex ties; raw descending then
+  // picks lowercase letters before uppercase (g > G in ASCII).
+  assertEquals(sortedIds(['GPT-4o', 'gpt-4o', 'gpt-4O']), [
+    'gpt-4o',
+    'gpt-4O',
+    'GPT-4o',
+  ]);
+});
 
 test('createCopilotProvider exposes provider-owned requested model aliases', async () => {
   const { copilotUpstream } = await setupAppTest();

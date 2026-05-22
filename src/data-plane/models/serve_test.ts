@@ -399,7 +399,7 @@ test('/v1/models reports an upstream configuration error when no provider is con
   assertEquals(body.error.message, 'No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
 });
 
-test('/v1/models returns the ordered union of every connected GitHub account', async () => {
+test('/v1/models returns the id-sorted union of every connected GitHub account', async () => {
   const { repo, apiKey, githubAccount } = await setupAppTest();
   await repo.upstreams.save(buildCopilotUpstreamRecord(SECOND_ACCOUNT, { id: 'up_copilot_second', sortOrder: 1 }));
 
@@ -463,7 +463,7 @@ test('/v1/models returns the ordered union of every connected GitHub account', a
       };
       assertEquals(
         body.data.map(model => model.id),
-        ['shared-model', 'first-only', 'second-only'],
+        ['first-only', 'second-only', 'shared-model'],
       );
       assertEquals(body.data[0].supported_endpoints, undefined);
       assertEquals(body.data[0].provider, undefined);
