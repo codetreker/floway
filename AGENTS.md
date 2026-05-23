@@ -439,6 +439,7 @@ pnpm run typecheck
 pnpm run dev
 pnpm run deploy
 pnpm run db:migrate
+pnpm run db:migrate:remote
 ```
 
 Wrangler commands should go through the local dependency with `pnpm wrangler` or
@@ -520,15 +521,15 @@ publish the new code in the same command so the system spends as little time
 as possible in an inconsistent state:
 
 ```bash
-pnpm run db:migrate && pnpm run deploy
+pnpm run db:migrate:remote && pnpm run deploy
 ```
 
 Print this exact command to the user before running it, and tell them that if
 the deploy stops halfway they can rerun the same command to recover —
-`wrangler d1 migrations apply` is idempotent on already-applied migrations and
-`wrangler deploy` always publishes the current code regardless of prior state.
-When there are no pending migrations, the command reduces to `pnpm run
-deploy`.
+`wrangler d1 migrations apply --remote` is idempotent on already-applied
+migrations and `wrangler deploy` always publishes the current code regardless
+of prior state. When there are no pending migrations, the command reduces to
+`pnpm run deploy`.
 
 Worker rollback by version id is supported (`pnpm wrangler rollback
 <VERSION_ID>`) across the 100 most recent versions, but Cloudflare blocks
