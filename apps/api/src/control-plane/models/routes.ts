@@ -1,0 +1,53 @@
+import type { Context } from 'hono';
+
+import { toPublicModel } from '../../data-plane/models/load.ts';
+import { ProviderModelsUnavailableError } from '../../data-plane/providers/models-store.ts';
+import { getModels } from '../../data-plane/providers/registry.ts';
+import type { ResolvedModel } from '../../data-plane/providers/types.ts';
+import type { UpstreamProviderKind } from '../../repo/types.ts';
+import type { PublicModel, PublicModelsResponse } from '@copilot-gateway/protocols/common';
+
+// Same DTO as the public /models endpoint, plus one dashboard-only field:
+// `upstreams` lists every provider binding for this model as { kind, id }
+// pairs so the picker can group and the upstream rows can count their
+// bound models. A single model id can be served by mixed provider kinds
+// (e.g. one azure deployment + one custom upstream both expose `gpt-5.5`),
+// so a flat `provider`/`upstream_ids` split would misrepresent that.
+interface ControlPlaneModel extends PublicModel {
+  upstreams: { kind: UpstreamProviderKind; id: string }[];
+}
+
+interface ControlPlaneModelsResponse extends Omit<PublicModelsResponse, 'data'> {
+  data: ControlPlaneModel[];
+}
+
+const toControlPlaneModel = (model: ResolvedModel): ControlPlaneModel => ({
+  ...toPublicModel(model),
+  upstreams: model.providers.map(binding => ({ kind: binding.providerKind, id: binding.upstream })),
+});
+
+const modelListingFailureMessage = 'Upstream model listing failed';
+
+export const controlPlaneModels = async (c: Context): Promise<Response> => {
+  try {
+    const models = await getModels();
+    const data = models.map(toControlPlaneModel);
+    const response: ControlPlaneModelsResponse = {
+      object: 'list',
+      has_more: false,
+      first_id: data[0]?.id ?? null,
+      last_id: data[data.length - 1]?.id ?? null,
+      data,
+    };
+    return Response.json(response);
+  } catch (e: unknown) {
+    // Genuine upstream HTTP/parse failures are squashed to a generic 502 so
+    // the control plane does not leak provider identity. Other errors
+    // (e.g. the registry's "no upstream configured" hint) carry actionable
+    // operator guidance and surface verbatim.
+    if (e instanceof ProviderModelsUnavailableError) {
+      return c.json({ error: { message: modelListingFailureMessage, type: 'api_error' } }, 502);
+    }
+    return c.json({ error: { message: e instanceof Error ? e.message : String(e), type: 'api_error' } }, 502);
+  }
+};

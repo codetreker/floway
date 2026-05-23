@@ -1,15 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "copilot",
-  "main": "entry-cloudflare.ts",
+  "main": "apps/api/entry-cloudflare.ts",
   "compatibility_date": "2025-01-01",
   "account_id": "a49c8a74b8cbc962ad459cc234e9011a",
+  "assets": {
+    "directory": "apps/web/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "copilot-db",
       "database_id": "927eca3e-9dcb-4574-afba-89b051db66cf",
-      "migrations_dir": "migrations"
+      "migrations_dir": "apps/api/migrations"
     }
   ]
 }

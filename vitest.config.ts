@@ -2,9 +2,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    environment: 'node',
-    include: ['src/**/*_test.ts'],
-    restoreMocks: false,
-    testTimeout: 10_000,
+    projects: [
+      'apps/api/vitest.config.ts',
+      'apps/web/vitest.config.ts',
+      'packages/protocols/vitest.config.ts',
+      'packages/translate/vitest.config.ts',
+    ],
   },
 });

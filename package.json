@@ -3,19 +3,14 @@
   "type": "module",
   "packageManager": "pnpm@10.24.0",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "pnpm --filter @copilot-gateway/web run build && wrangler dev",
+    "deploy": "pnpm --filter @copilot-gateway/web run build && wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply $(node -p \"require('jsonc-parser').parse(require('fs').readFileSync('wrangler.jsonc','utf8')).d1_databases[0].database_name\")",
     "db:migrate:remote": "wrangler d1 migrations apply $(node -p \"require('jsonc-parser').parse(require('fs').readFileSync('wrangler.jsonc','utf8')).d1_databases[0].database_name\") --remote",
     "lint": "eslint --cache .",
     "lint:fix": "eslint --cache . --fix",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@anthropic-ai/tokenizer": "^0.0.4",
-    "gpt-tokenizer": "^3.4.0",
-    "hono": "^4"
+    "typecheck": "pnpm -r run typecheck"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

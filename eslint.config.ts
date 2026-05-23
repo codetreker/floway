@@ -26,6 +26,13 @@ const commonConfig: Linter.Config = {
     ],
     'import/no-duplicates': 'error',
 
+    'no-restricted-imports': ['error', {
+      patterns: [{
+        group: ['@copilot-gateway/*/src/**'],
+        message: 'Cross-package deep imports are forbidden. Use the package\'s public exports map.',
+      }],
+    }],
+
     '@typescript-eslint/no-unused-vars': ['error', {
       argsIgnorePattern: '^_',
       caughtErrorsIgnorePattern: '^_',
@@ -102,9 +109,10 @@ const commonConfig: Linter.Config = {
     'stylistic/jsx-quotes': ['error', 'prefer-double'],
   },
   settings: {
+    'import/internal-regex': '^@copilot-gateway/',
     'import/resolver': {
       typescript: {
-        project: ['./tsconfig.json'],
+        project: ['./apps/api/tsconfig.json', './apps/web/tsconfig.json', './packages/protocols/tsconfig.json', './packages/translate/tsconfig.json'],
         noWarnOnMultipleProjects: true,
       },
     },
@@ -115,7 +123,7 @@ const parserOptions: Linter.ParserOptions = {
   parser: tsParser,
   ecmaVersion: 'latest',
   sourceType: 'module',
-  project: ['./tsconfig.json'],
+  project: ['./apps/api/tsconfig.json', './apps/web/tsconfig.json', './packages/protocols/tsconfig.json', './packages/translate/tsconfig.json'],
   noWarnOnMultipleProjects: true,
 };
 
@@ -131,6 +139,20 @@ const config: Linter.Config[] = [
     },
   },
   {
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['@copilot-gateway/api/*'],
+          message: 'apps/web may not import from apps/api. The single permitted exception (SearchConfig type in search-config.ts) uses `eslint-disable-next-line no-restricted-imports` on the import line.',
+        }, {
+          group: ['@copilot-gateway/*/src/**'],
+          message: 'Deep cross-package imports are forbidden.',
+        }],
+      }],
+    },
+  },
+  {
     ignores: [
       '**/node_modules/**',
       '**/.wrangler/**',
@@ -140,7 +162,9 @@ const config: Linter.Config[] = [
       '**/dist/**',
       '**/build/**',
       '**/coverage/**',
+      // Workspace-root configs (live outside any package's TS project).
       'eslint.config.ts',
+      'vitest.config.ts',
     ],
   },
 ];

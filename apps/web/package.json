@@ -1,0 +1,16 @@
+{
+  "name": "@copilot-gateway/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {},
+  "scripts": {
+    "build": "jiti ./build.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@copilot-gateway/api": "workspace:*",
+    "@types/node": "^22",
+    "hono": "^4"
+  }
+}

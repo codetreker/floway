@@ -90,8 +90,9 @@ or workerd. The production persistence binding is D1-compatible SQL; the project
 does not ship a separate Node.js server or Node+SQLite production binding.
 
 This keeps one runtime contract for production behavior while leaving the small
-`src/runtime/` compatibility layer in place for future runtimes that can provide
-the same environment, background scheduling, and repository binding semantics.
+`apps/api/src/runtime/` compatibility layer in place for future runtimes that
+can provide the same environment, background scheduling, and repository binding
+semantics.
 
 ### Initial Setup
 
@@ -155,15 +156,22 @@ export/import.
 
 ```bash
 pnpm install
-pnpm run lint
-pnpm run test
-pnpm run typecheck
-pnpm run dev
+pnpm run lint        # eslint --cache across the workspace
+pnpm run test        # vitest run over root test.projects (all packages)
+pnpm run typecheck   # pnpm -r run typecheck (one tsc --noEmit per package)
+pnpm run dev         # builds apps/web, then wrangler dev on apps/api
 ```
 
-Wrangler commands should be run through the local dependency with `pnpm wrangler`
-or through package scripts. ESLint owns code style and import ordering; use
-`pnpm run lint:fix` for mechanical cleanup. Test coverage uses Vitest.
+The root scripts orchestrate across the workspace. `pnpm run dev` and
+`pnpm run deploy` chain `pnpm --filter @copilot-gateway/web run build` before
+wrangler runs, because the Worker's Static Assets binding serves
+`apps/web/dist`. To work on a single package in isolation, use pnpm filters
+such as `pnpm --filter @copilot-gateway/translate run typecheck`.
+
+Wrangler commands should be run through the local dependency with
+`pnpm wrangler` or through package scripts. ESLint owns code style and import
+ordering; use `pnpm run lint:fix` for mechanical cleanup. Test coverage uses
+Vitest.
 
 ## Architecture
 
@@ -189,8 +197,34 @@ Claude Code / Codex CLI / any client
 Most request handling is platform-neutral Hono and Web APIs. Runtime-specific
 wiring lives at the entrypoint and repository binding boundary: Cloudflare
 Workers provide the fetch entrypoint and D1 binding, in-memory repositories are
-used by tests, and `src/runtime/` holds narrow environment/background helpers for
-future compatible runtimes.
+used by tests, and `apps/api/src/runtime/` holds narrow environment/background
+helpers for future compatible runtimes.
+
+### Workspace Layout
+
+The repo is a pnpm workspace with two libraries and two deployables:
+
+```text
+copilot-gateway/
+├── wrangler.jsonc           # root; main -> apps/api/entry-cloudflare.ts,
+│                            # assets -> apps/web/dist
+├── packages/
+│   ├── protocols/           # @copilot-gateway/protocols — pure protocol types
+│   └── translate/           # @copilot-gateway/translate — cross-protocol
+│                            # request/event translation pairs
+└── apps/
+    ├── api/                 # @copilot-gateway/api — Worker entry, control
+    │                        # plane, data plane, repos, runtime helpers
+    └── web/                 # @copilot-gateway/web — prerendered dashboard
+                             # served by Workers Static Assets
+```
+
+Dependency direction is strict (`protocols` -> `translate` -> `api`;
+`web` is a build-time-only producer of static HTML). Each package's
+`package.json` `exports` map is the only public surface, enforced by an ESLint
+`no-restricted-imports` ban on deep `@copilot-gateway/<pkg>/src/...` paths.
+`apps/web/build.ts` is a throwaway prerender that will be replaced by a Vue +
+Vite SPA bundler.
 
 ## License
 

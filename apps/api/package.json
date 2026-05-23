@@ -1,0 +1,18 @@
+{
+  "name": "@copilot-gateway/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": { "import": "./entry-cloudflare.ts", "types": "./entry-cloudflare.ts" },
+    "./data-plane/tools/web-search/types": { "import": "./src/data-plane/tools/web-search/types.ts", "types": "./src/data-plane/tools/web-search/types.ts" }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@copilot-gateway/protocols": "workspace:*",
+    "@copilot-gateway/translate": "workspace:*",
+    "hono": "^4"
+  }
+}

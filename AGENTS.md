@@ -28,39 +28,119 @@ in-memory repositories for tests, TypeScript, pnpm, and Vitest.
 
 The production runtime contract is Workers-compatible: a fetch entrypoint,
 Workers bindings, Web APIs, and a D1-compatible SQL binding. Keep the narrow
-`src/runtime/` compatibility layer for future runtimes that can provide the same
-semantics. Do not add a separate Node.js HTTP server or Node+SQLite production
-binding unless that becomes an explicit product goal.
+`apps/api/src/runtime/` compatibility layer for future runtimes that can provide
+the same semantics. Do not add a separate Node.js HTTP server or Node+SQLite
+production binding unless that becomes an explicit product goal.
+
+## Workspace Layout
+
+The repo is a pnpm workspace with four packages, two libraries under
+`packages/` and two deployables under `apps/`:
+
+```text
+copilot-gateway/
+├── wrangler.jsonc              # root; main -> apps/api/entry-cloudflare.ts,
+│                               # assets -> apps/web/dist, migrations_dir ->
+│                               # apps/api/migrations
+├── eslint.config.ts            # internal regex ^@copilot-gateway/ + a
+│                               # no-restricted-imports ban on @copilot-gateway/*/src/**
+├── vitest.config.ts            # root project list (Vitest 4 test.projects)
+├── packages/
+│   ├── protocols/              # @copilot-gateway/protocols — pure type defs
+│   │   └── src/{common,chat-completions,responses,messages,gemini,embeddings}/index.ts
+│   └── translate/              # @copilot-gateway/translate — translation pairs
+│       └── src/{<pair-dirs>,shared,types.ts,index.ts}
+└── apps/
+    ├── api/                    # @copilot-gateway/api — Worker entry + planes
+    │   ├── entry-cloudflare.ts
+    │   ├── migrations/
+    │   └── src/{control-plane,data-plane,middleware,repo,runtime,shared,app.ts}
+    └── web/                    # @copilot-gateway/web — prerendered Hono JSX
+        ├── build.ts            # throwaway prerender; will be replaced by a
+        │                       # Vue SPA bundler
+        └── src/{layout,login,dashboard,dashboard/...}.tsx
+```
+
+Dependency direction is strict:
+
+- `protocols` depends on nothing.
+- `translate` depends only on `protocols`.
+- `api` depends on `protocols` and `translate`.
+- `web` is a build-time-only producer of static HTML served by Workers Static
+  Assets; the deployed Worker does not import it at runtime.
+
+Each `package.json` `exports` map is the only public surface. Deep imports
+(`@copilot-gateway/<pkg>/src/...`) are banned by ESLint `no-restricted-imports`;
+cross-package code must consume the package's declared subpath exports.
+
+### Cross-package exceptions
+
+There is one allowed deep import: `apps/web/src/dashboard/search-config.ts`
+type-imports `SearchConfig` from
+`@copilot-gateway/api/data-plane/tools/web-search/types`, gated by an inline
+`// eslint-disable-next-line no-restricted-imports`. This goes away when the
+Vue SPA rewrite lands.
+
+### Test layout
+
+Tests are co-located as `*_test.ts` alongside the code they cover. Each
+package has its own `vitest.config.ts`; the root `vitest.config.ts` lists them
+through Vitest 4's `test.projects`.
+
+### Future work
+
+`apps/web/build.ts` is a throwaway prerender that emits static HTML through
+Hono JSX. It will be replaced by a real Vue + Vite SPA bundler; when that
+lands, the one cross-package deep-import exception in
+`apps/web/src/dashboard/search-config.ts` goes away with it, and the dashboard
+will consume control-plane data only through public HTTP endpoints.
 
 ## Boundaries
 
-- `entry-cloudflare.ts`: Workers entrypoint and environment wiring.
-- `src/app.ts`: Hono app wiring, middleware, and plane mounting.
-- `src/control-plane/`: dashboard, auth, admin APIs, import/export, usage and
-  performance views.
-- `src/control-plane/upstreams/`: unified upstream CRUD, custom/Azure probing,
-  Copilot device-flow auth, and Copilot per-upstream quota.
-- `src/data-plane/`: client-facing compatibility APIs, model/provider routing,
-  protocol translation, embeddings, and data-plane tools.
-- `src/data-plane/providers/`: provider interface, provider registry, model
-  merge, provider-owned alias resolution, flag catalog and effective-flag
-  resolver, and concrete provider implementations.
-- `src/data-plane/providers/copilot/`: Copilot provider projection, raw model
-  variant selection, endpoint capability projection, and Copilot-specific
-  provider registrations.
-- `src/data-plane/providers/custom/`: generic OpenAI-compatible provider
-  behavior for configured bearer-token upstreams.
-- `src/data-plane/providers/azure/`: Azure OpenAI / Foundry OpenAI v1 and
-  Azure Foundry Anthropic provider behavior, deployment catalog projection, and
-  API-key request construction.
-- `src/repo/`: persistence interfaces and implementations.
-- `src/runtime/`: runtime integration helpers for environment access and
-  background scheduling.
-- `src/shared/`: project-wide helpers that are not owned by one plane.
-- `src/shared/upstream/`: low-level HTTP adapters. These know how to call an
-  upstream and own the persisted shape of provider-specific config (including
-  any per-deployment flag-override metadata), but they do not own LLM
-  planning, target selection, or interceptor wiring.
+- `apps/api/entry-cloudflare.ts`: Workers entrypoint and environment wiring.
+- `apps/api/src/app.ts`: Hono app wiring, middleware, and plane mounting.
+- `apps/api/src/control-plane/`: dashboard, auth, admin APIs, import/export,
+  usage and performance views.
+- `apps/api/src/control-plane/upstreams/`: unified upstream CRUD, custom/Azure
+  probing, Copilot device-flow auth, and Copilot per-upstream quota.
+- `apps/api/src/data-plane/`: client-facing compatibility APIs, model/provider
+  routing, embeddings, and data-plane tools. Cross-protocol request/event
+  translation lives in `@copilot-gateway/translate` and is dispatched from the
+  data-plane source serves.
+- `apps/api/src/data-plane/providers/`: provider interface, provider registry,
+  model merge, provider-owned alias resolution, flag catalog and
+  effective-flag resolver, and concrete provider implementations.
+- `apps/api/src/data-plane/providers/copilot/`: Copilot provider projection,
+  raw model variant selection, endpoint capability projection, and
+  Copilot-specific provider registrations.
+- `apps/api/src/data-plane/providers/custom/`: generic OpenAI-compatible
+  provider behavior for configured bearer-token upstreams.
+- `apps/api/src/data-plane/providers/azure/`: Azure OpenAI / Foundry OpenAI v1
+  and Azure Foundry Anthropic provider behavior, deployment catalog projection,
+  and API-key request construction.
+- `apps/api/src/repo/`: persistence interfaces and implementations.
+- `apps/api/src/runtime/`: runtime integration helpers for environment access
+  and background scheduling.
+- `apps/api/src/shared/`: project-wide helpers that are not owned by one plane.
+- `apps/api/src/shared/upstream/`: low-level HTTP adapters. These know how to
+  call an upstream and own the persisted shape of provider-specific config
+  (including any per-deployment flag-override metadata), but they do not own
+  LLM planning, target selection, or interceptor wiring.
+- `apps/api/src/data-plane/llm/shared/protocol/responses.ts`: re-export barrel for
+  gateway-side Responses extensions (e.g. `SequencedResponsesStreamEvent`),
+  whose definitions live in `@copilot-gateway/translate/via-responses`. The
+  rest of the protocol type surface lives in `@copilot-gateway/protocols`
+  (`common`, `chat-completions`, `responses`, `messages`, `gemini`,
+  `embeddings`).
+- `apps/api/src/data-plane/llm/shared/stream/`: concrete SSE parser used by
+  the data plane. Generic SSE shapes (`ServerSentEvent` and friends) live in
+  `@copilot-gateway/protocols/common`.
+
+`ModelPricing` and `ModelEndpoint` types live in
+`@copilot-gateway/protocols/common`; `apps/api/src/data-plane/providers/types.ts`
+re-exports both for back-compat. `ExecuteResult` and the result envelopes in
+`apps/api/src/data-plane/llm/shared/errors/result.ts` stay in apps/api because
+they couple to telemetry types.
 
 Keep behavior in the subtree that owns the boundary where it is true. Avoid flat
 shared utility modules unless the rule is genuinely cross-boundary.
@@ -240,9 +320,9 @@ Each provider attaches pricing per upstream model and resolves
 `getPricingForModelKey(modelKey)` over its own internal model id space:
 
 - `copilot`: hardcoded table at
-  `src/data-plane/providers/copilot/pricing.ts`, keyed by the public model
-  name that survives Claude variant merging. `getPricingForModelKey` strips
-  Copilot raw-id variant suffixes (`-high`, `-xhigh`, `-1m`,
+  `apps/api/src/data-plane/providers/copilot/pricing.ts`, keyed by the public
+  model name that survives Claude variant merging. `getPricingForModelKey`
+  strips Copilot raw-id variant suffixes (`-high`, `-xhigh`, `-1m`,
   `-1m-internal`, trailing date) before lookup, mirroring migration 0009.
 - `azure`: per-deployment `cost` field on `AzureDeploymentConfig`,
   validated as `input` + `output` paired and `cache_read` / `cache_write`
@@ -253,19 +333,19 @@ Each provider attaches pricing per upstream model and resolves
 
 Public `/models` shapes (`/v1/models`, `/models`, `/v1beta/models`) and
 control-plane `/api/models` expose `cost` directly when present. Cost
-aggregation in `src/control-plane/token-usage/aggregate.ts` resolves
+aggregation in `apps/api/src/control-plane/token-usage/aggregate.ts` resolves
 pricing by `(upstream, modelKey)` through the provider registry; NULL
 upstream or unresolved modelKey contributes 0 to cost, matching the
 pre-refactor "no rule matched" behaviour.
 
 ## Data Plane
 
-`src/data-plane/llm/` owns LLM source routing for Messages, Responses, Chat
-Completions, Gemini generation, and source-owned token counting endpoints.
+`apps/api/src/data-plane/llm/` owns LLM source routing for Messages, Responses,
+Chat Completions, Gemini generation, and source-owned token counting endpoints.
 Models, embeddings, and data-plane tools live outside that LLM routing graph in
 their capability directories.
 
-Model listing belongs in `src/data-plane/models/`: `/v1/models` is
+Model listing belongs in `apps/api/src/data-plane/models/`: `/v1/models` is
 OpenAI-shaped, `/models` is Anthropic-shaped, and `/v1beta/models` is
 Gemini-shaped. Public data-plane model APIs consume `CatalogModel`; execution
 paths use `ResolvedModel` and `ProviderModelRecord`.
@@ -309,25 +389,27 @@ Source response flow is source-owned. Each concrete source responder owns its
 own upstream/internal error shaping, non-stream collection, stream terminal
 observation, downstream SSE serialization, usage extraction, usage recording,
 and request performance recording in forward order. Shared source helpers in
-`src/data-plane/llm/sources/respond.ts` may hold only low-level stream state,
-final metadata, usage recording, and request performance helpers; they must not
-accept source-specific callback tables or call back into source behavior.
-Protocol `events/to-sse.ts` serializers must stay pure: they convert source
-protocol frames to SSE frames and must not record usage, mutate external state,
-or accept callback listeners for accounting.
+`apps/api/src/data-plane/llm/sources/respond.ts` may hold only low-level stream
+state, final metadata, usage recording, and request performance helpers; they
+must not accept source-specific callback tables or call back into source
+behavior. Protocol `events/to-sse.ts` serializers must stay pure: they convert
+source protocol frames to SSE frames and must not record usage, mutate external
+state, or accept callback listeners for accounting.
 
 Target emission is target-owned. Each concrete target emit file owns its forward
 order: force target-required streaming, run target interceptors, call the
 provider method, build model accounting, normalize the upstream response into
 raw frames, translate raw frames into target protocol events, and preserve
 target-shaped failures. Shared target helpers in
-`src/data-plane/llm/targets/emit.ts` may hold only low-level provider body,
-accounting, upstream response, telemetry, and internal-error helpers; they must
-not accept target-specific callback tables or call back into target behavior.
+`apps/api/src/data-plane/llm/targets/emit.ts` may hold only low-level provider
+body, accounting, upstream response, telemetry, and internal-error helpers;
+they must not accept target-specific callback tables or call back into target
+behavior.
 
-Request translation is direct and pairwise. Do not introduce a canonical
-internal request IR. Each cross-protocol pair lives under
-`src/data-plane/llm/translate/<source>-via-<target>/` and exposes a single
+Request translation is direct and pairwise, and it lives in the
+`@copilot-gateway/translate` package rather than under apps/api. Do not
+introduce a canonical internal request IR. Each cross-protocol pair lives
+under `packages/translate/src/<source>-via-<target>/` and exposes a single
 `translateXxxViaYyy: TranslateTrip<...>` from `translate.ts`. A trip function
 builds the target-shape payload and returns the events translator as a closure,
 so trip-scoped state (synthetic ids, custom-tool name sets, etc.) lives as
@@ -338,22 +420,24 @@ inline. Source serves dispatch via
 `viaTranslation(translateXxxViaYyy, targetEmit)` inside their
 `Record<LlmTargetApi, SourceEmit<...>>` map — the map key is the only source of
 truth for which target was picked. Cross-pair helpers (envelope shapers shared
-between Gemini pairs, etc.) live in `translate/shared/`.
+between Gemini pairs, etc.) live in `packages/translate/src/shared/`.
 
 Workarounds belong at the owning boundary:
 
 - source request cleanup, provider-registered source interceptors, whole-flow
   retry, final response shaping, usage observation, and request performance
-  recording stay under `src/data-plane/llm/sources/<source>/` or the shared
-  source responder.
+  recording stay under `apps/api/src/data-plane/llm/sources/<source>/` or the
+  shared source responder.
 - target upstream request fixes, upstream retries, target event fixes, provider
   call normalization, and target telemetry stay under
-  `src/data-plane/llm/targets/<target>/` or shared target helpers.
+  `apps/api/src/data-plane/llm/targets/<target>/` or shared target helpers.
 - provider-specific interceptor registrations live on provider records;
   concrete interceptor implementations live at the source or target boundary
   they patch.
-- shared translation primitives belong in `src/data-plane/llm/translate/shared/`
-  only when multiple pair directions need the same protocol rule.
+- shared translation primitives belong in `packages/translate/src/shared/` only
+  when multiple pair directions need the same protocol rule. Protocol-level
+  shapes (event types, SSE envelopes) belong in
+  `@copilot-gateway/protocols`, not in the translate package.
 
 ## Routing
 
@@ -430,21 +514,27 @@ current shape is `flag_overrides: Record<string, boolean>`.
 
 ## Verification
 
-Primary commands:
+Primary commands, all run from the repo root:
 
 ```bash
-pnpm run test
-pnpm run lint
-pnpm run typecheck
-pnpm run dev
-pnpm run deploy
-pnpm run db:migrate
-pnpm run db:migrate:remote
+pnpm run test                # vitest run over the root test.projects (all packages)
+pnpm run lint                # eslint --cache across the whole workspace
+pnpm run typecheck           # pnpm -r run typecheck (one tsc --noEmit per package)
+pnpm run dev                 # builds apps/web, then wrangler dev on apps/api
+pnpm run deploy              # builds apps/web, then wrangler deploy on apps/api
+pnpm run db:migrate          # apply migrations to the local D1
+pnpm run db:migrate:remote   # apply migrations to the remote (production) D1
 ```
 
-Wrangler commands should go through the local dependency with `pnpm wrangler` or
-package scripts. When deploying, use `pnpm run deploy` or `pnpm wrangler deploy`
-directly; do not pass `--dry-run`.
+`dev` and `deploy` chain the `apps/web` prerender (`pnpm --filter
+@copilot-gateway/web run build`) before wrangler runs, because the Worker's
+Static Assets binding serves `apps/web/dist`. To work on a single package in
+isolation, use pnpm filters, e.g. `pnpm --filter @copilot-gateway/translate
+run typecheck`.
+
+Wrangler commands should go through the local dependency with `pnpm wrangler`
+or package scripts. When deploying, use `pnpm run deploy` or `pnpm wrangler
+deploy` directly; do not pass `--dry-run`.
 
 For manual data-plane validation, prefer `ADMIN_KEY` with the existing
 `x-models-playground: 1` header on approved playground routes. Do not reuse or

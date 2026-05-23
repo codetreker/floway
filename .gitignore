@@ -5,4 +5,5 @@
 node_modules/
 docs/superpowers
 .superpowers
+apps/web/dist/
 .dev.vars
