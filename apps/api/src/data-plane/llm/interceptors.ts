@@ -34,6 +34,8 @@ export type LlmTargetApi = 'messages' | 'responses' | 'chat-completions';
 export interface RequestContext {
   readonly requestStartedAt: number;
   readonly apiKeyId?: string;
+  // null = Default mode (inherit global upstream order).
+  readonly apiKeyUpstreamIds?: readonly string[] | null;
   readonly runtimeLocation: string;
   readonly scheduleBackground?: BackgroundScheduler;
   readonly downstreamAbortSignal?: AbortSignal;

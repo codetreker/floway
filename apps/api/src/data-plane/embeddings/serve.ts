@@ -3,6 +3,7 @@
 
 import type { Context } from 'hono';
 
+import { apiKeyUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import type { BackgroundScheduler } from '../../runtime/background.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { toInternalDebugError } from '../llm/shared/errors/internal-debug-error.ts';
@@ -97,7 +98,7 @@ export const embeddings = async (c: Context): Promise<Response> => {
       return apiErrorResponse(c, request.message, 400);
     }
 
-    const { id: modelId, model } = await resolveModelForRequest(request.model);
+    const { id: modelId, model } = await resolveModelForRequest(request.model, apiKeyUpstreamIdsFromContext(c));
     if (!model) {
       return apiErrorResponse(c, `No upstream provides model ${modelId}. Configure an upstream that exposes this model in the dashboard.`, 404);
     }

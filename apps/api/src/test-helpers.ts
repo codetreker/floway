@@ -107,6 +107,7 @@ export async function setupAppTest(options: SetupOptions = {}): Promise<AppTestC
     name: 'Primary key',
     key: `raw_${crypto.randomUUID().replace(/-/g, '')}`,
     createdAt: '2026-03-15T00:00:00.000Z',
+    upstreamIds: null,
   };
   await repo.apiKeys.save(apiKey);
 

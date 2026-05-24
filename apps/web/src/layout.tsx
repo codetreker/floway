@@ -14,6 +14,7 @@ export function Layout({ title, children }: { title: string; children: Child }) 
         <title>${title} — Copilot Gateway</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
         <link href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-okaidia.min.css" rel="stylesheet" />
         <script src="https://cdn.jsdelivr.net/npm/prismjs@1/prism.min.js"></script>
@@ -244,6 +245,12 @@ export function Layout({ title, children }: { title: string; children: Child }) 
             background: rgba(255, 255, 255, 0.08);
             border-color: rgba(255, 255, 255, 0.15);
           }
+
+          .drag-handle { cursor: grab; }
+          .drag-handle:active { cursor: grabbing; }
+          .sortable-ghost { opacity: 0.3; }
+          .sortable-chosen { background: rgba(0, 229, 255, 0.06); }
+          .sortable-drag { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); }
 
           /* Prism github-dark overrides */
           code[class*='language-'],

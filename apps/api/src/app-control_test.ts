@@ -145,6 +145,7 @@ test('API key users only see their own key in /api/keys', async () => {
     name: 'Other key',
     key: 'raw_other_key',
     createdAt: '2026-03-15T00:00:00.000Z',
+    upstreamIds: null,
   });
 
   const response = await requestApp('/api/keys', {
@@ -193,6 +194,7 @@ test('/api/token-usage is visible to any authenticated user and includes all key
     name: 'Other key',
     key: 'raw_other_key',
     createdAt: '2026-03-15T00:00:00.000Z',
+    upstreamIds: null,
   });
   await repo.usage.set({
     keyId: apiKey.id,
@@ -249,6 +251,7 @@ test('/api/token-usage can include all key metadata for stable dashboard color s
     name: 'Other key',
     key: 'raw_other_key',
     createdAt: '2026-03-16T00:00:00.000Z',
+    upstreamIds: null,
   });
   await repo.usage.set({
     keyId: 'key_other',

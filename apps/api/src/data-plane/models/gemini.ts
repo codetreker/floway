@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 
+import { apiKeyUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { ProviderModelsUnavailableError } from '../providers/models-store.ts';
 import { getInternalModels } from '../providers/registry.ts';
 import type { InternalModel } from '../providers/types.ts';
@@ -88,14 +89,14 @@ const geminiModelLoadError = (error: unknown): Response => {
   return geminiError(502, error instanceof Error ? error.message : String(error));
 };
 
-const loadGeminiModels = async (): Promise<GeminiModel[]> => {
-  const models = await getInternalModels();
+const loadGeminiModels = async (upstreamFilter?: readonly string[] | null): Promise<GeminiModel[]> => {
+  const models = await getInternalModels(upstreamFilter);
   return models.filter(model => model.supports_generation).map(toGeminiModel);
 };
 
-export const serveGeminiModels = async (_c: Context): Promise<Response> => {
+export const serveGeminiModels = async (c: Context): Promise<Response> => {
   try {
-    return Response.json({ models: await loadGeminiModels() });
+    return Response.json({ models: await loadGeminiModels(apiKeyUpstreamIdsFromContext(c)) });
   } catch (error) {
     return geminiModelLoadError(error);
   }
@@ -107,7 +108,7 @@ export const serveGeminiModelInfo = async (c: Context): Promise<Response> => {
 
   const modelId = rawModelId.replace(/^models\//, '');
   try {
-    const model = (await loadGeminiModels()).find(candidate => candidate.baseModelId === modelId || candidate.name === `models/${modelId}`);
+    const model = (await loadGeminiModels(apiKeyUpstreamIdsFromContext(c))).find(candidate => candidate.baseModelId === modelId || candidate.name === `models/${modelId}`);
     if (!model) return geminiError(404, `Model not found: ${modelId}`);
     return Response.json(model);
   } catch (error) {

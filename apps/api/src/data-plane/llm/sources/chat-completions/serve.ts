@@ -54,7 +54,7 @@ export const serveChatCompletions = async (c: Context): Promise<Response> => {
     downstreamAbortController = wantsStream ? new AbortController() : undefined;
     request = createRequestContext(c, downstreamAbortController?.signal, wantsStream);
 
-    const { id: model, model: resolved } = await resolveModelForRequest(payload.model);
+    const { id: model, model: resolved } = await resolveModelForRequest(payload.model, request.apiKeyUpstreamIds);
     let result: ExecuteResult<ProtocolFrame<ChatCompletionChunk>> | undefined;
 
     if (!resolved) {

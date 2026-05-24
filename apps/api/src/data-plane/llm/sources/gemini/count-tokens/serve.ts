@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 
+import { apiKeyUpstreamIdsFromContext } from '../../../../../middleware/auth.ts';
 import { ProviderModelsUnavailableError } from '../../../../providers/models-store.ts';
 import { resolveModelForRequest } from '../../../../providers/registry.ts';
 import { stripUnsupportedPartFieldsFromPayload } from '../interceptors/strip-unsupported-part-fields.ts';
@@ -38,7 +39,7 @@ export const countGeminiTokens = async (c: Context, model: string): Promise<Resp
     const generateContentRequest = countTokensRequestToGenerateContentRequest(request);
     normalizeCountTokensRequest(generateContentRequest);
 
-    const { id: modelId, model: resolvedModel } = await resolveModelForRequest(model);
+    const { id: modelId, model: resolvedModel } = await resolveModelForRequest(model, apiKeyUpstreamIdsFromContext(c));
 
     if (!resolvedModel) {
       return geminiRpcErrorResponse(404, `Model ${modelId} is not available on any configured upstream.`);

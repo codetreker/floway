@@ -242,3 +242,37 @@ test('resolveModelForRequest applies provider-owned aliases only to that provide
     },
   );
 });
+
+test('listModelProviders without a filter returns global sort_order', async () => {
+  const { repo } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_a', name: 'A', sortOrder: 10 }));
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_b', name: 'B', sortOrder: 20 }));
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_c', name: 'C', sortOrder: 30 }));
+
+  const providers = await listModelProviders();
+  assertEquals(providers.map(p => p.upstream), ['up_a', 'up_b', 'up_c']);
+});
+
+test('listModelProviders honors a per-key whitelist with custom order', async () => {
+  const { repo } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_a', name: 'A', sortOrder: 10 }));
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_b', name: 'B', sortOrder: 20 }));
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_c', name: 'C', sortOrder: 30 }));
+
+  // Subset, reverse order, with the planner's fallback head explicitly chosen.
+  const providers = await listModelProviders(['up_c', 'up_a']);
+  assertEquals(providers.map(p => p.upstream), ['up_c', 'up_a']);
+});
+
+test('listModelProviders drops stale ids (deleted or disabled upstreams) from a whitelist', async () => {
+  const { repo } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_a', name: 'A', sortOrder: 10 }));
+  await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_b', name: 'B', sortOrder: 20, enabled: false }));
+
+  // up_ghost was never saved; up_b is disabled. Both vanish silently.
+  const providers = await listModelProviders(['up_ghost', 'up_b', 'up_a']);
+  assertEquals(providers.map(p => p.upstream), ['up_a']);
+});

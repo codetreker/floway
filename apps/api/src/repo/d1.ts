@@ -50,45 +50,27 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   constructor(private db: D1Database) {}
 
   async list(): Promise<ApiKey[]> {
-    const { results } = await this.db.prepare('SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at').all<{
-      id: string;
-      name: string;
-      key: string;
-      created_at: string;
-      last_used_at: string | null;
-    }>();
+    const { results } = await this.db.prepare('SELECT id, name, key, created_at, last_used_at, upstream_ids FROM api_keys ORDER BY created_at').all<ApiKeyRow>();
     return results.map(toApiKey);
   }
 
   async findByRawKey(rawKey: string): Promise<ApiKey | null> {
-    const row = await this.db.prepare('SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?').bind(rawKey).first<{
-      id: string;
-      name: string;
-      key: string;
-      created_at: string;
-      last_used_at: string | null;
-    }>();
+    const row = await this.db.prepare('SELECT id, name, key, created_at, last_used_at, upstream_ids FROM api_keys WHERE key = ?').bind(rawKey).first<ApiKeyRow>();
     return row ? toApiKey(row) : null;
   }
 
   async getById(id: string): Promise<ApiKey | null> {
-    const row = await this.db.prepare('SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?').bind(id).first<{
-      id: string;
-      name: string;
-      key: string;
-      created_at: string;
-      last_used_at: string | null;
-    }>();
+    const row = await this.db.prepare('SELECT id, name, key, created_at, last_used_at, upstream_ids FROM api_keys WHERE id = ?').bind(id).first<ApiKeyRow>();
     return row ? toApiKey(row) : null;
   }
 
   async save(key: ApiKey): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO api_keys (id, name, key, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET name = excluded.name, key = excluded.key, last_used_at = excluded.last_used_at`,
+        `INSERT INTO api_keys (id, name, key, created_at, last_used_at, upstream_ids) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, key = excluded.key, last_used_at = excluded.last_used_at, upstream_ids = excluded.upstream_ids`,
       )
-      .bind(key.id, key.name, key.key, key.createdAt, key.lastUsedAt ?? null)
+      .bind(key.id, key.name, key.key, key.createdAt, key.lastUsedAt ?? null, serializeUpstreamIds(key.upstreamIds))
       .run();
   }
 
@@ -102,13 +84,40 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 }
 
-function toApiKey(row: { id: string; name: string; key: string; created_at: string; last_used_at: string | null }): ApiKey {
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  key: string;
+  created_at: string;
+  last_used_at: string | null;
+  upstream_ids: string | null;
+}
+
+const serializeUpstreamIds = (value: readonly string[] | null): string | null => (value === null ? null : JSON.stringify(value));
+
+// Throws rather than returning null on bad data: a silent downgrade to Default
+// would grant the key broader provider access than the admin intended.
+const parseUpstreamIds = (raw: string | null, keyId: string): string[] | null => {
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(`api_keys.upstream_ids JSON is malformed for id=${keyId}: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error(`api_keys.upstream_ids is not an array for id=${keyId}`);
+  if (!parsed.every(item => typeof item === 'string')) throw new Error(`api_keys.upstream_ids contains non-string entries for id=${keyId}`);
+  return parsed as string[];
+};
+
+function toApiKey(row: ApiKeyRow): ApiKey {
   return {
     id: row.id,
     name: row.name,
     key: row.key,
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at ?? undefined,
+    upstreamIds: parseUpstreamIds(row.upstream_ids, row.id),
   };
 }
 

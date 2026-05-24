@@ -55,6 +55,7 @@ export const authMiddleware = async (c: Context, next: Next) => {
     c.set('authKey', key);
     c.set('isAdmin', false);
     c.set('apiKeyId', apiKey.id);
+    c.set('apiKeyUpstreamIds', apiKey.upstreamIds);
     return await next();
   }
 
@@ -65,3 +66,6 @@ function extractKey(c: Context): string | null {
   const url = new URL(c.req.url);
   return url.searchParams.get('key') ?? c.req.header('x-api-key') ?? c.req.header('x-goog-api-key') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '') ?? null;
 }
+
+export const apiKeyUpstreamIdsFromContext = (c: Context): readonly string[] | null =>
+  (c.get('apiKeyUpstreamIds') as readonly string[] | null | undefined) ?? null;

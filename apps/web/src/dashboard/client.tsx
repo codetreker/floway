@@ -657,6 +657,17 @@ export function dashboardAssets() {
           upstreamFlagCatalogLoaded: false,
           upstreamTestResult: null,
           upstreamModal: blankUpstreamModal('custom', 100),
+          editKeyModal: {
+            open: false,
+            keyId: null,
+            name: '',
+            override: false,
+            customOrder: [],
+            allUpstreams: [],
+            saving: false,
+            error: null,
+            _sortable: null,
+          },
           _chatAbort: null,
 
           get baseUrl() {
@@ -810,6 +821,7 @@ export function dashboardAssets() {
               this.loadUpstreams();
             } else if (this.tab === 'keys') {
               this.loadKeys();
+              if (this.isAdmin && !this.upstreamsLoaded) this.loadUpstreams();
             } else if (this.tab === 'usage') {
               this.loadUsageTabData(modelsReady);
             } else if (this.tab === 'performance') {
@@ -854,6 +866,7 @@ export function dashboardAssets() {
               await this.loadPerformanceTabData();
             } else if (t === 'keys') {
               await this.loadKeys();
+              if (this.isAdmin && !this.upstreamsLoaded) this.loadUpstreams();
             } else if (t === 'models') {
               if (this.allModels.length === 0) await this.loadAllModels();
             }
@@ -1691,26 +1704,173 @@ export function dashboardAssets() {
             }
           },
 
-          async renameKeyById(id, currentName) {
-            const newName = prompt('Rename key:', currentName);
-            if (!newName || newName === currentName) return;
+          // ---- Per-key upstream override editor ----
+
+          keyUpstreamsText(key) {
+            const ids = key.upstream_ids;
+            if (!ids) return 'All';
+            const upstreams = this.upstreams || [];
+            if (upstreams.length === 0) return ids.length + ' upstream' + (ids.length === 1 ? '' : 's');
+            const validNames = ids
+              .map(id => upstreams.find(u => u.id === id))
+              .filter(Boolean)
+              .map(u => u.name);
+            if (validNames.length === 1) return validNames[0];
+            return validNames.length + ' upstreams';
+          },
+
+          keyUpstreamsTextClass(key) {
+            return key.upstream_ids ? 'text-accent-cyan' : 'text-gray-500';
+          },
+
+          keyUpstreamsTitle(key) {
+            const ids = key.upstream_ids;
+            if (!ids) return 'Default — inherits global upstream order';
+            const upstreams = this.upstreams || [];
+            const names = ids.map(id => upstreams.find(u => u.id === id)?.name).filter(Boolean);
+            return names.length > 0 ? 'Custom whitelist (in order): ' + names.join(' → ') : 'Custom whitelist';
+          },
+
+          async openEditKey(key) {
+            this.editKeyModal.open = true;
+            this.editKeyModal.keyId = key.id;
+            this.editKeyModal.name = key.name;
+            this.editKeyModal.override = Array.isArray(key.upstream_ids);
+            this.editKeyModal.saving = false;
+            this.editKeyModal.error = null;
+
+            if (!this.upstreamsLoaded) await this.loadUpstreams();
+            if (!this.upstreamsLoaded) {
+              this.editKeyModal.error = 'Failed to load upstream list — check network and reopen.';
+              this.editKeyModal.allUpstreams = [];
+              this.editKeyModal.customOrder = [];
+              this.editKeyModal.override = false;
+              return;
+            }
+            this.editKeyModal.allUpstreams = [...this.upstreams];
+            this.editKeyModal.customOrder = this._buildEditKeyOrder(key.upstream_ids);
+
+            await this.$nextTick();
+            this._rebindEditKeySortable();
+          },
+
+          closeEditKey() {
+            this.editKeyModal.open = false;
+            this.editKeyModal.keyId = null;
+            this.editKeyModal.error = null;
+            if (this.editKeyModal._sortable) {
+              this.editKeyModal._sortable.destroy();
+              this.editKeyModal._sortable = null;
+            }
+          },
+
+          _buildEditKeyOrder(savedIds) {
+            const upstreams = this.editKeyModal.allUpstreams;
+            const picked = Array.isArray(savedIds) ? savedIds.filter(id => upstreams.some(u => u.id === id)) : [];
+            const pickedSet = new Set(picked);
+            return [
+              ...picked.map(id => ({ ...upstreams.find(u => u.id === id), included: true })),
+              ...upstreams.filter(u => !pickedSet.has(u.id)).map(u => ({ ...u, included: false })),
+            ];
+          },
+
+          async toggleEditKeyOverride() {
+            this.editKeyModal.override = !this.editKeyModal.override;
+            if (this.editKeyModal.override) {
+              await this.$nextTick();
+              this._rebindEditKeySortable();
+            } else if (this.editKeyModal._sortable) {
+              this.editKeyModal._sortable.destroy();
+              this.editKeyModal._sortable = null;
+            }
+          },
+
+          toggleEditKeyRow(id) {
+            const row = this.editKeyModal.customOrder.find(r => r.id === id);
+            if (row) row.included = !row.included;
+          },
+
+          editKeySelectAll() {
+            this.editKeyModal.customOrder.forEach(r => (r.included = true));
+          },
+
+          editKeySelectNone() {
+            this.editKeyModal.customOrder.forEach(r => (r.included = false));
+          },
+
+          editKeyOrderPosition(id) {
+            let pos = 0;
+            for (const r of this.editKeyModal.customOrder) {
+              if (r.included) pos++;
+              if (r.id === id) return pos;
+            }
+            return 0;
+          },
+
+          editKeyIncludedCount() {
+            return this.editKeyModal.customOrder.filter(r => r.included).length;
+          },
+
+          canSaveEditKey() {
+            if (!this.editKeyModal.name.trim()) return false;
+            if (this.editKeyModal.override) return this.editKeyIncludedCount() >= 1;
+            return true;
+          },
+
+          _rebindEditKeySortable() {
+            // Safe to early-return on existing instance: closeEditKey and
+            // toggleEditKeyOverride both null out _sortable when the <ul> goes away.
+            const el = this.$refs.editKeyList;
+            if (!el) return;
+            if (this.editKeyModal._sortable) return;
+            this.editKeyModal._sortable = Sortable.create(el, {
+              handle: '.drag-handle',
+              animation: 150,
+              ghostClass: 'sortable-ghost',
+              chosenClass: 'sortable-chosen',
+              dragClass: 'sortable-drag',
+              onEnd: () => {
+                const ids = [...el.querySelectorAll('[data-id]')].map(li => li.dataset.id);
+                this.editKeyModal.customOrder = ids
+                  .map(id => this.editKeyModal.customOrder.find(r => r.id === id))
+                  .filter(Boolean);
+              },
+            });
+          },
+
+          async saveEditKey() {
+            if (!this.canSaveEditKey()) return;
+            const id = this.editKeyModal.keyId;
+            if (!id) return;
+            this.editKeyModal.saving = true;
+            this.editKeyModal.error = null;
             try {
+              const body = {
+                name: this.editKeyModal.name.trim(),
+                upstream_ids: this.editKeyModal.override
+                  ? this.editKeyModal.customOrder.filter(r => r.included).map(r => r.id)
+                  : null,
+              };
               const resp = await fetch('/api/keys/' + id, {
                 method: 'PATCH',
                 headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName }),
+                body: JSON.stringify(body),
               });
               if (resp.status === 401) {
                 this.logout();
                 return;
               }
-              if (resp.ok) {
-                await this.loadKeys();
-              } else {
-                alert((await resp.json()).error || 'Failed to rename key');
+              if (!resp.ok) {
+                this.editKeyModal.error = (await resp.json()).error || 'Failed to save key';
+                return;
               }
+              await this.loadKeys();
+              this.closeEditKey();
             } catch (e) {
-              console.error('renameKey:', e);
+              console.error('saveEditKey:', e);
+              this.editKeyModal.error = e instanceof Error ? e.message : String(e);
+            } finally {
+              this.editKeyModal.saving = false;
             }
           },
 

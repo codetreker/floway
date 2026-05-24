@@ -1,6 +1,6 @@
 import { type Context, Hono, type Next } from 'hono';
 
-import { createKey, deleteKey, listKeys, renameKey, rotateKey } from './api-keys/routes.ts';
+import { createKey, deleteKey, listKeys, rotateKey, updateKey } from './api-keys/routes.ts';
 import { authLogin, authLogout, authMe } from './auth/routes.ts';
 import { copilotQuota } from './copilot-quota/routes.ts';
 import { exportData, importData } from './data-transfer/routes.ts';
@@ -45,7 +45,7 @@ export const mountControlPlane = (app: Hono) => {
   adminApi.use('*', adminOnlyMiddleware);
   adminApi.post('/keys', createKey);
   adminApi.post('/keys/:id/rotate', rotateKey);
-  adminApi.patch('/keys/:id', renameKey);
+  adminApi.patch('/keys/:id', updateKey);
   adminApi.delete('/keys/:id', deleteKey);
   adminApi.get('/upstreams', listUpstreams);
   adminApi.get('/upstream-flags', listOptionalFlags);

@@ -68,7 +68,7 @@ export const serveGemini = async (c: Context, model: string, wantsStream: boolea
   try {
     const payload = await c.req.json<GeminiGenerateContentRequest>();
 
-    const { id: modelId, model: resolved } = await resolveModelForRequest(model);
+    const { id: modelId, model: resolved } = await resolveModelForRequest(model, request.apiKeyUpstreamIds);
     let result: ExecuteResult<ProtocolFrame<GeminiStreamEvent>> | undefined;
 
     if (!resolved) {

@@ -12,6 +12,7 @@ import { isCopilotAccountType } from '../../shared/copilot.ts';
 import { assertAzureUpstreamRecord } from '../../shared/upstream/azure.ts';
 import { assertCustomUpstreamRecord } from '../../shared/upstream/custom.ts';
 import { isWebSearchProviderName } from '../../shared/web-search-providers.ts';
+import { parseUpstreamIdsValue } from '../api-keys/upstream-ids.ts';
 import { type SerializedUpstreamRecord, upstreamRecordToFullJson } from '../upstreams/serialize.ts';
 
 interface ExportPayload {
@@ -136,6 +137,10 @@ const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } |
   for (let i = 0; i < value.length; i++) {
     const record = value[i];
     if (!isRecord(record)) return { type: 'invalid', index: i, error: 'record must be an object' };
+    // Older exports omit the field; treat as Default.
+    const upstreamIdsRaw = record.upstreamIds === undefined ? null : record.upstreamIds;
+    const upstreamIdsParsed = parseUpstreamIdsValue(upstreamIdsRaw);
+    if (!upstreamIdsParsed.ok) return { type: 'invalid', index: i, error: upstreamIdsParsed.error };
     try {
       records.push({
         id: nonEmptyString(record.id, 'id'),
@@ -143,6 +148,7 @@ const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } |
         key: nonEmptyString(record.key, 'key'),
         createdAt: nonEmptyString(record.createdAt, 'createdAt'),
         ...(record.lastUsedAt !== undefined ? { lastUsedAt: nonEmptyString(record.lastUsedAt, 'lastUsedAt') } : {}),
+        upstreamIds: upstreamIdsParsed.value,
       });
     } catch (error) {
       return { type: 'invalid', index: i, error: error instanceof Error ? error.message : String(error) };

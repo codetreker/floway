@@ -21,12 +21,20 @@ const providerFactories: Record<UpstreamProviderKind, ProviderFactory> = {
   azure: createAzureProvider,
 };
 
-export const listModelProviders = async (): Promise<ModelProviderInstance[]> => {
-  const providers: ModelProviderInstance[] = [];
-
+// Ids not in the catalog are silently dropped; undefined/null preserves global sort order.
+export const listModelProviders = async (upstreamFilter?: readonly string[] | null): Promise<ModelProviderInstance[]> => {
   const upstreams = await getRepo().upstreams.list();
+  const enabledById = new Map<string, UpstreamRecord>();
   for (const upstream of upstreams) {
-    if (!upstream.enabled) continue;
+    if (upstream.enabled) enabledById.set(upstream.id, upstream);
+  }
+
+  const selection: UpstreamRecord[] = upstreamFilter
+    ? upstreamFilter.map(id => enabledById.get(id)).filter((u): u is UpstreamRecord => u !== undefined)
+    : [...enabledById.values()];
+
+  const providers: ModelProviderInstance[] = [];
+  for (const upstream of selection) {
     providers.push(await providerFactories[upstream.provider](upstream));
   }
 
@@ -145,8 +153,8 @@ export const compareModelIds = (a: string, b: string): number => {
     || cmp(a, b, -1);
 };
 
-export const getModels = async (): Promise<ResolvedModel[]> => {
-  const providers = await listModelProviders();
+export const getModels = async (upstreamFilter?: readonly string[] | null): Promise<ResolvedModel[]> => {
+  const providers = await listModelProviders(upstreamFilter);
   if (providers.length === 0) {
     throw new Error('No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
   }
@@ -160,8 +168,8 @@ export const getModels = async (): Promise<ResolvedModel[]> => {
 
 // Strips planner-only and provider-binding fields, leaving the InternalModel
 // shape consumed by the public /models DTO projection and the dashboard.
-export const getInternalModels = async (): Promise<InternalModel[]> =>
-  (await getModels()).map(({ providers: _providers, upstreamEndpoints: _upstreamEndpoints, ...model }) => model);
+export const getInternalModels = async (upstreamFilter?: readonly string[] | null): Promise<InternalModel[]> =>
+  (await getModels(upstreamFilter)).map(({ providers: _providers, upstreamEndpoints: _upstreamEndpoints, ...model }) => model);
 
 export interface ModelResolution {
   id: string;
@@ -191,8 +199,8 @@ const resolveProviderAlias = (providers: readonly ModelProviderInstance[], byId:
   return modelWithProviderInstances(resolved, providersForAlias);
 };
 
-export const resolveModelForRequest = async (modelId: string): Promise<ModelResolution> => {
-  const providers = await listModelProviders();
+export const resolveModelForRequest = async (modelId: string, upstreamFilter?: readonly string[] | null): Promise<ModelResolution> => {
+  const providers = await listModelProviders(upstreamFilter);
   if (providers.length === 0) {
     throw new Error('No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
   }

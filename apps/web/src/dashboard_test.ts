@@ -1373,7 +1373,7 @@ test('DashboardPage renders mobile-friendly admin controls', () => {
 
   assertStringIncludes(html, 'flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center');
   assertStringIncludes(html, 'aria-label="Copy API key"');
-  assertStringIncludes(html, 'aria-label="Rename API key"');
+  assertStringIncludes(html, 'aria-label="Edit API key"');
   assertStringIncludes(html, 'aria-label="Rotate API key"');
   assertStringIncludes(html, 'aria-label="Delete API key"');
   assertStringIncludes(html, 'min-h-9 min-w-9');
@@ -1452,7 +1452,9 @@ test('DashboardPage renders Settings as masonry settings columns', () => {
   assertFalse(html.includes('version must be 2'));
 
   const upstreamHeadingMatches = html.match(/>Upstreams</g) ?? [];
-  assertEquals(upstreamHeadingMatches.length, 1);
+  // One occurrence for the Settings card heading, and one for the new
+  // Upstreams column header on the API Keys table.
+  assertEquals(upstreamHeadingMatches.length, 2);
 
   const toggle = html.indexOf('aria-label="Toggle upstream enabled"');
   const moveUp = html.indexOf('aria-label="Move upstream up"');

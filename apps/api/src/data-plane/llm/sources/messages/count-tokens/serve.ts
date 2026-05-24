@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 
+import { apiKeyUpstreamIdsFromContext } from '../../../../../middleware/auth.ts';
 import { httpResponseToResponse, ProviderModelsUnavailableError } from '../../../../providers/models-store.ts';
 import { resolveModelForRequest } from '../../../../providers/registry.ts';
 import { toInternalDebugError } from '../../../shared/errors/internal-debug-error.ts';
@@ -13,7 +14,7 @@ export const countTokens = async (c: Context) => {
     if (rejectedBetaParam) return bodyAnthropicBetaResponse(rejectedBetaParam);
 
     const anthropicBeta = parseAnthropicBeta(c.req.header('anthropic-beta'));
-    const { id: modelId, model } = await resolveModelForRequest(payload.model);
+    const { id: modelId, model } = await resolveModelForRequest(payload.model, apiKeyUpstreamIdsFromContext(c));
 
     if (!model) {
       return c.json(

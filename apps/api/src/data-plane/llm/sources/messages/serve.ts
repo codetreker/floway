@@ -84,7 +84,7 @@ export const serveMessages = async (c: Context): Promise<Response> => {
     request = createRequestContext(c, downstreamAbortController?.signal, wantsStream);
     const anthropicBeta = parseAnthropicBeta(c.req.header('anthropic-beta'));
 
-    const { id: model, model: resolved } = await resolveModelForRequest(payload.model);
+    const { id: model, model: resolved } = await resolveModelForRequest(payload.model, request.apiKeyUpstreamIds);
     let result: ExecuteResult<ProtocolFrame<MessagesStreamEventData>> | undefined;
 
     if (!resolved) {

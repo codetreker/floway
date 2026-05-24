@@ -12,6 +12,7 @@ const KEY_A: ApiKey = {
   name: 'Alice',
   key: 'raw-key-aaa',
   createdAt: '2026-01-01T00:00:00.000Z',
+  upstreamIds: null,
 };
 
 const KEY_B: ApiKey = {
@@ -19,6 +20,7 @@ const KEY_B: ApiKey = {
   name: 'Bob',
   key: 'raw-key-bbb',
   createdAt: '2026-02-01T00:00:00.000Z',
+  upstreamIds: null,
 };
 
 const SEARCH_USAGE_A: SearchUsageRecord = {

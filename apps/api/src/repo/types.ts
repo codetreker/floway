@@ -8,6 +8,8 @@ export interface ApiKey {
   key: string;
   createdAt: string;
   lastUsedAt?: string;
+  // null = inherit global upstream order; array = whitelist + priority order.
+  upstreamIds: string[] | null;
 }
 
 export interface UsageRecord {

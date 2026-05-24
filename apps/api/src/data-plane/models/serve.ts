@@ -5,6 +5,7 @@
 import type { Context } from 'hono';
 
 import { loadModels } from './load.ts';
+import { apiKeyUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { ProviderModelsUnavailableError } from '../providers/models-store.ts';
 
 const modelListingFailureMessage = 'Upstream model listing failed';
@@ -21,9 +22,9 @@ const modelLoadErrorResponse = (error: unknown): Response => {
   return apiErrorResponse(error instanceof Error ? error.message : String(error), 502);
 };
 
-export const models = async (_c: Context) => {
+export const models = async (c: Context) => {
   try {
-    return Response.json(await loadModels());
+    return Response.json(await loadModels(apiKeyUpstreamIdsFromContext(c)));
   } catch (e) {
     return modelLoadErrorResponse(e);
   }

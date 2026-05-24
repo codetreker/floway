@@ -17,6 +17,7 @@ const KEY_A: ApiKey = {
   key: 'raw-a',
   createdAt: '2026-01-01T00:00:00.000Z',
   lastUsedAt: '2026-01-02T00:00:00.000Z',
+  upstreamIds: null,
 };
 
 const KEY_B: ApiKey = {
@@ -24,6 +25,7 @@ const KEY_B: ApiKey = {
   name: 'Bob',
   key: 'raw-b',
   createdAt: '2026-02-01T00:00:00.000Z',
+  upstreamIds: null,
 };
 
 const CUSTOM_UPSTREAM: UpstreamRecord = {

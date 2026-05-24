@@ -273,11 +273,12 @@ export function renderKeysTab() {
             </div>
           </template>
           <template x-if="keys.length > 0">
-            <table class="w-full min-w-[760px] text-sm">
+            <table class="w-full min-w-[860px] text-sm">
               <thead>
                 <tr class="border-b border-white/5">
                   <th class="text-left py-2 pr-4 pl-7 text-xs font-medium text-gray-500 uppercase tracking-widest">Name</th>
                   <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Key</th>
+                  <th x-show="isAdmin" class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Upstreams</th>
                   <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Created</th>
                   <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Last Used</th>
                   <th x-show="isAdmin" class="text-right py-2 pr-2 text-xs font-medium text-gray-500 uppercase tracking-widest">Actions</th>
@@ -298,6 +299,9 @@ export function renderKeysTab() {
                     </td>
                     <td class="py-3 pr-4">
                       <code class="text-xs font-mono text-gray-500 bg-surface-800 rounded px-2 py-1" x-text="truncateKey(k.key)"></code>
+                    </td>
+                    <td x-show="isAdmin" class="py-3 pr-4">
+                      <span class="text-xs cursor-default" :class="keyUpstreamsTextClass(k)" :title="keyUpstreamsTitle(k)" x-text="keyUpstreamsText(k)"></span>
                     </td>
                     <td class="py-3 pr-4">
                       <span class="text-gray-500 text-xs cursor-default" :title="fullDateTime(k.created_at)" x-text="timeAgo(k.created_at)"></span>
@@ -324,10 +328,10 @@ export function renderKeysTab() {
                         </button>
                         <template x-if="isAdmin">
                           <button
-                            @click.stop="renameKeyById(k.id, k.name)"
+                            @click.stop="openEditKey(k)"
                             class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1"
-                            aria-label="Rename API key"
-                            title="Rename key"
+                            aria-label="Edit API key"
+                            title="Edit key"
                           >
                             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                               <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
@@ -476,6 +480,112 @@ export function renderKeysTab() {
           </div>
         </template>
       </div>
+
+      <template x-if="editKeyModal.open">
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-in overflow-y-auto">
+          <div @click.self="closeEditKey()" class="flex min-h-full items-start justify-center p-3 sm:p-5">
+            <div class="glass-card glow-cyan my-auto w-full max-w-xl overflow-hidden">
+              <div class="border-b border-white/[0.06] px-4 py-3 sm:px-5">
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="truncate text-base font-semibold text-white">Edit API Key</h3>
+                  <button
+                    @click="closeEditKey()"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-white/[0.04] hover:text-white"
+                    aria-label="Close edit key editor"
+                    title="Close"
+                  >
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="max-h-[calc(100dvh-9rem)] overflow-y-auto px-4 py-4 sm:px-5">
+                <div class="flex flex-col gap-5">
+                  <div>
+                    <label class="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
+                    <input type="text" class="!py-2.5 !px-3 !text-xs" x-model="editKeyModal.name" aria-label="API key name" />
+                  </div>
+
+                  <div>
+                    <div class="mb-2 flex items-center justify-between gap-3">
+                      <p class="text-xs font-semibold text-gray-400">
+                        <span>Override Available Upstreams</span>
+                        <span x-show="editKeyModal.override && editKeyIncludedCount() > 0"
+                          class="ml-1.5 font-mono text-[10px] font-medium text-accent-cyan"
+                          x-text="'(' + editKeyIncludedCount() + ')'"></span>
+                      </p>
+                      <div class="flex items-center gap-3">
+                        <span x-show="editKeyModal.override" x-cloak class="flex items-center gap-2 text-[11px] text-gray-500">
+                          <button type="button" @click="editKeySelectAll()" class="hover:text-accent-cyan">Select all</button>
+                          <span class="text-gray-700">·</span>
+                          <button type="button" @click="editKeySelectNone()" class="hover:text-accent-cyan">Clear</button>
+                        </span>
+                        <button type="button"
+                          @click="toggleEditKeyOverride()"
+                          class="inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
+                          :class="editKeyModal.override ? 'bg-accent-cyan' : 'bg-white/10'"
+                          :aria-pressed="editKeyModal.override.toString()"
+                          aria-label="Toggle custom upstream override">
+                          <span class="h-4 w-4 transform rounded-full bg-white transition-transform"
+                            :class="editKeyModal.override ? 'translate-x-4' : 'translate-x-0.5'"></span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <p x-show="!editKeyModal.override" class="text-[11px] leading-relaxed text-gray-500">
+                      Currently inherits the global upstream order (total <span class="text-gray-400" x-text="editKeyModal.allUpstreams.length"></span> upstreams). Turn on to specify a custom list and order.
+                    </p>
+
+                    <div x-show="editKeyModal.override" x-cloak>
+                      <ul x-ref="editKeyList" class="max-h-72 space-y-1.5 overflow-y-auto rounded-lg border border-white/10 bg-surface-800/40 p-2">
+                        <template x-for="row in editKeyModal.customOrder" :key="row.id">
+                          <li class="flex items-center gap-2 rounded-md border border-white/5 bg-surface-900/40 px-2 py-2 transition-opacity"
+                            :class="row.included ? '' : 'opacity-50'"
+                            :data-id="row.id">
+                            <span class="drag-handle inline-flex h-7 w-5 items-center justify-center text-gray-500 hover:text-gray-300" aria-hidden="true">
+                              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                                <circle cx="9" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" />
+                                <circle cx="15" cy="6" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="15" cy="18" r="1.4" />
+                              </svg>
+                            </span>
+                            <label class="flex flex-1 cursor-pointer items-center gap-2">
+                              <input type="checkbox" class="accent-accent-cyan" :checked="row.included" @change="toggleEditKeyRow(row.id)" />
+                              <span class="rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                :class="providerBadgeClass(row.provider)" x-text="providerLabel(row.provider)"></span>
+                              <span class="truncate text-xs text-white" x-text="row.name"></span>
+                            </label>
+                            <span class="font-mono text-[10px] text-gray-600"
+                              x-text="row.included ? (editKeyOrderPosition(row.id) + '/' + editKeyIncludedCount()) : ''"></span>
+                          </li>
+                        </template>
+                      </ul>
+                      <p class="mt-2 text-[11px] leading-relaxed text-gray-500">
+                        New upstreams added in the future will <span class="font-semibold text-gray-400">NOT</span> be included automatically.
+                      </p>
+                    </div>
+                  </div>
+
+                  <template x-if="editKeyModal.error">
+                    <p class="break-words rounded-md border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-300" x-text="editKeyModal.error"></p>
+                  </template>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-end gap-2 border-t border-white/[0.06] bg-surface-900/40 px-4 py-3 sm:px-5">
+                <button @click="closeEditKey()" class="btn-ghost !rounded-lg !px-4 !py-2 !text-xs">Cancel</button>
+                <button @click="saveEditKey()" :disabled="!canSaveEditKey() || editKeyModal.saving"
+                  class="btn-primary !rounded-lg !px-4 !py-2 !text-xs">
+                  <span x-show="!editKeyModal.saving">Save changes</span>
+                  <span x-show="editKeyModal.saving" class="flex items-center gap-1.5">${spinner('h-3 w-3')} Saving…</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
   `;
 }

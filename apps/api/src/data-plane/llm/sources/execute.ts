@@ -13,11 +13,13 @@ type PerformanceLlmSourceApi = Exclude<PerformanceApiName, 'embeddings'>;
 
 export const createRequestContext = (c: Context, downstreamAbortSignal: AbortSignal | undefined, clientStream: boolean): RequestContext => {
   const apiKeyId = c.get('apiKeyId') as string | undefined;
+  const apiKeyUpstreamIds = c.get('apiKeyUpstreamIds') as readonly string[] | null | undefined;
   const scheduleBackground = backgroundSchedulerFromContext(c);
 
   return {
     requestStartedAt: performance.now(),
     apiKeyId,
+    apiKeyUpstreamIds: apiKeyUpstreamIds ?? null,
     runtimeLocation: runtimeLocationFromRequest(c.req.raw),
     scheduleBackground,
     clientStream,
