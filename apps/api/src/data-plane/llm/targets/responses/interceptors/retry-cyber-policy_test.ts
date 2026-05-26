@@ -32,6 +32,7 @@ const makeInvocation = (payload: ResponsesPayload): ResponsesInvocation => ({
   provider: stubProvider(),
   upstreamModel: stubUpstreamModel(),
   enabledFlags: new Set(['retry-cyber-policy']),
+  headers: {},
 });
 
 const stubRequest = (overrides: { downstreamAbortSignal?: AbortSignal } = {}): RequestContext => ({

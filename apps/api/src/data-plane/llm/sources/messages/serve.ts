@@ -44,12 +44,18 @@ export const bodyAnthropicBetaResponse = (param: string): Response =>
     { status: 400 },
   );
 
+// `anthropicBeta` is an inbound Messages-only concept; Responses and Chat
+// Completions target emitters do not consume it. `headers` seeds the
+// invocation's mutable header bag; the messages target uses the originally
+// built invocation (and therefore the same bag) via spread, while translated
+// emit closures construct fresh invocations with their own empty header bag.
 const messagesInvocation = <TPayload extends { model: string }>(
   binding: ProviderModelRecord,
   targetApi: LlmTargetApi,
   model: string,
   payload: TPayload,
   anthropicBeta?: readonly string[],
+  headers?: Record<string, string>,
 ) => ({
   sourceApi: 'messages' as const,
   targetApi,
@@ -60,6 +66,7 @@ const messagesInvocation = <TPayload extends { model: string }>(
   enabledFlags: binding.enabledFlags,
   ...(binding.targetInterceptors !== undefined ? { targetInterceptors: binding.targetInterceptors } : {}),
   payload,
+  headers: headers ?? {},
   ...(anthropicBeta !== undefined ? { anthropicBeta } : {}),
 });
 

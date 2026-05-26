@@ -45,6 +45,7 @@ const invocation = (payload: MessagesPayload): MessagesInvocation => ({
   provider: stubProvider(),
   upstreamModel: stubUpstreamModel(),
   enabledFlags: new Set(['disable-reasoning-on-forced-tool-choice']),
+  headers: {},
 });
 
 const stubRequest: RequestContext = {

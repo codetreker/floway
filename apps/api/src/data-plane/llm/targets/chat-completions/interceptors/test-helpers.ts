@@ -38,6 +38,7 @@ export const chatCompletionsInvocation = (payload: ChatCompletionsPayload, enabl
   provider: stubProvider(),
   enabledFlags,
   payload,
+  headers: {},
 });
 
 export const stubRequestContext: RequestContext = {

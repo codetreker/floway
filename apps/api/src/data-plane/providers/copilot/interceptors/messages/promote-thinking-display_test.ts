@@ -59,6 +59,7 @@ const makeCtx = (
   provider: stubProvider(),
   upstreamModel: stubUpstreamModel(),
   enabledFlags: new Set<string>(),
+  headers: {},
 });
 
 const stubRequest: RequestContext = {

@@ -1158,7 +1158,7 @@ test('/v1/messages streams malformed upstream Messages SSE as an error event', a
   );
 });
 
-test('/v1/messages forwards Messages tool strict field on native messages', async () => {
+test('/v1/messages strips Messages tool strict field on native messages (Copilot Vertex rejects structured_outputs)', async () => {
   const { apiKey } = await setupAppTest();
 
   let upstreamBody: Record<string, unknown> | undefined;
@@ -1258,7 +1258,7 @@ test('/v1/messages forwards Messages tool strict field on native messages', asyn
 
   assertExists(upstreamBody);
   assertEquals(upstreamBody!.stream, true);
-  assertEquals((upstreamBody!.tools as Array<Record<string, unknown>>)[0].strict, true);
+  assertEquals((upstreamBody!.tools as Array<Record<string, unknown>>)[0].strict, undefined);
 });
 
 test('/v1/messages keeps strict Messages tools on native messages when both endpoints are available', async () => {
@@ -1374,7 +1374,7 @@ test('/v1/messages keeps strict Messages tools on native messages when both endp
 
   assertExists(upstreamBody);
   assertEquals(upstreamBody!.stream, true);
-  assertEquals((upstreamBody!.tools as Array<Record<string, unknown>>)[0].strict, true);
+  assertEquals((upstreamBody!.tools as Array<Record<string, unknown>>)[0].strict, undefined);
 });
 
 test('/v1/messages falls back to chat completions and translates both directions', async () => {

@@ -165,9 +165,7 @@ async function getCopilotToken(githubToken: string): Promise<string> {
 }
 
 export interface CopilotFetchOptions {
-  vision?: boolean;
-  initiator?: 'user' | 'agent';
-  extraHeaders?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 export async function copilotFetch(path: string, init: RequestInit, githubToken: string, accountType: CopilotAccountType, options?: CopilotFetchOptions): Promise<Response> {
@@ -193,11 +191,21 @@ export async function copilotFetch(path: string, init: RequestInit, githubToken:
   headers.set('openai-intent', 'conversation-agent');
   headers.set('x-interaction-type', 'conversation-agent');
 
-  if (options?.vision) headers.set('copilot-vision-request', 'true');
-  if (options?.initiator) headers.set('X-Initiator', options.initiator);
-  if (options?.extraHeaders) {
-    for (const [k, v] of Object.entries(options.extraHeaders)) {
-      headers.set(k, v);
+  // Provider-attached invocation headers (vision, initiator, anthropic-beta,
+  // ...) flow through unchanged. The provider's target interceptors decide
+  // which headers each upstream call needs; this layer only knows how to ship
+  // them. Setting them last lets workaround interceptors override the static
+  // VSCode identification block when a future workaround needs to.
+  //
+  // Convention: an empty-string value from an interceptor means "delete this
+  // base header" — the interceptor wants Copilot to NOT see a default we'd
+  // otherwise pin. An interceptor that wants to clear an arbitrary downstream
+  // header value must do so by name through this sentinel; the layer does not
+  // otherwise expose a per-header delete API.
+  if (options?.headers) {
+    for (const [name, value] of Object.entries(options.headers)) {
+      if (value === '') headers.delete(name);
+      else headers.set(name, value);
     }
   }
 
