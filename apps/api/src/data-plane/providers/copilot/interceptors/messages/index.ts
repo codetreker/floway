@@ -13,6 +13,7 @@ import { withVisionHeaderSet } from './set-vision-header.ts';
 import { stripBillingAttribution } from './strip-billing-attribution.ts';
 import { withCacheControlScopeStripped } from './strip-cache-control-scope.ts';
 import { withEagerInputStreamingStripped } from './strip-eager-input-streaming.ts';
+import { withStructuredOutputFormatStripped } from './strip-structured-output-format.ts';
 import { withToolStrictStripped } from './strip-tool-strict.ts';
 import type { MessagesCountTokensInterceptor, MessagesInterceptor } from '../../../../llm/interceptors.ts';
 
@@ -42,6 +43,7 @@ export const messagesCopilotInterceptors = [
   withCacheControlScopeStripped,
   withEagerInputStreamingStripped,
   withToolStrictStripped,
+  withStructuredOutputFormatStripped,
   withVisionHeaderSet,
   withInitiatorHeaderSet,
   withAnthropicBetaHeaderFiltered,
