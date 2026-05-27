@@ -52,6 +52,10 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
   const provider: ModelProvider = {
     async getProvidedModels() {
       return azure.config.deployments.map(deployment => {
+        // The deployment's flag overrides are gated by a dashboard toggle: `enabled: false`
+        // skips the deployment layer entirely (the upstream layer wins), `enabled: true`
+        // applies `values` as a final layer that can re-enable or remove flags seeded by
+        // defaults or the upstream. See `resolveEffectiveFlags` for layer semantics.
         const deploymentLayer = deployment.flagOverrides?.enabled ? deployment.flagOverrides.values : undefined;
         const effective = resolveEffectiveFlags(defaultsForProvider('azure'), [azure.flagOverrides, deploymentLayer]);
         const upstreamEndpoints = azureDeploymentEndpoints(deployment);
