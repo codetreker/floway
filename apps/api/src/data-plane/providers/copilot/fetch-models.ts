@@ -51,5 +51,14 @@ export const fetchCopilotModels = async (upstream: Upstream): Promise<CopilotMod
   if (!isCopilotModelsResponse(parsed)) {
     throw new ProviderModelsUnavailableError(null, new Error('Invalid /models response shape'));
   }
+  for (const model of parsed.data) {
+    if (model.id === 'claude-opus-4.8' && model.capabilities) {
+      model.capabilities.limits = {
+        max_output_tokens: 64000,
+        max_context_window_tokens: 1000000,
+        max_prompt_tokens: 936000,
+      };
+    }
+  }
   return parsed;
 };
