@@ -4,14 +4,16 @@ import type { InferRequestType } from 'hono/client';
 import { computed, ref, watch } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
-import type { AzureDeployment, AzureUpstreamConfig, CopilotUpstreamConfig, CustomEndpoint, CustomUpstreamConfig, FlagDef, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import type { AzureUpstreamConfig, CopilotUpstreamConfig, CustomUpstreamConfig, FlagDef, UpstreamModelConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
 
 import Accordion from './Accordion.vue';
 import AzureFields from './AzureFields.vue';
 import CopilotDeviceFlow from './CopilotDeviceFlow.vue';
 import CopilotInfo from './CopilotInfo.vue';
+import { buildCustomConfigCore, type CustomDraft } from './customConfig.ts';
 import CustomFields from './CustomFields.vue';
 import FlagOverridesEditor from './FlagOverridesEditor.vue';
+import ModelListField from './ModelListField.vue';
 import ProviderRadioCard from './ProviderRadioCard.vue';
 
 const open = defineModel<boolean>('open');
@@ -35,19 +37,12 @@ const api = useApi();
 type CreateBody = InferRequestType<typeof api.api.upstreams.$post>['json'];
 type PatchBody = InferRequestType<(typeof api.api.upstreams)[':id']['$patch']>['json'];
 
-type PathKey = 'chat_completions' | 'responses' | 'messages' | 'embeddings' | 'models';
+type PathKey = 'chat_completions' | 'responses' | 'messages' | 'embeddings' | 'images_generations' | 'images_edits';
 
-interface CustomDraft {
-  baseUrl: string;
-  authStyle: 'bearer' | 'anthropic';
-  supportedEndpoints: CustomEndpoint[];
-  bearerToken: string;
-  pathOverrides: Record<PathKey, string>;
-}
 interface AzureDraft {
   endpoint: string;
   apiKey: string;
-  deployments: AzureDeployment[];
+  models: UpstreamModelConfig[];
 }
 
 const emptyPathOverrides: Record<PathKey, string> = {
@@ -55,8 +50,11 @@ const emptyPathOverrides: Record<PathKey, string> = {
   responses: '',
   messages: '',
   embeddings: '',
-  models: '',
+  images_generations: '',
+  images_edits: '',
 };
+
+const blankAzureModel = (): UpstreamModelConfig => ({ upstreamModelId: '', kind: 'chat', supportedEndpoints: ['/responses'] });
 
 const name = ref('');
 const enabled = ref(true);
@@ -66,8 +64,22 @@ const enabled = ref(true);
 const sortOrder = ref<number>(0);
 const flagOverrides = ref<Record<string, boolean>>({});
 const flagsOpen = ref(false);
-const custom = ref<CustomDraft>({ baseUrl: '', authStyle: 'bearer', supportedEndpoints: ['/chat/completions'], bearerToken: '', pathOverrides: { ...emptyPathOverrides } });
-const azure = ref<AzureDraft>({ endpoint: '', apiKey: '', deployments: [] });
+const custom = ref<CustomDraft>({ baseUrl: '', authStyle: 'bearer', supportedEndpoints: ['/chat/completions'], bearerToken: '', pathOverrides: { ...emptyPathOverrides }, modelsFetch: { enabled: true, endpoint: '' }, models: [] });
+const azure = ref<AzureDraft>({ endpoint: '', apiKey: '', models: [blankAzureModel()] });
+
+// Copilot's catalog is fixed by the upstream and shown read-only. It is fetched
+// from the saved upstream's resolved model list; ModelListField still requires a
+// manual v-model, so copilotManual stays empty and is never written back.
+const copilotModels = ref<UpstreamModelConfig[]>([]);
+const copilotManual = ref<UpstreamModelConfig[]>([]);
+
+const loadCopilotModels = async (id: string) => {
+  copilotModels.value = [];
+  const { data } = await callApi<{ data: UpstreamModelConfig[] }>(
+    () => api.api.upstreams[':id'].models.$get({ param: { id } }),
+  );
+  copilotModels.value = data?.data ?? [];
+};
 
 const activeProvider = ref<UpstreamProviderKind>(props.provider);
 
@@ -91,6 +103,7 @@ const reset = () => {
   const r = props.record;
   activeProvider.value = r?.provider ?? props.provider;
   flagsOpen.value = false;
+  copilotModels.value = [];
   if (r) {
     name.value = r.name;
     enabled.value = r.enabled;
@@ -105,26 +118,32 @@ const reset = () => {
         supportedEndpoints: [...(cfg.supportedEndpoints ?? [])],
         bearerToken: '',
         pathOverrides: seedPathOverrides(cfg.pathOverrides),
+        modelsFetch: cfg.modelsFetch
+          ? { enabled: cfg.modelsFetch.enabled, endpoint: cfg.modelsFetch.endpoint ?? '' }
+          : { enabled: true, endpoint: '' },
+        // r.config is reactive (props passthrough); structuredClone refuses Vue
+        // Proxies in Chromium and toRaw only unwraps the top layer. The models
+        // tree is plain data, so a JSON round-trip is the cheapest way to land a
+        // deep, proxy-free copy that the field can mutate freely.
+        models: cfg.models ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[]) : [],
       };
     } else if (r.provider === 'azure') {
       const cfg = r.config as AzureUpstreamConfig;
       azure.value = {
         endpoint: cfg.endpoint ?? '',
         apiKey: '',
-        // r.config is reactive (props passthrough); structuredClone refuses
-        // Vue Proxies in Chromium, and toRaw only unwraps the top layer. The
-        // deployments tree is plain data, so a JSON round-trip is the cheapest
-        // way to land a deep, proxy-free copy here.
-        deployments: cfg.deployments ? (JSON.parse(JSON.stringify(cfg.deployments)) as AzureDeployment[]) : [],
+        models: cfg.models ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[]) : [],
       };
+    } else if (r.provider === 'copilot') {
+      void loadCopilotModels(r.id);
     }
   } else {
     name.value = defaultName(props.provider);
     enabled.value = true;
     sortOrder.value = props.nextSortOrder;
     flagOverrides.value = {};
-    custom.value = { baseUrl: '', authStyle: 'bearer', supportedEndpoints: ['/chat/completions'], bearerToken: '', pathOverrides: { ...emptyPathOverrides } };
-    azure.value = { endpoint: '', apiKey: '', deployments: [] };
+    custom.value = { baseUrl: '', authStyle: 'bearer', supportedEndpoints: ['/chat/completions'], bearerToken: '', pathOverrides: { ...emptyPathOverrides }, modelsFetch: { enabled: true, endpoint: '' }, models: [] };
+    azure.value = { endpoint: '', apiKey: '', models: [blankAzureModel()] };
   }
   error.value = null;
 };
@@ -133,7 +152,7 @@ watch(open, v => { if (v) reset(); }, { immediate: true });
 
 // Switching providers in create mode also rewrites the name field if the user
 // hasn't customized it (i.e. it still matches the previous provider's
-// default), matching the baseline's polished "feels deliberate" feel.
+// default).
 const setActiveProvider = (next: UpstreamProviderKind) => {
   if (activeProvider.value === next) return;
   const prevDefault = defaultName(activeProvider.value);
@@ -151,12 +170,13 @@ const azureSecretSet = computed(() => {
 });
 
 const buildCustomConfig = (): Extract<CreateBody, { provider: 'custom' }>['config'] => {
+  // Save = the shared core (baseUrl/authStyle/endpoints/bearer/modelsFetch) plus
+  // the persisted-only fields the live /models browse omits: pathOverrides and
+  // the manual model list.
   const config: Extract<CreateBody, { provider: 'custom' }>['config'] = {
-    baseUrl: custom.value.baseUrl.trim(),
-    authStyle: custom.value.authStyle,
-    supportedEndpoints: custom.value.supportedEndpoints,
+    ...buildCustomConfigCore(custom.value),
+    models: custom.value.models,
   };
-  if (custom.value.bearerToken.trim()) config.bearerToken = custom.value.bearerToken.trim();
   const overrides: Record<string, string> = {};
   for (const [k, v] of Object.entries(custom.value.pathOverrides)) {
     const trimmed = v.trim();
@@ -168,15 +188,9 @@ const buildCustomConfig = (): Extract<CreateBody, { provider: 'custom' }>['confi
 };
 
 const buildAzureConfig = (): Extract<CreateBody, { provider: 'azure' }>['config'] => {
-  // Strip the editor-only __uiId tag so it never leaks onto the wire.
-  const cleanedDeployments = azure.value.deployments.map(d => {
-    const clone: AzureDeployment & { __uiId?: string } = { ...d };
-    delete clone.__uiId;
-    return clone as AzureDeployment;
-  });
   const config: Extract<CreateBody, { provider: 'azure' }>['config'] = {
     endpoint: azure.value.endpoint.trim(),
-    deployments: cleanedDeployments,
+    models: azure.value.models,
   };
   if (azure.value.apiKey.trim()) config.apiKey = azure.value.apiKey.trim();
   return config;
@@ -246,8 +260,8 @@ const onCopilotCompleted = () => {
   emit('saved');
 };
 
-// Provider-specific badge tone matches the baseline:
-// custom -> amber, azure -> emerald, copilot -> cyan.
+// Provider-specific badge tone: custom -> amber, azure -> emerald,
+// copilot -> cyan.
 const providerBadgeTone = (p: UpstreamProviderKind): 'amber' | 'emerald' | 'cyan' =>
   p === 'azure' ? 'emerald' : p === 'copilot' ? 'cyan' : 'amber';
 
@@ -260,7 +274,7 @@ const titleText = computed(() => {
 // exists once GitHub returns a token, so we hide the Save button until then.
 // The rest of the form (name, enable toggle, flag overrides) still renders so
 // the operator can preview their pending settings alongside the device-flow
-// instructions, matching the baseline dashboard.
+// instructions.
 const showSaveButton = computed(() =>
   props.mode === 'edit' || activeProvider.value !== 'copilot',
 );
@@ -329,7 +343,14 @@ const showSaveButton = computed(() =>
           </div>
 
           <template v-if="activeProvider === 'custom'">
-            <CustomFields v-model="custom" :bearer-token-set="customSecretSet" :edit-mode="mode === 'edit'" />
+            <CustomFields
+              v-model="custom"
+              :bearer-token-set="customSecretSet"
+              :edit-mode="mode === 'edit'"
+              :edit-id="record?.id"
+              :flags="flags"
+              :upstream-flag-overrides="flagOverrides"
+            />
           </template>
 
           <template v-else-if="activeProvider === 'azure'">
@@ -338,13 +359,23 @@ const showSaveButton = computed(() =>
               :api-key-set="azureSecretSet"
               :flags="flags"
               :upstream-flag-overrides="flagOverrides"
-              :seed-default="mode === 'create'"
             />
           </template>
 
           <template v-else-if="activeProvider === 'copilot'">
             <CopilotInfo v-if="record" :upstream-id="record.id" :config="record.config as CopilotUpstreamConfig" />
             <CopilotDeviceFlow v-else @completed="onCopilotCompleted" />
+            <ModelListField
+              v-if="record"
+              v-model="copilotManual"
+              :all-manual="false"
+              :read-only="true"
+              upstream-id-label="Model"
+              flag-provider-kind="copilot"
+              :auto-models="copilotModels"
+              :flags="flags"
+              :upstream-flag-overrides="flagOverrides"
+            />
           </template>
 
           <Accordion v-model:open="flagsOpen" label="Feature Flags" :count="Object.keys(flagOverrides).length">

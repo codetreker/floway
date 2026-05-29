@@ -1,3 +1,4 @@
+import type { UpstreamModelConfig } from '../../shared/upstream/model-config.ts';
 import type { EndpointKey } from '../../shared/upstream/types.ts';
 import type { LlmTargetApi } from '../llm/interceptors.ts';
 import type { ModelEndpoint, ModelKind } from '@floway-dev/protocols/common';
@@ -90,3 +91,13 @@ export const kindForEndpoints = (endpoints: readonly ModelEndpoint[]): ModelKind
   if (endpoints.includes('images_generations') || endpoints.includes('images_edits')) return 'image';
   return 'chat';
 };
+
+// A manually configured model declares only its chat-protocol availability via
+// `supportedEndpoints`. We augment with `messages_count_tokens` whenever
+// `messages` is present so the count-tokens endpoint routes alongside it without
+// the operator having to list it explicitly.
+export const withMessagesCountTokens = (endpoints: readonly ModelEndpoint[]): ModelEndpoint[] =>
+  endpoints.includes('messages') && !endpoints.includes('messages_count_tokens') ? [...endpoints, 'messages_count_tokens'] : [...endpoints];
+
+export const modelConfigEndpoints = (model: UpstreamModelConfig): ModelEndpoint[] =>
+  withMessagesCountTokens(publicPathsToModelEndpoints(model.supportedEndpoints));

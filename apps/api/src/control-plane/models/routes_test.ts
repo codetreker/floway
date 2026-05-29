@@ -16,9 +16,9 @@ const azureUpstream = (): UpstreamRecord => ({
   config: {
     endpoint: 'https://example.openai.azure.com',
     apiKey: 'az-key',
-    deployments: [
+    models: [
       {
-        deployment: 'azure-deployment',
+        upstreamModelId: 'azure-model',
         publicModelId: 'azure-public',
         supportedEndpoints: ['/responses'],
       },

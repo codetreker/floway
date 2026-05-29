@@ -1,10 +1,11 @@
 import { fetchCustomModels, type CustomModelsResponse, type CustomRawModel } from './fetch-models.ts';
 import { inferKindFromModelId } from './infer-kind.ts';
 import type { UpstreamRecord } from '../../../repo/types.ts';
-import { createCustomUpstream } from '../../../shared/upstream/custom.ts';
+import { assertCustomUpstreamRecord, createCustomUpstream } from '../../../shared/upstream/custom.ts';
+import { publicModelId } from '../../../shared/upstream/model-config.ts';
 import type { EndpointKey } from '../../../shared/upstream/types.ts';
 import { mergeAnthropicBetaHeader } from '../anthropic-beta.ts';
-import { isStreamingEndpoint, publicPathsToModelEndpoints } from '../endpoints.ts';
+import { isStreamingEndpoint, kindForEndpoints, modelConfigEndpoints, publicPathsToModelEndpoints } from '../endpoints.ts';
 import { resolveEffectiveFlags } from '../flags-resolve.ts';
 import { defaultsForProvider } from '../flags.ts';
 import { inProcessMemo, isProviderModelsHttpStatus, readModelsStore, writeModelsStore } from '../models-store.ts';
@@ -25,11 +26,11 @@ const HARD_MS = 2 * 60 * 60 * 1000;
 const L1_TTL_MS = 120_000;
 const providerData = (model: UpstreamModel): CustomProviderData => model.providerData as CustomProviderData;
 
-// Endpoint routing for custom upstreams is decided per-model: `kind` comes
-// from a tiered detector (Tier 1: upstream /models published `kind`; Tier 2:
-// id heuristic; default: 'chat'), and `upstreamEndpoints` is then derived
-// from kind + the per-upstream `supportedEndpoints` config (which only
-// declares chat-protocol availability). Display metadata (display_name /
+// Endpoint routing for auto-fetched custom models is decided per-model:
+// `kind` comes from a tiered detector (Tier 1: upstream /models published
+// `kind`; Tier 2: id heuristic; default: 'chat'), and `upstreamEndpoints` is
+// then derived from kind + the per-upstream `supportedEndpoints` config (which
+// only declares chat-protocol availability). Display metadata (display_name /
 // created) and `cost` are surfaced through to the public catalog when the
 // upstream chose to publish them.
 const customInternalModel = (model: CustomRawModel): Omit<UpstreamModel, 'kind' | 'upstreamEndpoints' | 'providerData' | 'enabledFlags'> => {
@@ -90,22 +91,59 @@ const pricingByRawIdFromResponse = (response: CustomModelsResponse): Map<string,
 };
 
 export const createCustomProvider = (record: UpstreamRecord): ModelProviderInstance => {
+  const { config } = assertCustomUpstreamRecord(record);
   const upstream = createCustomUpstream(record);
   const configuredChatEndpoints = publicPathsToModelEndpoints(upstream.supportedEndpoints);
-  // Computed once: only the upstream layer applies for this provider kind
-  // (no per-model override layer). Azure recomputes per deployment.
+  // Computed once for the auto-fetch layer: only the upstream layer applies to
+  // auto models (no per-model override layer). Manual models layer their own
+  // flag overrides on top, resolved per-model below.
   const upstreamFlags = resolveEffectiveFlags(defaultsForProvider('custom'), [record.flagOverrides]);
 
-  // Last-known pricing keyed by raw model id. Populated whenever a fresh
-  // /models response flows through finalize(); read synchronously by
-  // getPricingForModelKey. Stays empty until the first list call lands.
-  // TODO: layer admin-supplied per-model pricing overrides on top of this
-  // when that feature ships, so admins can price upstreams whose /models
-  // doesn't expose `cost`.
+  // Manual models always emit, and their upstream ids shadow any auto copy.
+  const overriddenIds = new Set(config.models.map(m => m.upstreamModelId));
+  const manualModels: UpstreamModel[] = config.models.map(model => {
+    // The model's flag overrides are gated by a dashboard toggle: `enabled:
+    // false` skips the model layer entirely (the upstream layer wins),
+    // `enabled: true` applies `values` as a final layer. See
+    // `resolveEffectiveFlags` for layer semantics.
+    const modelLayer = model.flagOverrides?.enabled ? model.flagOverrides.values : undefined;
+    const enabledFlags = resolveEffectiveFlags(defaultsForProvider('custom'), [record.flagOverrides, modelLayer]);
+    const upstreamEndpoints = modelConfigEndpoints(model);
+    const internal: UpstreamModel = {
+      id: publicModelId(model),
+      limits: { ...(model.limits ?? {}) },
+      kind: kindForEndpoints(upstreamEndpoints),
+      upstreamEndpoints,
+      providerData: { rawModelId: model.upstreamModelId } satisfies CustomProviderData,
+      enabledFlags,
+    };
+    if (model.display_name !== undefined) internal.display_name = model.display_name;
+    if (model.cost) internal.cost = model.cost;
+    return internal;
+  });
+  const manualPricingByUpstreamId = new Map<string, ModelPricing>(
+    config.models.flatMap(m => (m.cost ? [[m.upstreamModelId, m.cost] as const] : [])),
+  );
+
+  // Last-known pricing keyed by raw model id from the auto-fetch path.
+  // Populated whenever a fresh /models response flows through finalize(); read
+  // synchronously by getPricingForModelKey after the manual map misses. Stays
+  // empty until the first list call lands.
   let pricingByRawId: ReadonlyMap<string, ModelPricing> = new Map();
   const rememberPricing = (response: CustomModelsResponse): void => {
     pricingByRawId = pricingByRawIdFromResponse(response);
   };
+
+  // Drop any auto-fetched model whose id is pinned by a manual override so the
+  // manual copy is the only one emitted for that id.
+  const autoFromResponse = (response: CustomModelsResponse): UpstreamModel[] => {
+    const filtered: CustomModelsResponse = { data: response.data.filter(raw => !overriddenIds.has(raw.id)) };
+    return finalizeCustomModels(filtered, configuredChatEndpoints, upstreamFlags);
+  };
+
+  // The emitted list is always manual-first: manual overrides precede any auto
+  // models so their pinned ids win.
+  const withManual = (auto: UpstreamModel[]): UpstreamModel[] => [...manualModels, ...auto];
 
   const call = (endpoint: EndpointKey, model: UpstreamModel, body: Record<string, unknown>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderCallResult> => {
     const requestBody = isStreamingEndpoint(endpoint)
@@ -120,28 +158,34 @@ export const createCustomProvider = (record: UpstreamRecord): ModelProviderInsta
   };
 
   const provider: ModelProvider = {
-    getProvidedModels: () =>
-      inProcessMemo(record.id, L1_TTL_MS, async () => {
+    getProvidedModels: () => {
+      if (!config.modelsFetch.enabled) {
+        // No live fetch and no store read — manual models are the whole list.
+        return Promise.resolve(manualModels);
+      }
+      return inProcessMemo(record.id, L1_TTL_MS, async () => {
         const stored = await readModelsStore<CustomModelsBlob>(record.id);
         const now = Date.now();
         if (stored && now - stored.fetchedAt < SOFT_MS) {
           rememberPricing(stored.response);
-          return finalizeCustomModels(stored.response, configuredChatEndpoints, upstreamFlags);
+          return withManual(autoFromResponse(stored.response));
         }
         try {
           const response = await fetchCustomModels(upstream);
           await writeModelsStore<CustomModelsBlob>(record.id, { response, fetchedAt: now });
           rememberPricing(response);
-          return finalizeCustomModels(response, configuredChatEndpoints, upstreamFlags);
+          return withManual(autoFromResponse(response));
         } catch (err) {
           if (stored && now - stored.fetchedAt < HARD_MS && isProviderModelsHttpStatus(err, 429)) {
             rememberPricing(stored.response);
-            return finalizeCustomModels(stored.response, configuredChatEndpoints, upstreamFlags);
+            return withManual(autoFromResponse(stored.response));
           }
           throw err;
         }
-      }),
-    getPricingForModelKey: modelKey => pricingByRawId.get(modelKey) ?? null,
+      });
+    },
+    // Manual configuration wins over the cached upstream pricing for the same id.
+    getPricingForModelKey: modelKey => manualPricingByUpstreamId.get(modelKey) ?? pricingByRawId.get(modelKey) ?? null,
     callChatCompletions: (model, body, signal, headers) => call('chat_completions', model, body, signal, headers),
     callResponses: (model, body, signal, headers) => call('responses', model, body, signal, headers),
     callMessages: (model, body, signal, headers, anthropicBeta) => call('messages', model, body, signal, mergeAnthropicBetaHeader(headers, anthropicBeta)),
@@ -149,7 +193,7 @@ export const createCustomProvider = (record: UpstreamRecord): ModelProviderInsta
     callEmbeddings: (model, body, signal, headers) => call('embeddings', model, body, signal, headers),
     callImagesGenerations: (model, body, signal, headers) => call('images_generations', model, body, signal, headers),
     callImagesEdits: async (model, body, signal, headers) => {
-      // Custom forwards the user's raw model id. The runtime auto-encodes
+      // Custom forwards the resolved upstream model id. The runtime auto-encodes
       // the FormData with a fresh boundary and sets Content-Type itself.
       body.append('model', providerData(model).rawModelId);
       const response = await upstream.fetch('images_edits', { method: 'POST', body, signal }, { extraHeaders: headers });

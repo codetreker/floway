@@ -172,7 +172,7 @@ const exerciseD1UpstreamRepo = async (repo: UpstreamRepo) => {
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:01.000Z',
     updatedAt: '2026-05-21T10:00:01.000Z',
-    config: { endpoint: 'https://azure.example', apiKey: 'azure-key', deployments: [] },
+    config: { endpoint: 'https://azure.example', apiKey: 'azure-key', models: [] },
   });
 
   await repo.save(custom);

@@ -7,32 +7,56 @@ export type UpstreamProviderKind = 'custom' | 'azure' | 'copilot';
 
 export type CustomEndpoint = '/chat/completions' | '/responses' | '/v1/messages';
 
-export interface CustomUpstreamConfig {
-  baseUrl: string;
-  authStyle: 'bearer' | 'anthropic';
-  supportedEndpoints: CustomEndpoint[];
-  pathOverrides?: Record<string, string>;
-  bearerTokenSet?: boolean;
-}
+export type ModelKind = 'chat' | 'embedding' | 'image';
 
 // USD per million tokens, keyed by billing dimension. Mirrors
 // @floway-dev/protocols ModelPricing; every key is optional.
 export type ModelPricing = Partial<Record<'input' | 'input_cache_read' | 'input_cache_write' | 'input_image' | 'output' | 'output_image', number>>;
 
-export interface AzureDeployment {
-  deployment: string;
+export interface UpstreamModelConfig {
+  upstreamModelId: string;
   publicModelId?: string;
+  kind: ModelKind;
   supportedEndpoints: string[];
   display_name?: string;
+  limits?: { max_context_window_tokens?: number; max_prompt_tokens?: number; max_output_tokens?: number };
   cost?: ModelPricing;
   flagOverrides?: { enabled: boolean; values: Record<string, boolean> };
-  limits?: { max_context_window_tokens?: number; max_prompt_tokens?: number; max_output_tokens?: number };
+}
+
+export interface CustomModelsFetch {
+  enabled: boolean;
+  endpoint?: string;
+}
+
+// Raw model entries returned by the draft /models browse endpoint
+// (POST /api/upstreams/fetch-models). Permissive superset of the OpenAI,
+// Anthropic, and floway-native /models shapes the backend parser admits.
+export interface CustomRawModel {
+  id: string;
+  display_name?: string;
+  name?: string;
+  created?: number;
+  owned_by?: string;
+  limits?: ModelLimits;
+  cost?: ModelPricing;
+  kind?: 'chat' | 'embedding' | 'image';
+}
+
+export interface CustomUpstreamConfig {
+  baseUrl: string;
+  authStyle: 'bearer' | 'anthropic';
+  supportedEndpoints: CustomEndpoint[];
+  pathOverrides?: Record<string, string>;
+  modelsFetch: CustomModelsFetch;
+  models: UpstreamModelConfig[];
+  bearerTokenSet?: boolean;
 }
 
 export interface AzureUpstreamConfig {
   endpoint: string;
   apiKeySet?: boolean;
-  deployments: AzureDeployment[];
+  models: UpstreamModelConfig[];
 }
 
 export interface CopilotUser {
@@ -113,7 +137,7 @@ export interface UpstreamTestResult {
   body?: string;
   error?: string;
   model_count?: number;
-  probes?: Array<{ deployment: string; endpoint: string; ok: boolean; status?: number; error?: string }>;
+  probes?: Array<{ upstreamModelId: string; endpoint: string; ok: boolean; status?: number; error?: string }>;
 }
 
 export interface CopilotQuotaSnapshot {

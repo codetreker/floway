@@ -20,14 +20,14 @@ const emit = defineEmits<{
 
 const api = useApi();
 
-// Mirrors baseline's upstreamModelCount(): Azure uses deployments.length so the
-// card still renders a useful number for a freshly created upstream that has
-// not been probed yet; the other providers count public models that have a
-// binding pointing at this upstream row.
+// Azure counts its configured models directly so the card still renders a
+// useful number for a freshly created upstream that has not been probed yet;
+// the other providers count public models that have a binding pointing at this
+// upstream row.
 const modelCountFor = (record: UpstreamRecord): number => {
   if (record.provider === 'azure') {
-    const cfg = record.config as { deployments?: unknown[] };
-    return cfg.deployments?.length ?? 0;
+    const cfg = record.config as { models?: unknown[] };
+    return cfg.models?.length ?? 0;
   }
   const list = props.models ?? [];
   return list.filter(m => m.upstreams.some(b => b.id === record.id)).length;

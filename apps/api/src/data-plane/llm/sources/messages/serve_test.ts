@@ -1671,7 +1671,7 @@ test('/v1/messages falls back to responses and preserves readable reasoning with
   assertEquals((upstreamBody!.tools as Array<Record<string, unknown>>)[0].strict, true);
 });
 
-test('/v1/messages routes Azure Responses-only deployments through OpenAI v1 Responses', async () => {
+test('/v1/messages routes Azure Responses-only models through OpenAI v1 Responses', async () => {
   const { repo, apiKey, copilotUpstream } = await setupAppTest();
   await repo.upstreams.delete(copilotUpstream.id);
   await repo.upstreams.save({
@@ -1686,9 +1686,9 @@ test('/v1/messages routes Azure Responses-only deployments through OpenAI v1 Res
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'gpt-5.4-pro',
+          upstreamModelId: 'gpt-5.4-pro',
           supportedEndpoints: ['/responses'],
         },
       ],

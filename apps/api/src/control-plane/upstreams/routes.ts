@@ -1,8 +1,11 @@
 import type { Context } from 'hono';
 
 import { upstreamRecordToJson } from './serialize.ts';
+import { fetchCustomModels } from '../../data-plane/providers/custom/fetch-models.ts';
+import { modelEndpointsToPublicPaths } from '../../data-plane/providers/endpoints.ts';
 import { getFlagCatalog } from '../../data-plane/providers/flags.ts';
-import { clearModelsStore, invalidateModelsStore } from '../../data-plane/providers/models-store.ts';
+import { clearModelsStore, invalidateModelsStore, ProviderModelsUnavailableError } from '../../data-plane/providers/models-store.ts';
+import { createProviderInstance } from '../../data-plane/providers/registry.ts';
 import { type CtxWithJson } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
 import type { UpstreamProviderKind, UpstreamRecord } from '../../repo/types.ts';
@@ -12,7 +15,7 @@ import { createCopilotUpstream } from '../../shared/upstream/copilot.ts';
 import { assertCustomUpstreamRecord, createCustomUpstream } from '../../shared/upstream/custom.ts';
 import type { EndpointKey, Upstream } from '../../shared/upstream/types.ts';
 import { detectAccountType, fetchGitHubUser, pollGitHubDeviceFlow, startGitHubDeviceFlow } from '../auth/github-device-flow.ts';
-import type { copilotAuthPollBody, createUpstreamBody, updateUpstreamBody } from '../schemas.ts';
+import type { copilotAuthPollBody, createUpstreamBody, fetchModelsBody, updateUpstreamBody } from '../schemas.ts';
 
 interface CopilotUpstreamUser {
   login: string;
@@ -106,14 +109,14 @@ const newId = (): string => `up_${crypto.randomUUID().replace(/-/g, '').slice(0,
 
 const nextSortOrder = (upstreams: readonly UpstreamRecord[]): number => upstreams.reduce((acc, upstream) => Math.max(acc, upstream.sortOrder), -1) + 1;
 
-const azureProbeRequest = (deployment: string, path: string): { endpoint: EndpointKey; body: Record<string, unknown> } => {
+const azureProbeRequest = (upstreamModelId: string, path: string): { endpoint: EndpointKey; body: Record<string, unknown> } => {
   switch (path) {
   case '/chat/completions':
   case '/v1/chat/completions':
     return {
       endpoint: 'chat_completions',
       body: {
-        model: deployment,
+        model: upstreamModelId,
         messages: [{ role: 'user', content: 'Reply with ok only.' }],
         max_tokens: 16,
       },
@@ -123,7 +126,7 @@ const azureProbeRequest = (deployment: string, path: string): { endpoint: Endpoi
     return {
       endpoint: 'responses',
       body: {
-        model: deployment,
+        model: upstreamModelId,
         input: 'Reply with ok only.',
         max_output_tokens: 16,
       },
@@ -133,7 +136,7 @@ const azureProbeRequest = (deployment: string, path: string): { endpoint: Endpoi
     return {
       endpoint: 'messages',
       body: {
-        model: deployment,
+        model: upstreamModelId,
         max_tokens: 16,
         messages: [{ role: 'user', content: 'Reply with ok only.' }],
       },
@@ -143,7 +146,7 @@ const azureProbeRequest = (deployment: string, path: string): { endpoint: Endpoi
     return {
       endpoint: 'embeddings',
       body: {
-        model: deployment,
+        model: upstreamModelId,
         input: 'test',
       },
     };
@@ -153,28 +156,27 @@ const azureProbeRequest = (deployment: string, path: string): { endpoint: Endpoi
   case '/v1/images/edits':
     // Both image endpoints probe via /v1/images/generations: synthesizing a
     // valid multipart edits body would require a real PNG and mask, which is
-    // disproportionate for a connectivity test. If the deployment's
-    // credentials and name are valid, the generations call succeeds;
-    // edits-specific failures only matter when a real client request
-    // submits real bytes. The body is intentionally minimal — we omit
-    // gpt-image-2-only fields like output_format that would 400 against a
-    // misconfigured dall-e deployment.
+    // disproportionate for a connectivity test. If the model's credentials
+    // and name are valid, the generations call succeeds; edits-specific
+    // failures only matter when a real client request submits real bytes.
+    // The body is intentionally minimal — we omit gpt-image-2-only fields
+    // like output_format that would 400 against a misconfigured dall-e model.
     return {
       endpoint: 'images_generations',
       body: {
-        model: deployment,
+        model: upstreamModelId,
         prompt: 'probe',
         n: 1,
         size: '1024x1024',
       },
     };
   default:
-    throw new Error(`Unsupported Azure deployment endpoint ${path}`);
+    throw new Error(`Unsupported Azure model endpoint ${path}`);
   }
 };
 
-const azureDeploymentUsesOpenAi = (deployment: { supportedEndpoints: readonly string[] }): boolean =>
-  deployment.supportedEndpoints.some(endpoint => endpoint !== '/v1/messages' && endpoint !== '/messages');
+const azureModelUsesOpenAi = (model: { supportedEndpoints: readonly string[] }): boolean =>
+  model.supportedEndpoints.some(endpoint => endpoint !== '/v1/messages' && endpoint !== '/messages');
 
 const probeModelsEndpoint = async (upstream: Upstream): Promise<{ ok: boolean; status?: number; models?: string[]; body?: string; error?: string }> => {
   try {
@@ -287,27 +289,27 @@ export const testUpstream = async (c: Context) => {
 
   if (record.provider === 'azure') {
     const azure = assertAzureUpstreamRecord(record);
-    const modelsProbe = azure.config.deployments.some(azureDeploymentUsesOpenAi) ? await probeModelsEndpoint(upstream) : undefined;
-    const deploymentProbes = [];
+    const modelsProbe = azure.config.models.some(azureModelUsesOpenAi) ? await probeModelsEndpoint(upstream) : undefined;
+    const modelProbes = [];
 
-    for (const deployment of azure.config.deployments) {
-      for (const path of deployment.supportedEndpoints) {
+    for (const model of azure.config.models) {
+      for (const path of model.supportedEndpoints) {
         try {
-          const probe = azureProbeRequest(deployment.deployment, path);
+          const probe = azureProbeRequest(model.upstreamModelId, path);
           const resp = await upstream.fetch(probe.endpoint, {
             method: 'POST',
             body: JSON.stringify(probe.body),
           });
-          deploymentProbes.push({
-            deployment: deployment.deployment,
+          modelProbes.push({
+            upstreamModelId: model.upstreamModelId,
             endpoint: path,
             ok: resp.ok,
             status: resp.status,
             ...(resp.ok ? {} : { body: (await resp.text()).slice(0, 1000) }),
           });
         } catch (e) {
-          deploymentProbes.push({
-            deployment: deployment.deployment,
+          modelProbes.push({
+            upstreamModelId: model.upstreamModelId,
             endpoint: path,
             ok: false,
             error: e instanceof Error ? e.message : String(e),
@@ -316,11 +318,11 @@ export const testUpstream = async (c: Context) => {
       }
     }
 
-    const ok = (modelsProbe?.ok ?? true) && deploymentProbes.every(probe => probe.ok);
+    const ok = (modelsProbe?.ok ?? true) && modelProbes.every(probe => probe.ok);
     return c.json({
       ok,
       ...(modelsProbe ? { model_count: modelsProbe.models?.length ?? 0, models: modelsProbe.models ?? [], models_probe: modelsProbe } : {}),
-      probes: deploymentProbes,
+      probes: modelProbes,
     });
   }
 
@@ -348,6 +350,90 @@ export const testUpstream = async (c: Context) => {
       },
       200,
     );
+  }
+};
+
+// Browse the live `/models` list of a DRAFT (possibly unsaved) custom
+// upstream so the editor can pick models before saving. Edit mode leaves the
+// bearerToken field blank to mean "keep the stored secret"; when blank and an
+// `id` is given, the stored record's secret is substituted. A brand-new draft
+// must carry its own token — when none is available the assert rejects the
+// empty bearerToken as a 400, and a genuine upstream call would 401 anyway.
+export const fetchModels = async (c: CtxWithJson<typeof fetchModelsBody>) => {
+  const { id, config } = c.req.valid('json');
+
+  let bearerToken = config.bearerToken ?? '';
+  if (bearerToken.trim() === '' && id !== undefined) {
+    const existing = await getRepo().upstreams.getById(id);
+    if (existing) {
+      const stored = assertCustomUpstreamRecord(existing);
+      bearerToken = stored.config.bearerToken;
+    }
+  }
+
+  const now = new Date().toISOString();
+  const record: UpstreamRecord = {
+    id: id ?? newId(),
+    provider: 'custom',
+    name: 'Draft custom upstream',
+    enabled: true,
+    sortOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+    flagOverrides: {},
+    config: { ...config, bearerToken },
+  };
+
+  let upstream: Upstream;
+  try {
+    // createCustomUpstream asserts the record internally; a malformed draft or
+    // an empty bearerToken with no stored secret to substitute surfaces here.
+    upstream = createCustomUpstream(record);
+  } catch (e) {
+    return c.json({ error: validationError(e) }, 400);
+  }
+
+  try {
+    const result = await fetchCustomModels(upstream);
+    return c.json(result);
+  } catch (e) {
+    // Mirror the control-plane /models convention: squash genuine upstream
+    // HTTP/parse failures to a generic 502 without leaking provider identity.
+    if (e instanceof ProviderModelsUnavailableError) {
+      return c.json({ error: { message: 'Upstream model listing failed', type: 'api_error' } }, 502);
+    }
+    throw e;
+  }
+};
+
+// List the resolved model catalog of a SAVED upstream (any provider). A
+// read-only view for the dashboard — Copilot's catalog in particular is fixed
+// by the upstream and the operator cannot edit it. Upstream listing failures
+// surface as 502, matching the control-plane /models convention.
+export const listUpstreamModels = async (c: Context) => {
+  const id = c.req.param('id');
+  if (!id) return c.json({ error: 'upstream id is required' }, 400);
+  const record = await getRepo().upstreams.getById(id);
+  if (!record) return c.json({ error: 'upstream not found' }, 404);
+
+  try {
+    const instance = await createProviderInstance(record);
+    const models = await instance.provider.getProvidedModels();
+    const data = models.map(model => ({
+      upstreamModelId: model.id,
+      publicModelId: model.id,
+      kind: model.kind,
+      supportedEndpoints: modelEndpointsToPublicPaths(model.upstreamEndpoints),
+      ...(model.display_name !== undefined ? { display_name: model.display_name } : {}),
+      ...(model.limits ? { limits: model.limits } : {}),
+      ...(model.cost ? { cost: model.cost } : {}),
+    }));
+    return c.json({ data });
+  } catch (e) {
+    if (e instanceof ProviderModelsUnavailableError) {
+      return c.json({ error: { message: 'Upstream model listing failed', type: 'api_error' } }, 502);
+    }
+    throw e;
   }
 };
 

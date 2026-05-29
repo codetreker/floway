@@ -150,9 +150,9 @@ test('/v1/messages/count_tokens proxies to Azure Foundry Anthropic endpoint', as
     config: {
       endpoint: 'https://example.services.ai.azure.com/anthropic',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'claude-prod',
+          upstreamModelId: 'claude-prod',
           publicModelId: 'claude-azure',
           supportedEndpoints: ['/v1/messages'],
         },

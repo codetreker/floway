@@ -43,7 +43,7 @@ const CUSTOM_UPSTREAM: UpstreamRecord = {
     baseUrl: 'https://custom.example.com',
     bearerToken: 'sk-custom',
     supportedEndpoints: ['/chat/completions', '/responses'],
-    pathOverrides: { models: '/models' },
+    modelsFetch: { enabled: true, endpoint: '/models' },
   },
 };
 
@@ -80,14 +80,16 @@ const AZURE_UPSTREAM: UpstreamRecord = {
   config: {
     endpoint: 'https://example.openai.azure.com',
     apiKey: 'az-key',
-    deployments: [
+    models: [
       {
-        deployment: 'gpt-prod',
+        upstreamModelId: 'gpt-prod',
         publicModelId: 'gpt-public',
+        kind: 'chat',
         supportedEndpoints: ['/chat/completions', '/responses', '/embeddings'],
       },
       {
-        deployment: 'deepseek-prod',
+        upstreamModelId: 'deepseek-prod',
+        kind: 'chat',
         supportedEndpoints: ['/chat/completions'],
       },
     ],

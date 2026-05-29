@@ -1,37 +1,27 @@
 import type { UpstreamRecord } from '../../../repo/types.ts';
-import { assertAzureUpstreamRecord, createAzureUpstream, type AzureDeploymentConfig } from '../../../shared/upstream/azure.ts';
+import { assertAzureUpstreamRecord, createAzureUpstream } from '../../../shared/upstream/azure.ts';
+import { publicModelId, type UpstreamModelConfig } from '../../../shared/upstream/model-config.ts';
 import type { EndpointKey } from '../../../shared/upstream/types.ts';
 import { mergeAnthropicBetaHeader } from '../anthropic-beta.ts';
-import { isStreamingEndpoint, kindForEndpoints, publicPathsToModelEndpoints } from '../endpoints.ts';
+import { isStreamingEndpoint, kindForEndpoints, modelConfigEndpoints } from '../endpoints.ts';
 import { resolveEffectiveFlags } from '../flags-resolve.ts';
 import { defaultsForProvider } from '../flags.ts';
 import type { ModelProvider, ModelProviderInstance, ProviderCallResult, UpstreamModel } from '../types.ts';
-import type { ModelEndpoint } from '@floway-dev/protocols/common';
 
 interface AzureProviderData {
-  deployment: string;
+  upstreamModelId: string;
 }
 
 const providerData = (model: UpstreamModel): AzureProviderData => model.providerData as AzureProviderData;
 
-const publicModelId = (deployment: AzureDeploymentConfig): string => {
-  const configured = deployment.publicModelId?.trim();
-  return configured && configured.length > 0 ? configured : deployment.deployment;
-};
-
-const withMessagesCountTokens = (endpoints: readonly ModelEndpoint[]): ModelEndpoint[] =>
-  endpoints.includes('messages') && !endpoints.includes('messages_count_tokens') ? [...endpoints, 'messages_count_tokens'] : [...endpoints];
-
-const azureDeploymentEndpoints = (deployment: AzureDeploymentConfig): ModelEndpoint[] => withMessagesCountTokens(publicPathsToModelEndpoints(deployment.supportedEndpoints));
-
-// Project an Azure deployment config row into the slim provider-neutral fields.
+// Project an Azure model config row into the slim provider-neutral fields.
 // kind/upstreamEndpoints/providerData/enabledFlags are added by the caller.
-const azureInternalModel = (deployment: AzureDeploymentConfig): Omit<UpstreamModel, 'kind' | 'upstreamEndpoints' | 'providerData' | 'enabledFlags'> => {
+const azureInternalModel = (model: UpstreamModelConfig): Omit<UpstreamModel, 'kind' | 'upstreamEndpoints' | 'providerData' | 'enabledFlags'> => {
   const internal: Omit<UpstreamModel, 'kind' | 'upstreamEndpoints' | 'providerData' | 'enabledFlags'> = {
-    id: publicModelId(deployment),
-    limits: { ...(deployment.limits ?? {}) },
+    id: publicModelId(model),
+    limits: { ...(model.limits ?? {}) },
   };
-  if (deployment.display_name !== undefined) internal.display_name = deployment.display_name;
+  if (model.display_name !== undefined) internal.display_name = model.display_name;
   return internal;
 };
 
@@ -40,40 +30,40 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
   const upstream = createAzureUpstream(azure);
 
   const call = (endpoint: EndpointKey, model: UpstreamModel, body: Record<string, unknown>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderCallResult> => {
-    const deployment = providerData(model).deployment;
-    const requestBody = isStreamingEndpoint(endpoint) ? { ...body, stream: true, model: deployment } : { ...body, model: deployment };
+    const upstreamModelId = providerData(model).upstreamModelId;
+    const requestBody = isStreamingEndpoint(endpoint) ? { ...body, stream: true, model: upstreamModelId } : { ...body, model: upstreamModelId };
     return upstream
       .fetch(endpoint, { method: 'POST', body: JSON.stringify(requestBody), signal }, { extraHeaders: headers })
       .then(response => ({
         response,
-        modelKey: deployment,
+        modelKey: upstreamModelId,
       }));
   };
 
   const provider: ModelProvider = {
     async getProvidedModels() {
-      return azure.config.deployments.map(deployment => {
-        // The deployment's flag overrides are gated by a dashboard toggle: `enabled: false`
-        // skips the deployment layer entirely (the upstream layer wins), `enabled: true`
+      return azure.config.models.map(model => {
+        // The model's flag overrides are gated by a dashboard toggle: `enabled: false`
+        // skips the model layer entirely (the upstream layer wins), `enabled: true`
         // applies `values` as a final layer that can re-enable or remove flags seeded by
         // defaults or the upstream. See `resolveEffectiveFlags` for layer semantics.
-        const deploymentLayer = deployment.flagOverrides?.enabled ? deployment.flagOverrides.values : undefined;
-        const effective = resolveEffectiveFlags(defaultsForProvider('azure'), [azure.flagOverrides, deploymentLayer]);
-        const upstreamEndpoints = azureDeploymentEndpoints(deployment);
+        const modelLayer = model.flagOverrides?.enabled ? model.flagOverrides.values : undefined;
+        const effective = resolveEffectiveFlags(defaultsForProvider('azure'), [azure.flagOverrides, modelLayer]);
+        const upstreamEndpoints = modelConfigEndpoints(model);
         return {
-          ...azureInternalModel(deployment),
+          ...azureInternalModel(model),
           kind: kindForEndpoints(upstreamEndpoints),
           upstreamEndpoints,
           providerData: {
-            deployment: deployment.deployment,
+            upstreamModelId: model.upstreamModelId,
           } satisfies AzureProviderData,
-          ...(deployment.cost ? { cost: deployment.cost } : {}),
+          ...(model.cost ? { cost: model.cost } : {}),
           enabledFlags: effective,
         };
       });
     },
     getPricingForModelKey(modelKey) {
-      return azure.config.deployments.find(deployment => deployment.deployment === modelKey)?.cost ?? null;
+      return azure.config.models.find(model => model.upstreamModelId === modelKey)?.cost ?? null;
     },
     callChatCompletions: (model, body, signal, headers) => call('chat_completions', model, body, signal, headers),
     callResponses: (model, body, signal, headers) => call('responses', model, body, signal, headers),
@@ -82,13 +72,13 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
     callEmbeddings: (model, body, signal, headers) => call('embeddings', model, body, signal, headers),
     callImagesGenerations: (model, body, signal, headers) => call('images_generations', model, body, signal, headers),
     callImagesEdits: async (model, body, signal, headers) => {
-      // Azure routes by deployment name in the multipart `model` field; the
+      // Azure routes by upstream model id in the multipart `model` field; the
       // runtime re-encodes the FormData with a fresh boundary and sets
       // Content-Type itself.
-      const deployment = providerData(model).deployment;
-      body.append('model', deployment);
+      const upstreamModelId = providerData(model).upstreamModelId;
+      body.append('model', upstreamModelId);
       const response = await upstream.fetch('images_edits', { method: 'POST', body, signal }, { extraHeaders: headers });
-      return { response, modelKey: deployment };
+      return { response, modelKey: upstreamModelId };
     },
   };
 

@@ -170,7 +170,7 @@ test('/v1/images/generations forwards a JSON request through a custom upstream a
   assertEquals(usageRows.some(row => row.model === 'gpt-image-2' && row.tokens.input === 10 && row.tokens.output === 50), true);
 });
 
-test('/v1/images/edits forwards a multipart request through an Azure deployment and records usage', async () => {
+test('/v1/images/edits forwards a multipart request through an Azure model and records usage', async () => {
   // setupAppTest seeds a Copilot upstream by default; we also register an
   // Azure upstream that exposes gpt-image-2 via /v1/images/edits.
   const { apiKey, repo } = await setupAppTest();
@@ -188,8 +188,8 @@ test('/v1/images/edits forwards a multipart request through an Azure deployment 
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'azkey',
-      deployments: [{
-        deployment: 'gpt-image-2',
+      models: [{
+        upstreamModelId: 'gpt-image-2',
         supportedEndpoints: ['/v1/images/edits'],
       }],
     },

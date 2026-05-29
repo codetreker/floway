@@ -11,9 +11,10 @@
 //    request shape without a separate codegen step.
 //
 // Deep upstream-config validation (e.g. Azure URL hostname rules, custom
-// pathOverrides URL parsing) intentionally stays in the handler functions —
-// they own the canonical error messages and downstream cache invalidation. The
-// schemas here describe the shape the dashboard sends.
+// pathOverrides and modelsFetch.endpoint URL parsing, per-model endpoint path
+// checks) intentionally stays in the handler functions — they own the
+// canonical error messages and downstream cache invalidation. The schemas
+// here describe the shape the dashboard sends.
 
 import { z } from 'zod';
 
@@ -38,12 +39,16 @@ const flagOverridesSchema = z.unknown().transform((value, ctx): Record<string, b
 
 const flagOverrideValuesSchema = z.record(z.string(), z.boolean()).refine(
   overrides => Object.keys(overrides).every(id => knownFlagIds.has(id)),
-  'Unknown flag id in deployment overrides',
+  'Unknown flag id in model flag overrides',
 );
 
-const azureDeploymentSchema = z.object({
-  deployment: z.string().min(1),
+// Mirrors the runtime UpstreamModelConfig in shared/upstream/model-config.ts.
+// Azure and custom upstreams share this per-model entry; the canonical
+// per-model endpoint-path validation lives in the runtime validator.
+const upstreamModelSchema = z.object({
+  upstreamModelId: z.string().min(1),
   publicModelId: z.string().optional(),
+  kind: z.enum(['chat', 'embedding', 'image']).optional(),
   supportedEndpoints: z.array(z.string()).min(1),
   display_name: z.string().optional(),
   cost: z.object({
@@ -76,14 +81,19 @@ const customConfigSchema = z.object({
   supportedEndpoints: z.array(z.enum(['/chat/completions', '/responses', '/v1/messages'])),
   bearerToken: z.string().optional(),
   // PATCH passes `null` to explicitly clear pathOverrides; nullable() keeps
-  // that escape hatch.
+  // that escape hatch. The `/models` path no longer lives here — it is part of
+  // the modelsFetch toggle below.
   pathOverrides: z.record(z.string(), z.string()).nullable().optional(),
+  // Live upstream /models fetch. `endpoint` parsing happens in the runtime.
+  modelsFetch: z.object({ enabled: z.boolean(), endpoint: z.string().optional() }).optional(),
+  // Statically configured per-model overrides merged with the live fetch.
+  models: z.array(upstreamModelSchema).optional(),
 });
 
 const azureConfigSchema = z.object({
   endpoint: z.string().min(1),
   apiKey: z.string().optional(),
-  deployments: z.array(azureDeploymentSchema).min(1, 'deployments must be a non-empty array'),
+  models: z.array(upstreamModelSchema).min(1, 'models must be a non-empty array'),
 });
 
 const copilotConfigSchema = z.object({
@@ -158,6 +168,15 @@ export const updateUpstreamBody = z.object({
   sort_order: z.number().int().optional(),
   flag_overrides: flagOverridesSchema.optional(),
   config: z.unknown().optional(),
+});
+
+// Draft /models browse: the editor sends an in-progress (possibly unsaved)
+// custom config to fetch the upstream's live model list before saving. `id`
+// is present in edit mode so the handler can substitute the stored secret
+// when the bearerToken field is left blank ("keep the stored secret").
+export const fetchModelsBody = z.object({
+  id: z.string().optional(),
+  config: customConfigSchema,
 });
 
 // --- copilot device flow ---

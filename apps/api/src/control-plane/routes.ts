@@ -6,11 +6,11 @@ import { copilotQuota } from './copilot-quota/routes.ts';
 import { exportData, importData } from './data-transfer/routes.ts';
 import { controlPlaneModels } from './models/routes.ts';
 import { performanceOverview, performanceTelemetry } from './performance/routes.ts';
-import { authLoginBody, copilotAuthPollBody, createKeyBody, createUpstreamBody, exportQuery, importBody, performanceQuery, searchConfigSchema, searchUsageQuery, tokenUsageQuery, updateKeyBody, updateUpstreamBody } from './schemas.ts';
+import { authLoginBody, copilotAuthPollBody, createKeyBody, createUpstreamBody, exportQuery, fetchModelsBody, importBody, performanceQuery, searchConfigSchema, searchUsageQuery, tokenUsageQuery, updateKeyBody, updateUpstreamBody } from './schemas.ts';
 import { getSearchConfigRoute, putSearchConfigRoute, testSearchConfigRoute } from './search-config/routes.ts';
 import { searchUsage } from './search-usage/routes.ts';
 import { tokenUsage } from './token-usage/routes.ts';
-import { copilotAuthPoll, copilotAuthStart, createUpstream, deleteUpstream, listOptionalFlags, listUpstreams, testUpstream, updateUpstream } from './upstreams/routes.ts';
+import { copilotAuthPoll, copilotAuthStart, createUpstream, deleteUpstream, fetchModels, listOptionalFlags, listUpstreamModels, listUpstreams, testUpstream, updateUpstream } from './upstreams/routes.ts';
 import { zValidator } from '../middleware/zod-validator.ts';
 
 const adminOnlyMiddleware = async (c: Context, next: Next) => {
@@ -53,8 +53,10 @@ export const controlPlaneRoutes = new Hono()
     .get('/upstream-flags', listOptionalFlags)
     .post('/upstreams/copilot/auth/start', copilotAuthStart)
     .post('/upstreams/copilot/auth/poll', zValidator('json', copilotAuthPollBody), copilotAuthPoll)
+    .post('/upstreams/fetch-models', zValidator('json', fetchModelsBody), fetchModels)
     .post('/upstreams', zValidator('json', createUpstreamBody), createUpstream)
     .get('/upstreams/:id/copilot/quota', copilotQuota)
+    .get('/upstreams/:id/models', listUpstreamModels)
     .patch('/upstreams/:id', zValidator('json', updateUpstreamBody), updateUpstream)
     .delete('/upstreams/:id', deleteUpstream)
     .post('/upstreams/:id/test', testUpstream)

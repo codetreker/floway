@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 
-import { createCustomUpstream } from './custom.ts';
+import { assertCustomUpstreamRecord, createCustomUpstream } from './custom.ts';
 import type { UpstreamRecord } from '../../repo/types.ts';
 import { assertEquals, assertThrows } from '../../test-assert.ts';
 import { withMockedFetch } from '../../test-helpers.ts';
@@ -61,7 +61,6 @@ test('createCustomUpstream applies path overrides without an automatic /v1 prefi
       ...(baseRecord.config as Record<string, unknown>),
       pathOverrides: {
         messages: '/api/v1/messages',
-        models: '/models',
       },
     },
   });
@@ -77,7 +76,6 @@ test('createCustomUpstream applies path overrides without an automatic /v1 prefi
         method: 'POST',
         body: '{}',
       });
-      await upstream.fetch('models', { method: 'GET' });
       await upstream.fetch('chat_completions', { method: 'POST', body: '{}' });
     },
   );
@@ -86,10 +84,88 @@ test('createCustomUpstream applies path overrides without an automatic /v1 prefi
     'https://custom.example.com/api/v1/messages',
     // count_tokens follows the messages override path.
     'https://custom.example.com/api/v1/messages/count_tokens',
-    'https://custom.example.com/models',
     // Endpoints without an override fall back to the OpenAI default.
     'https://custom.example.com/v1/chat/completions',
   ]);
+});
+
+test('createCustomUpstream resolves the /models path from modelsFetch.endpoint', async () => {
+  const upstream = createCustomUpstream({
+    ...baseRecord,
+    config: {
+      ...(baseRecord.config as Record<string, unknown>),
+      modelsFetch: { enabled: true, endpoint: '/models' },
+    },
+  });
+  let seen: string | undefined;
+  await withMockedFetch(
+    request => {
+      seen = request.url;
+      return new Response('{}', { status: 200 });
+    },
+    async () => {
+      await upstream.fetch('models', { method: 'GET' });
+    },
+  );
+
+  assertEquals(seen, 'https://custom.example.com/models');
+});
+
+test('createCustomUpstream falls back to the default /models path when modelsFetch.endpoint is absent', async () => {
+  const upstream = createCustomUpstream({
+    ...baseRecord,
+    config: {
+      ...(baseRecord.config as Record<string, unknown>),
+      modelsFetch: { enabled: true },
+    },
+  });
+  let seen: string | undefined;
+  await withMockedFetch(
+    request => {
+      seen = request.url;
+      return new Response('{}', { status: 200 });
+    },
+    async () => {
+      await upstream.fetch('models', { method: 'GET' });
+    },
+  );
+
+  assertEquals(seen, 'https://custom.example.com/v1/models');
+});
+
+test('assertCustomUpstreamRecord parses modelsFetch and models', () => {
+  const { config } = assertCustomUpstreamRecord({
+    ...baseRecord,
+    config: {
+      ...(baseRecord.config as Record<string, unknown>),
+      modelsFetch: { enabled: false },
+      models: [
+        { upstreamModelId: 'pinned', supportedEndpoints: ['/chat/completions'], display_name: 'Pinned' },
+      ],
+    },
+  });
+
+  assertEquals(config.modelsFetch, { enabled: false });
+  assertEquals(config.models.length, 1);
+  assertEquals(config.models[0].upstreamModelId, 'pinned');
+  assertEquals(config.models[0].display_name, 'Pinned');
+});
+
+test('assertCustomUpstreamRecord defaults modelsFetch to enabled when absent', () => {
+  const { config } = assertCustomUpstreamRecord(baseRecord);
+  assertEquals(config.modelsFetch, { enabled: true });
+  assertEquals(config.models, []);
+});
+
+test('assertCustomUpstreamRecord treats a null modelsFetch.endpoint as no override', () => {
+  const { config } = assertCustomUpstreamRecord({
+    ...baseRecord,
+    config: {
+      ...(baseRecord.config as Record<string, unknown>),
+      modelsFetch: { enabled: true, endpoint: null },
+    },
+  });
+  assertEquals(config.modelsFetch, { enabled: true });
 });
 
 test('createCustomUpstream sends the configured bearer token', async () => {
@@ -200,11 +276,11 @@ test('createCustomUpstream rejects malformed opaque config instead of dropping e
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          pathOverrides: { models: 'models' },
+          pathOverrides: { models: '/models' },
         },
       }),
     Error,
-    'pathOverrides.models must start with "/"',
+    'unsupported pathOverrides key models',
   );
 
   assertThrows(

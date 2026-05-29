@@ -12,7 +12,7 @@ import type { UpstreamRecord } from '../../../repo/types.ts';
 import { isCopilotAccountType, type CopilotAccountType } from '../../../shared/copilot.ts';
 import { createCopilotUpstream } from '../../../shared/upstream/copilot.ts';
 import type { EndpointKey } from '../../../shared/upstream/types.ts';
-import { isStreamingEndpoint, kindForEndpoints, publicPathsToModelEndpoints } from '../endpoints.ts';
+import { isStreamingEndpoint, kindForEndpoints, publicPathsToModelEndpoints, withMessagesCountTokens } from '../endpoints.ts';
 import { resolveEffectiveFlags } from '../flags-resolve.ts';
 import { defaultsForProvider } from '../flags.ts';
 import { inProcessMemo, readModelsStore, writeModelsStore } from '../models-store.ts';
@@ -117,9 +117,6 @@ const assertCopilotUpstreamRecord = (record: UpstreamRecord): CopilotUpstreamRec
     },
   };
 };
-
-const withMessagesCountTokens = (endpoints: readonly ModelEndpoint[]): ModelEndpoint[] =>
-  endpoints.includes('messages') && !endpoints.includes('messages_count_tokens') ? [...endpoints, 'messages_count_tokens'] : [...endpoints];
 
 const inferredChatCompletionsSupport = (model: CopilotRawModel): boolean => model.supported_endpoints === undefined && model.capabilities?.type === 'chat';
 

@@ -1,34 +1,12 @@
 import { joinBaseAndPath } from './join.ts';
+import { ANTHROPIC_MODEL_ENDPOINT_PATHS, isRecord, modelsField, nonEmptyStringField, OPENAI_MODEL_ENDPOINT_PATHS, type UpstreamModelConfig } from './model-config.ts';
 import type { EndpointKey, Upstream, UpstreamFetchOptions } from './types.ts';
-import { isKnownFlagId } from '../../data-plane/providers/flags.ts';
 import type { UpstreamRecord } from '../../repo/types.ts';
-import type { ModelPricing } from '@floway-dev/protocols/common';
-
-export interface AzureDeploymentConfig {
-  deployment: string;
-  publicModelId?: string;
-  supportedEndpoints: string[];
-  display_name?: string;
-  limits?: AzureDeploymentLimits;
-  cost?: ModelPricing;
-  flagOverrides?: AzureDeploymentFlagOverrides;
-}
-
-export interface AzureDeploymentFlagOverrides {
-  enabled: boolean;
-  values: Record<string, boolean>;
-}
-
-export interface AzureDeploymentLimits {
-  max_context_window_tokens?: number;
-  max_prompt_tokens?: number;
-  max_output_tokens?: number;
-}
 
 export interface AzureUpstreamConfig {
   endpoint: string;
   apiKey: string;
-  deployments: AzureDeploymentConfig[];
+  models: UpstreamModelConfig[];
 }
 
 type AzureUpstreamRecord = UpstreamRecord & {
@@ -60,29 +38,7 @@ const AZURE_ANTHROPIC_PATHS: Partial<Record<EndpointKey, string>> = {
   messages_count_tokens: '/v1/messages/count_tokens',
 };
 
-const OPENAI_DEPLOYMENT_ENDPOINT_PATHS = new Set([
-  '/chat/completions', '/v1/chat/completions',
-  '/responses', '/v1/responses',
-  '/embeddings', '/v1/embeddings',
-  '/images/generations', '/v1/images/generations',
-  '/images/edits', '/v1/images/edits',
-]);
-const ANTHROPIC_DEPLOYMENT_ENDPOINT_PATHS = new Set(['/v1/messages', '/messages']);
-const SUPPORTED_ENDPOINT_PATHS = new Set([...OPENAI_DEPLOYMENT_ENDPOINT_PATHS, ...ANTHROPIC_DEPLOYMENT_ENDPOINT_PATHS]);
 const AZURE_ENDPOINT_HOST_SUFFIXES = ['.openai.azure.com', '.services.ai.azure.com'];
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const nonEmptyStringField = (value: unknown, field: string): string => {
-  if (typeof value !== 'string' || value.trim() === '') throw new Error(`Malformed azure upstream config: ${field} must be a non-empty string`);
-  return value;
-};
-
-const optionalStringField = (value: unknown, field: string): string | undefined => {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string') throw new Error(`Malformed azure upstream config: ${field} must be a string`);
-  return value;
-};
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
@@ -93,11 +49,14 @@ const isAnthropicBasePath = (path: string): boolean => path === '/anthropic' || 
 const isAzureEndpointHost = (hostname: string): boolean =>
   AZURE_ENDPOINT_HOST_SUFFIXES.some(suffix => hostname.endsWith(suffix) && hostname.length > suffix.length);
 
-const optionalHttpUrlField = (value: unknown, field: string): string | undefined => {
+// All azure-local field validators take the same fully-qualified label
+// (`azure upstream config: <field>`) the shared model-config helpers expect,
+// so every message reads `Malformed azure upstream config: <field>: <reason>`.
+const optionalHttpUrlField = (value: unknown, label: string): string | undefined => {
   if (value === undefined) return undefined;
-  const url = trimTrailingSlash(nonEmptyStringField(value, field).trim());
+  const url = trimTrailingSlash(nonEmptyStringField(value, label).trim());
   if (url.includes('?') || url.includes('#')) {
-    throw new Error(`Malformed azure upstream config: ${field} must be an http(s) URL without query or fragment`);
+    throw new Error(`Malformed ${label}: must be an http(s) URL without query or fragment`);
   }
   try {
     const parsed = new URL(url);
@@ -108,134 +67,35 @@ const optionalHttpUrlField = (value: unknown, field: string): string | undefined
       throw new Error('query or fragment');
     }
   } catch {
-    throw new Error(`Malformed azure upstream config: ${field} must be an http(s) URL without query or fragment`);
+    throw new Error(`Malformed ${label}: must be an http(s) URL without query or fragment`);
   }
   return url;
 };
 
-const azureEndpointField = (value: unknown, field: string): string => {
-  const url = optionalHttpUrlField(value, field);
-  if (!url) throw new Error(`Malformed azure upstream config: ${field} is required`);
+const azureEndpointField = (value: unknown, label: string): string => {
+  const url = optionalHttpUrlField(value, label);
+  if (!url) throw new Error(`Malformed ${label}: is required`);
   const parsed = new URL(url);
   if (parsed.protocol !== 'https:' || !isAzureEndpointHost(parsed.hostname)) {
-    throw new Error(`Malformed azure upstream config: ${field} must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com`);
+    throw new Error(`Malformed ${label}: must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com`);
   }
 
   const path = trimTrailingSlash(parsed.pathname);
   if (path !== '' && !isFoundryProjectRootPath(path) && !path.endsWith('/openai/v1') && !isAnthropicBasePath(path)) {
-    throw new Error(`Malformed azure upstream config: ${field} must be an Azure resource root, a Foundry project endpoint, an OpenAI v1 URL ending in /openai/v1, an /anthropic URL, an /anthropic/v1 URL, or an /anthropic/v1/messages URL`);
+    throw new Error(`Malformed ${label}: must be an Azure resource root, a Foundry project endpoint, an OpenAI v1 URL ending in /openai/v1, an /anthropic URL, an /anthropic/v1 URL, or an /anthropic/v1/messages URL`);
   }
   return url;
 };
 
-const supportedEndpointsField = (value: unknown, field: string): string[] => {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`Malformed azure upstream config: ${field} must be a non-empty string array`);
-  }
-
-  const endpoints: string[] = [];
-  for (const item of value) {
-    if (typeof item !== 'string') throw new Error(`Malformed azure upstream config: ${field} must be a non-empty string array`);
-    if (!SUPPORTED_ENDPOINT_PATHS.has(item)) {
-      throw new Error(`Malformed azure upstream config: unsupported supportedEndpoints entry ${item}`);
-    }
-    if (!endpoints.includes(item)) endpoints.push(item);
-  }
-  return endpoints;
-};
-
-const optionalNumberField = (value: unknown, field: string): number | undefined => {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Malformed azure upstream config: ${field} must be a finite number`);
-  return value;
-};
-
-const optionalMetadataRecord = (value: unknown, field: string): Record<string, unknown> | undefined => {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) throw new Error(`Malformed azure upstream config: ${field} must be an object`);
-  return value;
-};
-
-const limitsField = (value: unknown, field: string): AzureDeploymentLimits | undefined => {
-  const record = optionalMetadataRecord(value, field);
-  if (!record) return undefined;
-  return {
-    ...(record.max_context_window_tokens !== undefined ? { max_context_window_tokens: optionalNumberField(record.max_context_window_tokens, `${field}.max_context_window_tokens`) } : {}),
-    ...(record.max_prompt_tokens !== undefined ? { max_prompt_tokens: optionalNumberField(record.max_prompt_tokens, `${field}.max_prompt_tokens`) } : {}),
-    ...(record.max_output_tokens !== undefined ? { max_output_tokens: optionalNumberField(record.max_output_tokens, `${field}.max_output_tokens`) } : {}),
-  };
-};
-
-const flagOverridesField = (value: unknown, field: string): AzureDeploymentFlagOverrides | undefined => {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) throw new Error(`Malformed azure upstream config: ${field} must be an object`);
-  if (typeof value.enabled !== 'boolean') throw new Error(`Malformed azure upstream config: ${field}.enabled must be a boolean`);
-  if (!isRecord(value.values)) throw new Error(`Malformed azure upstream config: ${field}.values must be an object`);
-  const unknown: string[] = [];
-  const values: Record<string, boolean> = {};
-  for (const [id, on] of Object.entries(value.values)) {
-    if (typeof on !== 'boolean') throw new Error(`Malformed azure upstream config: ${field}.values.${id} must be a boolean`);
-    if (!isKnownFlagId(id)) {
-      unknown.push(id);
-      continue;
-    }
-    values[id] = on;
-  }
-  if (unknown.length > 0) {
-    throw new Error(`Malformed azure upstream config: ${field}.values has unknown flag ids: ${unknown.join(', ')}`);
-  }
-  return { enabled: value.enabled, values };
-};
-
-const nonNegativeNumberField = (value: unknown, field: string): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error(`Malformed azure upstream config: ${field} must be a finite non-negative number`);
-  }
-  return value;
-};
-
-const PRICING_DIMENSIONS: readonly (keyof ModelPricing)[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
-
-const pricingField = (value: unknown, field: string): ModelPricing | undefined => {
-  const record = optionalMetadataRecord(value, field);
-  if (!record) return undefined;
-  const pricing: ModelPricing = {};
-  for (const dimension of PRICING_DIMENSIONS) {
-    if (record[dimension] !== undefined) pricing[dimension] = nonNegativeNumberField(record[dimension], `${field}.${dimension}`);
-  }
-  return Object.keys(pricing).length > 0 ? pricing : undefined;
-};
-
-const deploymentField = (value: unknown, index: number): AzureDeploymentConfig => {
-  if (!isRecord(value)) throw new Error(`Malformed azure upstream config: deployments[${index}] must be an object`);
-  const pricing = pricingField(value.cost, `deployments[${index}].cost`);
-  return {
-    deployment: nonEmptyStringField(value.deployment, `deployments[${index}].deployment`),
-    ...(value.publicModelId !== undefined ? { publicModelId: optionalStringField(value.publicModelId, `deployments[${index}].publicModelId`) } : {}),
-    supportedEndpoints: supportedEndpointsField(value.supportedEndpoints, `deployments[${index}].supportedEndpoints`),
-    ...(value.display_name !== undefined ? { display_name: optionalStringField(value.display_name, `deployments[${index}].display_name`) } : {}),
-    ...(value.limits !== undefined ? { limits: limitsField(value.limits, `deployments[${index}].limits`) } : {}),
-    ...(pricing ? { cost: pricing } : {}),
-    ...(value.flagOverrides !== undefined ? { flagOverrides: flagOverridesField(value.flagOverrides, `deployments[${index}].flagOverrides`) } : {}),
-  };
-};
-
-const deploymentsField = (value: unknown): AzureDeploymentConfig[] => {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('Malformed azure upstream config: deployments must be a non-empty array');
-  }
-  return value.map(deploymentField);
-};
-
-const deploymentsUseAnyEndpoint = (deployments: readonly AzureDeploymentConfig[], endpoints: ReadonlySet<string>): boolean =>
-  deployments.some(deployment => deployment.supportedEndpoints.some(endpoint => endpoints.has(endpoint)));
+const modelsUseAnyEndpoint = (models: readonly UpstreamModelConfig[], endpoints: ReadonlySet<string>): boolean =>
+  models.some(model => model.supportedEndpoints.some(endpoint => endpoints.has(endpoint)));
 
 const validateEndpointCoverage = (config: AzureUpstreamConfig): void => {
-  const usesOpenAi = deploymentsUseAnyEndpoint(config.deployments, OPENAI_DEPLOYMENT_ENDPOINT_PATHS);
-  const usesAnthropic = deploymentsUseAnyEndpoint(config.deployments, ANTHROPIC_DEPLOYMENT_ENDPOINT_PATHS);
+  const usesOpenAi = modelsUseAnyEndpoint(config.models, OPENAI_MODEL_ENDPOINT_PATHS);
+  const usesAnthropic = modelsUseAnyEndpoint(config.models, ANTHROPIC_MODEL_ENDPOINT_PATHS);
 
   if (!usesOpenAi && !usesAnthropic) {
-    throw new Error('Malformed azure upstream config: deployments must declare at least one OpenAI v1 or Anthropic endpoint');
+    throw new Error('Malformed azure upstream config: models must declare at least one OpenAI v1 or Anthropic endpoint');
   }
 };
 
@@ -243,10 +103,13 @@ export const assertAzureUpstreamRecord = (record: UpstreamRecord): AzureUpstream
   if (record.provider !== 'azure') throw new Error(`Expected azure upstream record, got ${record.provider}`);
   if (!isRecord(record.config)) throw new Error('Malformed azure upstream config: config must be an object');
 
+  const models = modelsField(record.config.models, 'azure');
+  if (models.length === 0) throw new Error('Malformed azure upstream config: models must be a non-empty array');
+
   const config: AzureUpstreamConfig = {
-    endpoint: azureEndpointField(record.config.endpoint, 'endpoint'),
-    apiKey: nonEmptyStringField(record.config.apiKey, 'apiKey'),
-    deployments: deploymentsField(record.config.deployments),
+    endpoint: azureEndpointField(record.config.endpoint, 'azure upstream config: endpoint'),
+    apiKey: nonEmptyStringField(record.config.apiKey, 'azure upstream config: apiKey'),
+    models,
   };
   validateEndpointCoverage(config);
 
@@ -259,8 +122,8 @@ export const assertAzureUpstreamRecord = (record: UpstreamRecord): AzureUpstream
 
 const configuredSupportedEndpoints = (config: AzureUpstreamConfig): string[] => {
   const endpoints: string[] = [];
-  for (const deployment of config.deployments) {
-    for (const endpoint of deployment.supportedEndpoints) {
+  for (const model of config.models) {
+    for (const endpoint of model.supportedEndpoints) {
       if (!endpoints.includes(endpoint)) endpoints.push(endpoint);
     }
   }

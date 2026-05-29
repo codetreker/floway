@@ -6,9 +6,7 @@ import type { AzureUpstreamConfig, CopilotUpstreamConfig, CustomUpstreamConfig, 
 const props = defineProps<{
   upstream: UpstreamRecord;
   // Count of public models bound to this upstream, resolved by the parent over
-  // the control-plane /api/models response. Mirrors the baseline's
-  // upstreamModelCount(), which uses deployments.length for Azure and the
-  // model -> upstream binding list otherwise.
+  // the control-plane /api/models response.
   modelCount: number;
   moveUpDisabled: boolean;
   moveDownDisabled: boolean;
@@ -39,8 +37,8 @@ const subtitle = computed(() => {
   switch (props.upstream.provider) {
   case 'azure': {
     const azure = cfg as AzureUpstreamConfig;
-    const deployments = azure.deployments?.length ?? 0;
-    return [azure.endpoint || 'Azure AI endpoint', `${deployments} deployment${deployments === 1 ? '' : 's'}`].join(' · ');
+    const models = azure.models?.length ?? 0;
+    return [azure.endpoint || 'Azure AI endpoint', `${models} model${models === 1 ? '' : 's'}`].join(' · ');
   }
   case 'custom': return (cfg as CustomUpstreamConfig).baseUrl ?? '';
   case 'copilot': {

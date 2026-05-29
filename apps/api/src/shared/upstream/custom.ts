@@ -12,22 +12,33 @@
 // providers that mount the API under a subpath while still serving e.g.
 // `/models` at the root.
 //
-// TODO: support admin-supplied per-model pricing overrides (similar to
-// AzureDeploymentConfig.cost). Today, custom pricing is whatever the upstream
-// `/models` response itself reports under a `cost` field.
+// Custom upstreams surface models from two sources, merged at the data
+// plane: a statically configured list of per-model overrides
+// (`config.models`) that pin metadata/pricing locally, and an optional
+// live fetch of the upstream `/models` (`config.modelsFetch`). The `/models`
+// path is part of the fetch toggle (`modelsFetch.endpoint`), not a generic
+// path override, because it only matters when fetching is enabled.
 
 import { joinBaseAndPath, validateUpstreamPath } from './join.ts';
+import { modelsField, type UpstreamModelConfig } from './model-config.ts';
 import type { EndpointKey, Upstream, UpstreamFetchOptions } from './types.ts';
 import type { UpstreamRecord } from '../../repo/types.ts';
 
 export type CustomAuthStyle = 'bearer' | 'anthropic';
+
+export interface CustomModelsFetch {
+  enabled: boolean;
+  endpoint?: string;
+}
 
 export interface CustomUpstreamConfig {
   baseUrl: string;
   bearerToken: string;
   authStyle: CustomAuthStyle;
   supportedEndpoints: string[];
-  pathOverrides?: Partial<Record<Exclude<EndpointKey, 'messages_count_tokens'>, string>>;
+  pathOverrides?: Partial<Record<Exclude<EndpointKey, 'messages_count_tokens' | 'models'>, string>>;
+  modelsFetch: CustomModelsFetch;
+  models: UpstreamModelConfig[];
 }
 
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -98,7 +109,7 @@ const supportedEndpointsField = (value: unknown): string[] => {
   return endpoints;
 };
 
-const PATH_OVERRIDE_KEYS = new Set<Exclude<EndpointKey, 'messages_count_tokens'>>(['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits', 'models']);
+const PATH_OVERRIDE_KEYS = new Set<Exclude<EndpointKey, 'messages_count_tokens' | 'models'>>(['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits']);
 
 const pathOverridesField = (value: unknown): CustomUpstreamConfig['pathOverrides'] => {
   if (value === undefined) return undefined;
@@ -106,14 +117,32 @@ const pathOverridesField = (value: unknown): CustomUpstreamConfig['pathOverrides
 
   const pathOverrides: NonNullable<CustomUpstreamConfig['pathOverrides']> = {};
   for (const [key, path] of Object.entries(value)) {
-    if (!PATH_OVERRIDE_KEYS.has(key as Exclude<EndpointKey, 'messages_count_tokens'>)) {
+    if (!PATH_OVERRIDE_KEYS.has(key as Exclude<EndpointKey, 'messages_count_tokens' | 'models'>)) {
       throw new Error(`Malformed custom upstream config: unsupported pathOverrides key ${key}`);
     }
     const validPath = validateUpstreamPath(path, `pathOverrides.${key}`);
     if (!validPath.ok) throw new Error(`Malformed custom upstream config: ${validPath.error}`);
-    pathOverrides[key as Exclude<EndpointKey, 'messages_count_tokens'>] = validPath.value;
+    pathOverrides[key as Exclude<EndpointKey, 'messages_count_tokens' | 'models'>] = validPath.value;
   }
   return pathOverrides;
+};
+
+// The /models fetch toggle. Absent defaults to enabled: existing upstreams
+// fetched their model list before this toggle existed, and the migration
+// backfills `{ enabled: true }`. `endpoint` is the optional `/models` path
+// override; the migration writes `endpoint: null` where there was no
+// override, so null/empty must parse cleanly as "no override".
+const modelsFetchField = (value: unknown): CustomModelsFetch => {
+  if (value === undefined) return { enabled: true };
+  if (!isRecord(value)) throw new Error('Malformed custom upstream config: modelsFetch must be an object');
+  if (typeof value.enabled !== 'boolean') throw new Error('Malformed custom upstream config: modelsFetch.enabled must be a boolean');
+
+  if (value.endpoint === undefined || value.endpoint === null || value.endpoint === '') {
+    return { enabled: value.enabled };
+  }
+  const validPath = validateUpstreamPath(value.endpoint, 'modelsFetch.endpoint');
+  if (!validPath.ok) throw new Error(`Malformed custom upstream config: ${validPath.error}`);
+  return { enabled: value.enabled, endpoint: validPath.value };
 };
 
 export const assertCustomUpstreamRecord = (record: UpstreamRecord): CustomUpstreamRecord => {
@@ -129,6 +158,8 @@ export const assertCustomUpstreamRecord = (record: UpstreamRecord): CustomUpstre
       authStyle: authStyleField(record.config.authStyle),
       supportedEndpoints: supportedEndpointsField(record.config.supportedEndpoints),
       ...(record.config.pathOverrides !== undefined ? { pathOverrides: pathOverridesField(record.config.pathOverrides) } : {}),
+      modelsFetch: modelsFetchField(record.config.modelsFetch),
+      models: modelsField(record.config.models ?? [], 'custom'),
     },
   };
 };
@@ -150,6 +181,10 @@ const resolveCustomPath = (config: CustomUpstreamConfig, endpoint: EndpointKey):
   if (endpoint === 'messages_count_tokens') {
     const messagesPath = config.pathOverrides?.messages ?? CUSTOM_DEFAULT_PATHS.messages;
     return `${messagesPath}/count_tokens`;
+  }
+  // The /models path lives on the fetch toggle, not in pathOverrides.
+  if (endpoint === 'models') {
+    return config.modelsFetch.endpoint ?? CUSTOM_DEFAULT_PATHS.models;
   }
   return config.pathOverrides?.[endpoint] ?? CUSTOM_DEFAULT_PATHS[endpoint];
 };

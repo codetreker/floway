@@ -21,6 +21,11 @@ const providerFactories: Record<UpstreamProviderKind, ProviderFactory> = {
   azure: createAzureProvider,
 };
 
+// Build a single provider instance for one upstream record, regardless of kind.
+// Used by the control plane to list a saved upstream's resolved catalog.
+export const createProviderInstance = (record: UpstreamRecord): ModelProviderInstance | Promise<ModelProviderInstance> =>
+  providerFactories[record.provider](record);
+
 // Ids not in the catalog are silently dropped; undefined/null preserves global sort order.
 export const listModelProviders = async (upstreamFilter?: readonly string[] | null): Promise<ModelProviderInstance[]> => {
   const upstreams = await getRepo().upstreams.list();

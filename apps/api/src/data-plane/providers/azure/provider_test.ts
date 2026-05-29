@@ -9,16 +9,16 @@ const azureRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord =>
   const config = {
     endpoint: 'https://example.openai.azure.com',
     apiKey: 'az-key',
-    deployments: [
+    models: [
       {
-        deployment: 'gpt-prod',
+        upstreamModelId: 'gpt-prod',
         publicModelId: 'gpt-public',
         supportedEndpoints: ['/chat/completions', '/responses', '/embeddings'],
         display_name: 'GPT Public',
         limits: { max_context_window_tokens: 128000 },
       },
       {
-        deployment: 'gpt-small',
+        upstreamModelId: 'gpt-small',
         publicModelId: ' ',
         supportedEndpoints: ['/chat/completions'],
       },
@@ -40,7 +40,7 @@ const azureRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord =>
   };
 };
 
-test('createAzureProvider projects configured deployments into upstream models', async () => {
+test('createAzureProvider projects configured models into upstream models', async () => {
   const instance = createAzureProvider(azureRecord({ flagOverrides: { 'vendor-kimi': true } }));
   const models = await instance.provider.getProvidedModels();
 
@@ -54,20 +54,20 @@ test('createAzureProvider projects configured deployments into upstream models',
         id: 'gpt-public',
         displayName: 'GPT Public',
         endpoints: ['chat_completions', 'responses', 'embeddings'],
-        providerData: { deployment: 'gpt-prod' },
+        providerData: { upstreamModelId: 'gpt-prod' },
       },
       {
         id: 'gpt-small',
         displayName: undefined,
         endpoints: ['chat_completions'],
-        providerData: { deployment: 'gpt-small' },
+        providerData: { upstreamModelId: 'gpt-small' },
       },
     ],
   );
   assertEquals(models[0].limits.max_context_window_tokens, 128000);
 });
 
-test('createAzureProvider sends deployment names in OpenAI-shaped request bodies and model keys', async () => {
+test('createAzureProvider sends upstream model ids in OpenAI-shaped request bodies and model keys', async () => {
   const instance = createAzureProvider(azureRecord());
   const [model] = await instance.provider.getProvidedModels();
   const seen: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -105,19 +105,19 @@ test('createAzureProvider sends deployment names in OpenAI-shaped request bodies
   );
 });
 
-test('createAzureProvider supports Azure AI cross-provider deployments with explicit endpoint capabilities', async () => {
+test('createAzureProvider supports Azure AI cross-provider models with explicit endpoint capabilities', async () => {
   const instance = createAzureProvider(
     azureRecord({
       config: {
         endpoint: 'https://example.openai.azure.com/openai/v1',
         apiKey: 'az-key',
-        deployments: [
+        models: [
           {
-            deployment: 'deepseek-v4-pro',
+            upstreamModelId: 'deepseek-v4-pro',
             supportedEndpoints: ['/chat/completions'],
           },
           {
-            deployment: 'gpt-5.4-pro',
+            upstreamModelId: 'gpt-5.4-pro',
             publicModelId: '',
             supportedEndpoints: ['/responses'],
           },
@@ -172,15 +172,15 @@ test('createAzureProvider supports Azure AI cross-provider deployments with expl
   ]);
 });
 
-test('createAzureProvider supports native Azure Anthropic Messages deployments', async () => {
+test('createAzureProvider supports native Azure Anthropic Messages models', async () => {
   const instance = createAzureProvider(
     azureRecord({
       config: {
         endpoint: 'https://example.services.ai.azure.com/anthropic/v1',
         apiKey: 'az-key',
-        deployments: [
+        models: [
           {
-            deployment: 'claude-prod',
+            upstreamModelId: 'claude-prod',
             publicModelId: 'claude-public',
             supportedEndpoints: ['/v1/messages'],
           },
@@ -234,7 +234,7 @@ test('createAzureProvider forwards the source-derived anthropicBeta slice as the
       config: {
         endpoint: 'https://example.services.ai.azure.com/anthropic/v1',
         apiKey: 'az-key',
-        deployments: [{ deployment: 'claude-prod', supportedEndpoints: ['/v1/messages'] }],
+        models: [{ upstreamModelId: 'claude-prod', supportedEndpoints: ['/v1/messages'] }],
       },
     }),
   );
@@ -262,17 +262,17 @@ test('createAzureProvider forwards the source-derived anthropicBeta slice as the
   assertEquals(seen, ['context-1m-2025-08-07,interleaved-thinking-2025-05-14', 'context-1m-2025-08-07', null, null]);
 });
 
-test('createAzureProvider applies per-deployment flag overrides on top of the upstream layer', async () => {
+test('createAzureProvider applies per-model flag overrides on top of the upstream layer', async () => {
   const instance = createAzureProvider(
     azureRecord({
       flagOverrides: { 'vendor-deepseek': true },
       config: {
         endpoint: 'https://example.openai.azure.com/openai/v1',
         apiKey: 'az-key',
-        deployments: [
-          { deployment: 'd1', supportedEndpoints: ['/chat/completions'] },
+        models: [
+          { upstreamModelId: 'd1', supportedEndpoints: ['/chat/completions'] },
           {
-            deployment: 'd2',
+            upstreamModelId: 'd2',
             supportedEndpoints: ['/chat/completions'],
             flagOverrides: { enabled: true, values: { 'vendor-deepseek': false, 'vendor-kimi': true } },
           },
@@ -281,9 +281,9 @@ test('createAzureProvider applies per-deployment flag overrides on top of the up
     }),
   );
   const models = await instance.provider.getProvidedModels();
-  const d1 = models.find(model => (model.providerData as { deployment: string }).deployment === 'd1');
-  const d2 = models.find(model => (model.providerData as { deployment: string }).deployment === 'd2');
-  if (!d1 || !d2) throw new Error('expected both deployments');
+  const d1 = models.find(model => (model.providerData as { upstreamModelId: string }).upstreamModelId === 'd1');
+  const d2 = models.find(model => (model.providerData as { upstreamModelId: string }).upstreamModelId === 'd2');
+  if (!d1 || !d2) throw new Error('expected both models');
 
   assertEquals(d1.enabledFlags.has('vendor-deepseek'), true);
   assertEquals(d1.enabledFlags.has('vendor-kimi'), false);
@@ -291,16 +291,16 @@ test('createAzureProvider applies per-deployment flag overrides on top of the up
   assertEquals(d2.enabledFlags.has('vendor-kimi'), true);
 });
 
-test('createAzureProvider skips the per-deployment layer when flagOverrides.enabled is false', async () => {
+test('createAzureProvider skips the per-model layer when flagOverrides.enabled is false', async () => {
   const instance = createAzureProvider(
     azureRecord({
       flagOverrides: { 'vendor-deepseek': true },
       config: {
         endpoint: 'https://example.openai.azure.com/openai/v1',
         apiKey: 'az-key',
-        deployments: [
+        models: [
           {
-            deployment: 'd1',
+            upstreamModelId: 'd1',
             supportedEndpoints: ['/chat/completions'],
             flagOverrides: { enabled: false, values: { 'vendor-deepseek': false } },
           },
@@ -313,21 +313,21 @@ test('createAzureProvider skips the per-deployment layer when flagOverrides.enab
   assertEquals(model.enabledFlags.has('vendor-deepseek'), true);
 });
 
-test('createAzureProvider attaches cost field from deployment config', async () => {
+test('createAzureProvider attaches cost field from model config', async () => {
   const instance = createAzureProvider(
     azureRecord({
       config: {
         endpoint: 'https://example.openai.azure.com',
         apiKey: 'az-key',
-        deployments: [
+        models: [
           {
-            deployment: 'gpt-prod',
+            upstreamModelId: 'gpt-prod',
             publicModelId: 'gpt-public',
             supportedEndpoints: ['/chat/completions'],
             cost: { input: 2.5, output: 15, input_cache_read: 0.25 },
           },
           {
-            deployment: 'gpt-small',
+            upstreamModelId: 'gpt-small',
             supportedEndpoints: ['/chat/completions'],
           },
         ],
@@ -339,20 +339,20 @@ test('createAzureProvider attaches cost field from deployment config', async () 
   assertEquals(models[1].cost, undefined);
 });
 
-test('createAzureProvider getPricingForModelKey resolves by deployment name', () => {
+test('createAzureProvider getPricingForModelKey resolves by upstream model id', () => {
   const instance = createAzureProvider(
     azureRecord({
       config: {
         endpoint: 'https://example.openai.azure.com',
         apiKey: 'az-key',
-        deployments: [
+        models: [
           {
-            deployment: 'gpt-prod',
+            upstreamModelId: 'gpt-prod',
             supportedEndpoints: ['/chat/completions'],
             cost: { input: 2.5, output: 15 },
           },
           {
-            deployment: 'gpt-small',
+            upstreamModelId: 'gpt-small',
             supportedEndpoints: ['/chat/completions'],
           },
         ],
@@ -364,7 +364,7 @@ test('createAzureProvider getPricingForModelKey resolves by deployment name', ()
   assertEquals(instance.provider.getPricingForModelKey('unknown'), null);
 });
 
-test('createAzureProvider exposes image deployments and routes generations with api-version=preview', async () => {
+test('createAzureProvider exposes image models and routes generations with api-version=preview', async () => {
   const record: UpstreamRecord = {
     id: 'az-image',
     provider: 'azure',
@@ -377,8 +377,8 @@ test('createAzureProvider exposes image deployments and routes generations with 
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'azkey',
-      deployments: [{
-        deployment: 'gpt-image-2',
+      models: [{
+        upstreamModelId: 'gpt-image-2',
         supportedEndpoints: ['/v1/images/generations', '/v1/images/edits'],
       }],
     },
@@ -407,7 +407,7 @@ test('createAzureProvider exposes image deployments and routes generations with 
   assertEquals(observedBody?.prompt, 'hello');
 });
 
-test('createAzureProvider callImagesEdits posts multipart with model replaced by deployment id and api-version=preview', async () => {
+test('createAzureProvider callImagesEdits posts multipart with model replaced by upstream model id and api-version=preview', async () => {
   const record: UpstreamRecord = {
     id: 'az-image',
     provider: 'azure',
@@ -420,8 +420,8 @@ test('createAzureProvider callImagesEdits posts multipart with model replaced by
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'azkey',
-      deployments: [{
-        deployment: 'gpt-image-2',
+      models: [{
+        upstreamModelId: 'gpt-image-2',
         supportedEndpoints: ['/v1/images/edits'],
       }],
     },

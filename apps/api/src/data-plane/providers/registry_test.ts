@@ -105,9 +105,9 @@ test('listModelProviders creates enabled provider instances with upstream row id
     config: {
       endpoint: 'https://example.openai.azure.com',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'gpt-prod',
+          upstreamModelId: 'gpt-prod',
           supportedEndpoints: ['/chat/completions'],
         },
       ],

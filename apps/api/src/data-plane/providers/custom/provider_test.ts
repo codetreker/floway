@@ -350,6 +350,105 @@ test('Custom provider callImagesEdits forwards multipart body with model field a
   assertEquals(forwarded.form.get('image') instanceof File, true);
 });
 
+test('Custom provider with modelsFetch disabled serves only manual models and never fetches', async () => {
+  await setupAppTest();
+  clearModelsStore();
+
+  await withMockedFetch(
+    () => { throw new Error('upstream /models must not be fetched when modelsFetch is disabled'); },
+    async () => {
+      const provider = createCustomProvider(baseRecord({
+        id: 'up_custom_manual_only',
+        config: {
+          baseUrl: 'https://custom.example.com',
+          bearerToken: 'sk-test',
+          supportedEndpoints: ['/chat/completions'],
+          modelsFetch: { enabled: false },
+          models: [
+            {
+              upstreamModelId: 'pinned-chat',
+              publicModelId: 'pinned',
+              supportedEndpoints: ['/chat/completions'],
+              display_name: 'Pinned Chat',
+              limits: { max_output_tokens: 4096 },
+              cost: { input: 1, output: 2 },
+            },
+          ],
+        },
+      })).provider;
+
+      const models = await provider.getProvidedModels();
+      assertEquals(models.length, 1);
+      assertEquals(models[0].id, 'pinned');
+      assertEquals(models[0].kind, 'chat');
+      assertEquals([...models[0].upstreamEndpoints], ['chat_completions']);
+      assertEquals(models[0].display_name, 'Pinned Chat');
+      assertEquals(models[0].limits.max_output_tokens, 4096);
+      assertEquals(models[0].cost?.input, 1);
+
+      const pricing = provider.getPricingForModelKey('pinned-chat');
+      assertEquals(pricing?.input, 1);
+      assertEquals(pricing?.output, 2);
+    },
+  );
+});
+
+test('Custom provider with a manual override sharing an upstream id wins over the auto copy', async () => {
+  await setupAppTest();
+  clearModelsStore();
+
+  await withMockedFetch(
+    request => {
+      const url = new URL(request.url);
+      if (url.pathname === '/v1/models') {
+        return jsonResponse({
+          object: 'list',
+          data: [
+            { id: 'shared', cost: { input: 9, output: 9 } },
+            { id: 'auto-only' },
+          ],
+        });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const provider = createCustomProvider(baseRecord({
+        id: 'up_custom_override',
+        config: {
+          baseUrl: 'https://custom.example.com',
+          bearerToken: 'sk-test',
+          supportedEndpoints: ['/chat/completions'],
+          modelsFetch: { enabled: true },
+          models: [
+            {
+              upstreamModelId: 'shared',
+              supportedEndpoints: ['/chat/completions'],
+              display_name: 'Manual Shared',
+              cost: { input: 1, output: 2 },
+            },
+          ],
+        },
+      })).provider;
+
+      const models = await provider.getProvidedModels();
+      // [manual, ...autoFiltered] — the upstream 'shared' copy is dropped.
+      assertEquals(models.map(m => m.id), ['shared', 'auto-only']);
+      const shared = models.find(m => m.id === 'shared');
+      assertExists(shared);
+      assertEquals(shared.display_name, 'Manual Shared');
+
+      // Pricing resolves from the manual config first, not the cached upstream cost.
+      const sharedPricing = provider.getPricingForModelKey('shared');
+      assertEquals(sharedPricing?.input, 1);
+      assertEquals(sharedPricing?.output, 2);
+
+      // Auto models still resolve pricing from the cached upstream map.
+      const autoOnly = provider.getPricingForModelKey('auto-only');
+      assertEquals(autoOnly, null);
+    },
+  );
+});
+
 test('Custom provider forwards the source-derived anthropicBeta slice as the anthropic-beta header', async () => {
   const instance = createCustomProvider(baseRecord());
   const provider = instance.provider;

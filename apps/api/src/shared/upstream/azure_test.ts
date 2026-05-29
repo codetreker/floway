@@ -16,9 +16,9 @@ const baseRecord: UpstreamRecord = {
   config: {
     endpoint: 'https://example.openai.azure.com/',
     apiKey: 'az-key',
-    deployments: [
+    models: [
       {
-        deployment: 'gpt-prod',
+        upstreamModelId: 'gpt-prod',
         supportedEndpoints: ['/chat/completions', '/responses', '/embeddings'],
       },
     ],
@@ -101,9 +101,9 @@ test('createAzureUpstream accepts Foundry project endpoints for OpenAI v1 calls'
     config: {
       endpoint: 'https://example.services.ai.azure.com/api/projects/prod/',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'deepseek-prod',
+          upstreamModelId: 'deepseek-prod',
           supportedEndpoints: ['/responses'],
         },
       ],
@@ -130,9 +130,9 @@ test('createAzureUpstream accepts Foundry project OpenAI v1 base URLs', async ()
     config: {
       endpoint: 'https://example.services.ai.azure.com/api/projects/prod/openai/v1',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'deepseek-prod',
+          upstreamModelId: 'deepseek-prod',
           supportedEndpoints: ['/responses', '/v1/messages'],
         },
       ],
@@ -163,9 +163,9 @@ test('createAzureUpstream keeps native Anthropic calls on the resource Anthropic
     config: {
       endpoint: 'https://example.services.ai.azure.com/api/projects/prod',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'claude-prod',
+          upstreamModelId: 'claude-prod',
           supportedEndpoints: ['/v1/messages'],
         },
       ],
@@ -192,9 +192,9 @@ test('createAzureUpstream supports Azure Foundry Anthropic Messages with x-api-k
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'claude-prod',
+          upstreamModelId: 'claude-prod',
           supportedEndpoints: ['/v1/messages'],
         },
       ],
@@ -243,9 +243,9 @@ test('createAzureUpstream accepts an Azure Foundry Anthropic messages target URI
     config: {
       endpoint: 'https://example.services.ai.azure.com/anthropic/v1/messages',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'claude-prod',
+          upstreamModelId: 'claude-prod',
           supportedEndpoints: ['/v1/messages'],
         },
       ],
@@ -291,7 +291,7 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an http(s) URL without query or fragment',
+    'endpoint: must be an http(s) URL without query or fragment',
   );
 
   assertThrows(
@@ -304,7 +304,7 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com',
+    'endpoint: must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com',
   );
 
   assertThrows(
@@ -317,7 +317,7 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com',
+    'endpoint: must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com',
   );
 
   assertThrows(
@@ -330,7 +330,7 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com',
+    'endpoint: must be an https Azure URL on *.openai.azure.com or *.services.ai.azure.com',
   );
 
   assertThrows(
@@ -343,7 +343,7 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an Azure resource root, a Foundry project endpoint, an OpenAI v1 URL ending in /openai/v1, an /anthropic URL, an /anthropic/v1 URL, or an /anthropic/v1/messages URL',
+    'endpoint: must be an Azure resource root, a Foundry project endpoint, an OpenAI v1 URL ending in /openai/v1, an /anthropic URL, an /anthropic/v1 URL, or an /anthropic/v1/messages URL',
   );
 
   assertThrows(
@@ -356,7 +356,7 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an Azure resource root, a Foundry project endpoint, an OpenAI v1 URL ending in /openai/v1, an /anthropic URL, an /anthropic/v1 URL, or an /anthropic/v1/messages URL',
+    'endpoint: must be an Azure resource root, a Foundry project endpoint, an OpenAI v1 URL ending in /openai/v1, an /anthropic URL, an /anthropic/v1 URL, or an /anthropic/v1/messages URL',
   );
 
   assertThrows(
@@ -369,19 +369,19 @@ test('createAzureUpstream validates Azure opaque config strictly', () => {
         },
       }),
     Error,
-    'endpoint must be an http(s) URL without query or fragment',
+    'endpoint: must be an http(s) URL without query or fragment',
   );
 });
 
-test('assertAzureUpstreamRecord round-trips per-deployment flagOverrides', () => {
+test('assertAzureUpstreamRecord round-trips per-model flagOverrides', () => {
   const parsed = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'az-key',
-      deployments: [
+      models: [
         {
-          deployment: 'gpt-5',
+          upstreamModelId: 'gpt-5',
           supportedEndpoints: ['/chat/completions'],
           flagOverrides: { enabled: true, values: { 'vendor-kimi': true, 'vendor-deepseek': false } },
         },
@@ -389,22 +389,22 @@ test('assertAzureUpstreamRecord round-trips per-deployment flagOverrides', () =>
     },
   });
 
-  assertEquals(parsed.config.deployments[0].flagOverrides, {
+  assertEquals(parsed.config.models[0].flagOverrides, {
     enabled: true,
     values: { 'vendor-kimi': true, 'vendor-deepseek': false },
   });
 });
 
-test('assertAzureUpstreamRecord rejects malformed per-deployment flagOverrides', () => {
+test('assertAzureUpstreamRecord rejects malformed per-model flagOverrides', () => {
   assertThrows(
     () =>
       assertAzureUpstreamRecord({
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          deployments: [
+          models: [
             {
-              deployment: 'gpt-prod',
+              upstreamModelId: 'gpt-prod',
               supportedEndpoints: ['/chat/completions'],
               flagOverrides: { enabled: 'yes', values: {} },
             },
@@ -412,7 +412,7 @@ test('assertAzureUpstreamRecord rejects malformed per-deployment flagOverrides',
         },
       }),
     Error,
-    'deployments[0].flagOverrides.enabled must be a boolean',
+    'azure models[0].flagOverrides.enabled: must be a boolean',
   );
 
   assertThrows(
@@ -421,9 +421,9 @@ test('assertAzureUpstreamRecord rejects malformed per-deployment flagOverrides',
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          deployments: [
+          models: [
             {
-              deployment: 'gpt-prod',
+              upstreamModelId: 'gpt-prod',
               supportedEndpoints: ['/chat/completions'],
               flagOverrides: { enabled: true, values: { 'vendor-deepseek': 'on' } },
             },
@@ -431,20 +431,20 @@ test('assertAzureUpstreamRecord rejects malformed per-deployment flagOverrides',
         },
       }),
     Error,
-    'deployments[0].flagOverrides.values.vendor-deepseek must be a boolean',
+    'azure models[0].flagOverrides.values.vendor-deepseek: must be a boolean',
   );
 });
 
-test('assertAzureUpstreamRecord rejects per-deployment flagOverrides with unknown flag id', () => {
+test('assertAzureUpstreamRecord rejects per-model flagOverrides with unknown flag id', () => {
   assertThrows(
     () =>
       assertAzureUpstreamRecord({
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          deployments: [
+          models: [
             {
-              deployment: 'gpt-prod',
+              upstreamModelId: 'gpt-prod',
               supportedEndpoints: ['/chat/completions'],
               flagOverrides: { enabled: true, values: { 'made-up-flag': true } },
             },
@@ -452,20 +452,20 @@ test('assertAzureUpstreamRecord rejects per-deployment flagOverrides with unknow
         },
       }),
     Error,
-    'deployments[0].flagOverrides.values has unknown flag ids: made-up-flag',
+    'azure models[0].flagOverrides.values: unknown flag ids: made-up-flag',
   );
 });
 
-test('assertAzureUpstreamRecord reports all unknown per-deployment flag ids in one error', () => {
+test('assertAzureUpstreamRecord reports all unknown per-model flag ids in one error', () => {
   assertThrows(
     () =>
       assertAzureUpstreamRecord({
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          deployments: [
+          models: [
             {
-              deployment: 'gpt-prod',
+              upstreamModelId: 'gpt-prod',
               supportedEndpoints: ['/chat/completions'],
               flagOverrides: { enabled: true, values: { 'made-up-flag': true, 'another-typo': false } },
             },
@@ -473,25 +473,25 @@ test('assertAzureUpstreamRecord reports all unknown per-deployment flag ids in o
         },
       }),
     Error,
-    'deployments[0].flagOverrides.values has unknown flag ids: made-up-flag, another-typo',
+    'azure models[0].flagOverrides.values: unknown flag ids: made-up-flag, another-typo',
   );
 });
 
-test('assertAzureUpstreamRecord round-trips deployment.cost with full pricing fields', () => {
+test('assertAzureUpstreamRecord round-trips model.cost with full pricing fields', () => {
   const parsed = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
       ...(baseRecord.config as Record<string, unknown>),
-      deployments: [
+      models: [
         {
-          deployment: 'gpt-prod',
+          upstreamModelId: 'gpt-prod',
           supportedEndpoints: ['/chat/completions'],
           cost: { input: 2.5, input_cache_read: 0.25, input_cache_write: 3.75, input_image: 8, output: 15, output_image: 30 },
         },
       ],
     },
   });
-  assertEquals(parsed.config.deployments[0].cost, {
+  assertEquals(parsed.config.models[0].cost, {
     input: 2.5,
     input_cache_read: 0.25,
     input_cache_write: 3.75,
@@ -501,14 +501,14 @@ test('assertAzureUpstreamRecord round-trips deployment.cost with full pricing fi
   });
 });
 
-test('createAzureUpstream accepts deployment without cost field', () => {
+test('createAzureUpstream accepts model without cost field', () => {
   const upstream = createAzureUpstream({
     ...baseRecord,
     config: {
       ...(baseRecord.config as Record<string, unknown>),
-      deployments: [
+      models: [
         {
-          deployment: 'gpt-prod',
+          upstreamModelId: 'gpt-prod',
           supportedEndpoints: ['/chat/completions'],
         },
       ],
@@ -517,14 +517,14 @@ test('createAzureUpstream accepts deployment without cost field', () => {
   assertEquals(upstream.kind, 'azure');
 });
 
-test('createAzureUpstream accepts deployment.cost with only input set', () => {
+test('createAzureUpstream accepts model.cost with only input set', () => {
   const upstream = createAzureUpstream({
     ...baseRecord,
     config: {
       ...(baseRecord.config as Record<string, unknown>),
-      deployments: [
+      models: [
         {
-          deployment: 'gpt-prod',
+          upstreamModelId: 'gpt-prod',
           supportedEndpoints: ['/chat/completions'],
           cost: { input: 2.5 },
         },
@@ -534,16 +534,16 @@ test('createAzureUpstream accepts deployment.cost with only input set', () => {
   assertEquals(upstream.kind, 'azure');
 });
 
-test('createAzureUpstream rejects deployment.cost with negative input', () => {
+test('createAzureUpstream rejects model.cost with negative input', () => {
   assertThrows(
     () =>
       createAzureUpstream({
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          deployments: [
+          models: [
             {
-              deployment: 'gpt-prod',
+              upstreamModelId: 'gpt-prod',
               supportedEndpoints: ['/chat/completions'],
               cost: { input: -1, output: 1 },
             },
@@ -551,20 +551,20 @@ test('createAzureUpstream rejects deployment.cost with negative input', () => {
         },
       }),
     Error,
-    'deployments[0].cost.input must be a finite non-negative number',
+    'azure models[0].cost.input: must be a finite non-negative number',
   );
 });
 
-test('createAzureUpstream rejects deployment.cost with non-number input_cache_read', () => {
+test('createAzureUpstream rejects model.cost with non-number input_cache_read', () => {
   assertThrows(
     () =>
       createAzureUpstream({
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          deployments: [
+          models: [
             {
-              deployment: 'gpt-prod',
+              upstreamModelId: 'gpt-prod',
               supportedEndpoints: ['/chat/completions'],
               cost: { input: 2, output: 8, input_cache_read: 'cheap' },
             },
@@ -572,6 +572,6 @@ test('createAzureUpstream rejects deployment.cost with non-number input_cache_re
         },
       }),
     Error,
-    'deployments[0].cost.input_cache_read must be a finite non-negative number',
+    'azure models[0].cost.input_cache_read: must be a finite non-negative number',
   );
 });
