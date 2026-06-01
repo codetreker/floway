@@ -244,12 +244,13 @@ export const resolveModelForProvider = async (
   modelId: string,
 ): Promise<ProviderModelResolution | undefined> => {
   const providedModels = await instance.provider.getProvidedModels();
-  const exact = providedModels.find(model => model.id === modelId);
+  const disabled = new Set(instance.disabledPublicModelIds);
+  const exact = providedModels.find(model => model.id === modelId && !disabled.has(model.id));
   if (exact) return { id: exact.id, model: exact, binding: providerModelRecord(instance, exact) };
 
   const aliasTarget = instance.resolveRequestedModelId?.(modelId);
   if (!aliasTarget || aliasTarget === modelId) return undefined;
 
-  const alias = providedModels.find(model => model.id === aliasTarget);
+  const alias = providedModels.find(model => model.id === aliasTarget && !disabled.has(model.id));
   return alias ? { id: alias.id, model: alias, binding: providerModelRecord(instance, alias) } : undefined;
 };

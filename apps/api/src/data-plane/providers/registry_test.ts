@@ -366,6 +366,34 @@ test('disabledPublicModelIds hides models from the catalog and routing, per upst
   assertEquals(keep.model?.providers.map(({ upstream }) => upstream), ['up_a']);
 });
 
+test('resolveModelForProvider rejects a model id disabled on that upstream (filter parity with the catalog)', async () => {
+  const { repo } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.upstreams.save({
+    id: 'up_x',
+    provider: 'azure',
+    name: 'X',
+    enabled: true,
+    sortOrder: 1,
+    createdAt: '2026-05-21T00:00:00.000Z',
+    updatedAt: '2026-05-21T00:00:00.000Z',
+    config: {
+      endpoint: 'https://example.openai.azure.com',
+      apiKey: 'az-key',
+      models: [
+        { upstreamModelId: 'enabled-model', supportedEndpoints: ['/chat/completions'] },
+        { upstreamModelId: 'disabled-model', supportedEndpoints: ['/chat/completions'] },
+      ],
+    },
+    flagOverrides: {},
+    disabledPublicModelIds: ['disabled-model'],
+  });
+
+  const [provider] = await listModelProviders();
+  assertEquals(await resolveModelForProvider(provider, 'enabled-model').then(r => r?.id), 'enabled-model');
+  assertEquals(await resolveModelForProvider(provider, 'disabled-model').then(r => r?.id), undefined);
+});
+
 test('listModelProviders drops stale ids (deleted or disabled upstreams) from a whitelist', async () => {
   const { repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
