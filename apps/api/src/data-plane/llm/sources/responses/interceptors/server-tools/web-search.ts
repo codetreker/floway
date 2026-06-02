@@ -502,12 +502,21 @@ const searchIr = (
   query: string,
   results: ResponsesWebSearchResult[],
   sources?: { type: 'url'; url: string }[],
+): WebSearchCallIR => searchIrFromQueries([query], results, sources);
+
+// Builds a single wsc for one or more search queries. Multi-query actions
+// are protocol-native (`{type:'search', queries:[...]}`); the singular
+// `query` field is emitted alongside for SDKs that only know the legacy
+// single-string shape — see `actionSearchQueries`.
+const searchIrFromQueries = (
+  queries: string[],
+  results: ResponsesWebSearchResult[],
+  sources?: { type: 'url'; url: string }[],
 ): WebSearchCallIR => ({
-  // Emit both `query` and `queries`; see `actionSearchQueries`.
   action: {
     type: 'search',
-    query,
-    queries: [query],
+    query: queries.join(' | '),
+    queries,
     // Native gates `sources` on `include:
     // ["web_search_call.action.sources"]`; only include when the
     // client opted in. The producer (dispatch.ts) decides whether to
@@ -883,18 +892,49 @@ const runBackendSearch = async (
   op: Extract<ShimLogicalOperation, { kind: 'search' }>,
   state: ShimState,
 ): Promise<WebSearchCallIR> => {
-  const query = op.query;
-
   if (op.error !== undefined) {
     const title = op.errorKind === 'missing-arg' ? 'Missing argument' : 'Invalid ref_id';
-    return searchIr(query, [errorSnippet(title, op.error)]);
+    return searchIr(op.query, [errorSnippet(title, op.error)]);
   }
-
   const active = await resolveActiveProvider(state);
   if ('unavailable' in active) {
-    return searchIr(query, [errorSnippet('Search error', searchFailedText(active.unavailable))]);
+    return searchIr(op.query, [errorSnippet('Search error', searchFailedText(active.unavailable))]);
   }
+  const { results, sources } = await runOneSearchQuery(op.query, state, active);
+  return searchIr(op.query, results, sources);
+};
 
+// Collapses N `search_query` entries into one wsc: same-action protocol
+// shape (`{type:'search', queries:[...]}`) with the merged result set
+// (concatenated in entry order). Per-query failures interleave as error
+// snippets so the model sees which queries succeeded.
+const runBackendSearchMulti = async (
+  ops: Array<Extract<ShimLogicalOperation, { kind: 'search' }>>,
+  state: ShimState,
+): Promise<WebSearchCallIR> => {
+  const queries = ops.map(op => op.query);
+  const active = await resolveActiveProvider(state);
+  if ('unavailable' in active) {
+    return searchIrFromQueries(queries, [errorSnippet('Search error', searchFailedText(active.unavailable))]);
+  }
+  const perQuery = await Promise.all(ops.map(op => runOneSearchQuery(op.query, state, active)));
+  const mergedResults = perQuery.flatMap(r => r.results);
+  const mergedSources = state.includeSearchActionSources
+    ? perQuery.flatMap(r => r.sources ?? [])
+    : undefined;
+  return searchIrFromQueries(queries, mergedResults, mergedSources);
+};
+
+interface SearchQueryOutcome {
+  results: ResponsesWebSearchResult[];
+  sources?: { type: 'url'; url: string }[];
+}
+
+const runOneSearchQuery = async (
+  query: string,
+  state: ShimState,
+  active: { provider: WebSearchProvider; providerName: WebSearchProviderName },
+): Promise<SearchQueryOutcome> => {
   try {
     const searchRequest = {
       query,
@@ -918,7 +958,7 @@ const runBackendSearch = async (
 
     if (result.type === 'error') {
       const msg = result.message ?? result.errorCode;
-      return searchIr(query, [errorSnippet('Search error', searchFailedText(msg))]);
+      return { results: [errorSnippet('Search error', searchFailedText(msg))] };
     }
 
     // Per-snippet char cap on web_search_call.results[].snippet. Providers
@@ -938,10 +978,10 @@ const runBackendSearch = async (
     const sources = state.includeSearchActionSources
       ? result.results.map(r => ({ type: 'url' as const, url: r.source }))
       : undefined;
-    return searchIr(query, results, sources);
+    return sources !== undefined ? { results, sources } : { results };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return searchIr(query, [errorSnippet('Search error', searchFailedText(msg))]);
+    return { results: [errorSnippet('Search error', searchFailedText(msg))] };
   }
 };
 
@@ -1219,19 +1259,32 @@ const planShimSlots = (
     };
   }
 
-  // One private payload ⇄ one wsc ⇄ one op. A shim call that bundles
-  // more than one logical op (multi-kind mix, or multi-instance of any
-  // sub-property array) cannot be reduced to a single wsc action shape,
-  // so surface it as an ambiguous error and let the model split the
-  // request into independent calls.
+  // Multi-`search_query` entries collapse into one wsc with a multi-query
+  // action (`{type:'search', queries:[...]}`) — protocol-native and the
+  // only same-kind shape that fits in one wsc. Require every entry to
+  // parse cleanly; one malformed entry forces the model to fix all of
+  // them rather than silently dropping a search.
+  if (parsed.ops.length > 1 && parsed.ops.every(op => op.kind === 'search' && op.error === undefined)) {
+    const searchOps = parsed.ops as Array<Extract<ShimLogicalOperation, { kind: 'search' }>>;
+    return {
+      id: synthesizeWebSearchCallId(),
+      promise: runBackendSearchMulti(searchOps, state),
+    };
+  }
+
+  // Any other multi-op shape cannot reduce to a single wsc action: `open`
+  // and `find` actions each carry one url/pattern, and mixed kinds have
+  // incompatible action types. Surface as ambiguous and let the model
+  // split into independent calls.
   if (parsed.ops.length > 1) {
     return {
       id: synthesizeWebSearchCallId(),
       promise: Promise.resolve(schemaErrorIr(
         'ambiguous shim call',
         'Ambiguous tool call',
-        `Error: ambiguous \`${toolName}\` tool call — each function_call may carry only one operation. `
-        + 'Split into multiple independent calls (one search_query[] entry, OR one open[] entry, OR one find[] entry per call).',
+        `Error: ambiguous \`${toolName}\` tool call — each function_call maps to one web_search_call. `
+        + 'Multiple `search_query` entries are fine (they collapse into one search). '
+        + 'For `open`/`find`, or any mix of kinds, split into one call per `open[]` entry, `find[]` entry, or `search_query[]` batch.',
       )),
     };
   }
@@ -1307,7 +1360,7 @@ export const webSearchServerTool: ServerToolRegistration = (ctx, request) => {
                   { type: 'response.web_search_call.in_progress' },
                   { type: 'response.web_search_call.searching' },
                 ],
-                async *run() {
+                run: async function* run() {
                   const ir = await slot.promise;
                   // `results` is gated on the client's `include`
                   // opt-in to match native Responses' default wire

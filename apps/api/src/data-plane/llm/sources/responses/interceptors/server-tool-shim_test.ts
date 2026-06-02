@@ -754,10 +754,11 @@ test('iteration cap returns the iteration-cap notice without backend call on cap
 
 // ── Ambiguous multi-op function_call rejection ─────────────────────────────
 
-// One private payload ⇄ one wsc ⇄ one op. Any shim call that carries more
-// than one logical operation — multi-kind mix or multi-instance same-kind
-// — is rejected before backend dispatch with a single ambiguous-error wsc
-// so the model knows to split the request into independent calls.
+// `web_search_call.action` carries exactly one action type; a shim call
+// that mixes kinds (search + open) or stacks multiple non-search ops
+// (multi `open`/`find`) cannot reduce to a single wsc and is rejected
+// before backend dispatch. Multi-`search_query` collapses into one wsc
+// with a multi-query search action — see the collapse tests below.
 
 const assertAmbiguousShimRejection = async (args: string, backend: { calls: unknown[] }): Promise<void> => {
   const shim = withResponsesWebSearchShim;
@@ -783,7 +784,7 @@ const assertAmbiguousShimRejection = async (args: string, backend: { calls: unkn
   assertEquals(item.action?.type, 'search');
   assert(Array.isArray(item.results));
   assert(item.results![0].snippet.includes('ambiguous'));
-  assert(item.results![0].snippet.includes('one operation'));
+  assert(item.results![0].snippet.includes('one web_search_call'));
 };
 
 test('multi-kind shim call (search_query + open) is rejected as ambiguous before any backend dispatch', async () => {
@@ -794,18 +795,77 @@ test('multi-kind shim call (search_query + open) is rejected as ambiguous before
   );
 });
 
-test('multi-instance same-kind shim call (two search_query entries) is rejected as ambiguous', async () => {
-  const { backend } = makeStubDeps();
-  await assertAmbiguousShimRejection(
-    JSON.stringify({ search_query: [{ q: 'q1' }, { q: 'q2' }] }),
-    backend,
-  );
-});
-
 test('multi-instance same-kind shim call (two open entries) is rejected as ambiguous', async () => {
   const { backend } = makeStubDeps();
   await assertAmbiguousShimRejection(
     JSON.stringify({ open: [{ ref_id: 'https://example.com/a' }, { ref_id: 'https://example.com/b' }] }),
+    backend,
+  );
+});
+
+test('multi-instance same-kind shim call (two find entries) is rejected as ambiguous', async () => {
+  const { backend } = makeStubDeps();
+  await assertAmbiguousShimRejection(
+    JSON.stringify({ find: [{ ref_id: 'https://example.com/', pattern: 'a' }, { ref_id: 'https://example.com/', pattern: 'b' }] }),
+    backend,
+  );
+});
+
+// ── Multi-`search_query` collapse ─────────────────────────────────────
+//
+// `search_query: [...]` natively maps to `web_search_call.action.queries`
+// (a string[]), so multi-entry batches stay 1:1 with one wsc carrying
+// every query and the merged result set.
+
+test('multi-`search_query` entries collapse into one web_search_call with a multi-query action and merged results', async () => {
+  const calls: string[] = [];
+  const { backend } = makeStubDeps({
+    providerOverrides: {
+      async search({ query }) {
+        calls.push(query);
+        return { type: 'ok', results: [{ source: `https://r/${query}`, title: query, content: [{ type: 'text', text: `result for ${query}` }] }] };
+      },
+    },
+  });
+  const shim = withResponsesWebSearchShim;
+  const inv = makeInvocation();
+  const args = JSON.stringify({ search_query: [{ q: 'q1' }, { q: 'q2' }, { q: 'q3' }] });
+  const turn: ScriptedTurn = [
+    mkResponseCreated(),
+    mkResponseInProgress(),
+    mkFunctionCallAdded(0, 'call_multi', SHIM_TOOL_NAME),
+    mkFunctionCallArgsDone(0, args),
+    mkFunctionCallDone(0, 'call_multi', SHIM_TOOL_NAME, args),
+    mkResponseCompleted(),
+  ];
+  const script = scriptedRun([turn, messageTurn('done', 0)]);
+  const result = await shim(inv, makeRequest(), script.run);
+  assert(result.type === 'events');
+  const events = eventPayloads(await collectFrames(result.events));
+
+  // Exactly one wsc on the wire.
+  const wsCallDone = events.filter((e): e is Extract<ResponsesStreamEvent, { type: 'response.output_item.done' }> =>
+    e.type === 'response.output_item.done'
+    && (e as { item?: { type?: string } }).item?.type === 'web_search_call');
+  assertEquals(wsCallDone.length, 1);
+  const item = wsCallDone[0].item as ResponsesOutputWebSearchCall;
+  assertEquals(item.action?.type, 'search');
+  const action = item.action as Extract<ResponsesWebSearchAction, { type: 'search' }>;
+  assertEquals(action.queries, ['q1', 'q2', 'q3']);
+
+  // Three backend search calls (one per query, parallel).
+  const searchCalls = backend.calls.filter(c => c.kind === 'search');
+  assertEquals(searchCalls.length, 3);
+  assertEquals(calls.sort(), ['q1', 'q2', 'q3']);
+
+  // Merged results in entry order.
+  assertEquals(item.results?.map(r => r.url), ['https://r/q1', 'https://r/q2', 'https://r/q3']);
+});
+
+test('multi-`search_query` with one malformed entry (missing q) is rejected as ambiguous', async () => {
+  const { backend } = makeStubDeps();
+  await assertAmbiguousShimRejection(
+    JSON.stringify({ search_query: [{ q: 'q1' }, {}] }),
     backend,
   );
 });
