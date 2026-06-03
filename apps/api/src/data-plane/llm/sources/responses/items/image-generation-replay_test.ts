@@ -9,6 +9,7 @@ import { assert, assertEquals } from '../../../../../test-assert.ts';
 import { stubProvider, stubUpstreamModel } from '../../../../../test-helpers.ts';
 import type { ModelProviderInstance, ProviderModelRecord } from '../../../../providers/types.ts';
 import { collectImageSources } from '../interceptors/server-tools/image-generation.ts';
+import { createHttpStatefulResponsesStore } from '../stateful-store.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
 import { responsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
 
@@ -45,6 +46,7 @@ test('a stored image_generation_call referenced by id is inline-expanded with it
     itemType: 'image_generation_call',
     origin: 'synthetic',
     payload: { item: { type: 'image_generation_call', id: storedId, status: 'completed', result: PNG_B64, revised_prompt: 'a cat', output_format: 'png' } },
+    contentHash: null,
     encryptedContentHash: null,
     createdAt: Date.now(),
     refreshedAt: Date.now(),
@@ -56,7 +58,9 @@ test('a stored image_generation_call referenced by id is inline-expanded with it
   // The client echoes only the id back, with the bytes stripped.
   const input: ResponsesInputItem[] = [{ type: 'image_generation_call', id: storedId, status: 'completed' } as ResponsesInputItem];
 
-  const prepared = await prepareStoredResponsesItemsForSource(input, API_KEY_ID, responsesItemsView);
+  const store = createHttpStatefulResponsesStore(API_KEY_ID, undefined);
+  await store.loadInputItems({ sourceItems: input, view: responsesItemsView });
+  const prepared = await prepareStoredResponsesItemsForSource(input, responsesItemsView, store);
   assertEquals(prepared.failures.length, 0);
   const expanded = await rewriteStoredResponsesItemsForProvider(input, prepared, provider('up'), responsesItemsView) as ResponsesInputItem[];
 

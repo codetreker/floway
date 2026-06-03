@@ -144,6 +144,7 @@ const STORED_RESPONSES_ITEM: StoredResponsesItem = {
   upstreamItemId: null,
   itemType: 'message',
   origin: 'synthetic',
+  contentHash: null,
   encryptedContentHash: null,
   payload: { item: { type: 'message', id: 'msg_z1mVjw_0xVvS8c_KjD1sBkZk5qbdA', role: 'assistant', content: [] } },
   createdAt: 1_000,

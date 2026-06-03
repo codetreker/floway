@@ -66,6 +66,7 @@ export default {
     ctx.waitUntil((async () => {
       await getRepo().responsesItems.clearPayloadOlderThan(now - RESPONSES_ITEM_PAYLOAD_TTL_MS);
       await sweepExpiredResponsesItemPayloadFiles(now);
+      await getRepo().responsesSnapshots.deleteOlderThan(now - RESPONSES_ITEM_ROW_TTL_MS);
       await getRepo().responsesItems.deleteOlderThan(now - RESPONSES_ITEM_ROW_TTL_MS);
     })());
   },

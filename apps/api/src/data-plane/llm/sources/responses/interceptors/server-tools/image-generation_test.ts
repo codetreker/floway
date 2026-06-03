@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { beforeEach, test } from 'vitest';
 
 import {
   buildGenerationsBody,
@@ -17,8 +17,11 @@ import {
   synthesizeImageGenerationCallId,
   transformInputItemsForImageGeneration,
 } from './image-generation.ts';
+import { initRepo } from '../../../../../../repo/index.ts';
+import { InMemoryRepo } from '../../../../../../repo/memory.ts';
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '../../../../../../test-assert.ts';
 import type { RequestContext, ResponsesInvocation } from '../../../../interceptors.ts';
+import { createHttpStatefulResponsesStore } from '../../stateful-store.ts';
 import type { ResponsesInputItem, ResponsesPayload, ResponsesTool } from '@floway-dev/protocols/responses';
 
 const PNG_B64 = 'aGVsbG8='; // "hello" — any decodable base64 works for source tests.
@@ -37,7 +40,17 @@ const makeCtx = (payload: Partial<ResponsesPayload>): ResponsesInvocation => ({
   headers: {},
   payload: { model: 'm', input: [], ...payload } as ResponsesPayload,
 });
-const REQ = { requestStartedAt: 0, apiKeyUpstreamIds: null, runtimeLocation: 'test', clientStream: true } as RequestContext;
+const request = (): RequestContext => ({
+  requestStartedAt: 0,
+  apiKeyUpstreamIds: null,
+  runtimeLocation: 'test',
+  clientStream: true,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
+});
+
+beforeEach(() => {
+  initRepo(new InMemoryRepo());
+});
 
 const imageMessage = (mime: string): ResponsesInputItem => ({
   type: 'message', role: 'user', content: [{ type: 'input_image', image_url: `data:${mime};base64,${PNG_B64}`, detail: 'auto' }],
@@ -488,7 +501,7 @@ test('synthesizeImageGenerationCallId produces an ig_gw_-prefixed id', () => {
 test('imageGenerationServerTool rejects an unsupported edit input format up front', async () => {
   const result = await imageGenerationServerTool(
     makeCtx({ tools: [{ type: 'image_generation' }], input: [imageMessage('image/gif')] }),
-    REQ,
+    request(),
   );
   assert(result.type === 'invalid-request');
   assertEquals(result.code, 'unsupported_file_mimetype');
@@ -499,7 +512,7 @@ test('imageGenerationServerTool rejects an unsupported edit input format up fron
 test('imageGenerationServerTool accepts webp input for editing', async () => {
   const result = await imageGenerationServerTool(
     makeCtx({ tools: [{ type: 'image_generation' }], input: [imageMessage('image/webp')] }),
-    REQ,
+    request(),
   );
   assert(result.type === 'active');
 });
@@ -509,7 +522,7 @@ test('imageGenerationServerTool ignores input format when action is generate', a
   // to the edit backend, so the format is not validated.
   const result = await imageGenerationServerTool(
     makeCtx({ tools: [{ type: 'image_generation', action: 'generate' }], input: [imageMessage('image/gif')] }),
-    REQ,
+    request(),
   );
   assert(result.type === 'active');
 });
@@ -517,7 +530,7 @@ test('imageGenerationServerTool ignores input format when action is generate', a
 // ── imageGenerationServerTool: per-response dispatch budget (B) ──
 
 test('image dispatch budget caps real backend calls per response, not ReAct turns', async () => {
-  const result = await imageGenerationServerTool(makeCtx({ tools: [{ type: 'image_generation', action: 'generate' }] }), REQ);
+  const result = await imageGenerationServerTool(makeCtx({ tools: [{ type: 'image_generation', action: 'generate' }] }), request());
   assert(result.type === 'active' && result.hosted !== undefined);
   const dispatch = result.hosted.dispatcher;
   const intercepted = { callId: 'c', name: SHIM_TOOL_NAME, argumentsJson: '{}', arguments: { prompt: 'x' } };

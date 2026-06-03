@@ -5,6 +5,7 @@ import { stripUnsupportedPartFieldsFromPayload } from './strip-unsupported-part-
 import { stripUnsupportedToolsFromPayload } from './strip-unsupported-tools.ts';
 import { assertEquals } from '../../../../../test-assert.ts';
 import type { GeminiInvocation, RequestContext } from '../../../interceptors.ts';
+import { createHttpStatefulResponsesStore } from '../../responses/stateful-store.ts';
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
 
 const testTelemetryModelIdentity = {
@@ -29,8 +30,9 @@ const invocation = (payload: GeminiPayload): GeminiInvocation => ({
 const stubRequest: RequestContext = {
   requestStartedAt: 0,
   apiKeyUpstreamIds: null,
-  statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },  runtimeLocation: 'test',
+  runtimeLocation: 'test',
   clientStream: false,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
 };
 
 const runStripSafetySettings = async (payload: GeminiPayload): Promise<void> => {

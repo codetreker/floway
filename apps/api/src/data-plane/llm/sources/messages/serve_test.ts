@@ -349,6 +349,7 @@ test('/v1/messages rewrites stored Responses reasoning signatures before the ups
       upstreamItemId: 'raw_rs_messages',
       itemType: 'reasoning',
       origin: 'upstream',
+      contentHash: null,
       encryptedContentHash: null,
       payload: { item: { ...storedItem, id } },
       createdAt: Date.now(),

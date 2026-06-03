@@ -1,5 +1,4 @@
-import { createStoredResponsesItemId, hashResponsesItemEncryptedContent, responsesItemEncryptedContent, responsesItemId } from './format.ts';
-import { getRepo } from '../../../../../repo/index.ts';
+import { createStoredResponsesItemId, hashResponsesItemContent, hashResponsesItemEncryptedContent, responsesItemEncryptedContent, responsesItemId } from './format.ts';
 import type { StoredResponsesItem } from '../../../../../repo/types.ts';
 import type { LlmTargetApi, RequestContext } from '../../../interceptors.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
@@ -48,6 +47,7 @@ export interface StoreResponsesContext {
   readonly targetApi: LlmTargetApi;
   readonly upstream: string;
   readonly store: boolean | null | undefined;
+  readonly commitSnapshot?: boolean;
 }
 
 // Flushes the rows buffered during a non-streaming drain. Streaming has no
@@ -68,6 +68,7 @@ export const storeResponsesOutputItems = <TFrame>(
   wantsStream: boolean,
 ): StoredResponsesItemsStream<TFrame> => {
   const upstreamToStored = new Map<string, string>();
+  const statefulResponsesStore = request.statefulResponsesStore;
 
   // An upstream id that happens to parse as a gateway stored id is not
   // special-cased: `request-plan.ts` rewrites our stored ids away before the
@@ -83,61 +84,112 @@ export const storeResponsesOutputItems = <TFrame>(
     return storedId;
   };
 
-  // Opportunistic and read-after-write: the insert is awaited so a caller that
-  // has exposed the stored id can reference the row, but its failure is logged
-  // and swallowed so storage never sinks an already-billable response.
-  const insertStoredItems = async (rows: readonly StoredResponsesItem[]): Promise<void> => {
-    if (rows.length === 0) return;
+  const commitStoredItems = async (): Promise<void> => {
     try {
-      await getRepo().responsesItems.insertMany(rows);
+      await statefulResponsesStore.commitOutputItems();
     } catch (error) {
       console.error('Failed to persist stored Responses items:', error);
     }
   };
-
-  const buffer: StoredResponsesItem[] = [];
-
-  const buildRow = async (newId: string, originalItem: ResponsesInputItem): Promise<StoredResponsesItem> => {
-    const upstreamId = responsesItemId(originalItem);
-    if (upstreamId === null) {
-      throw new Error(`Cannot persist Responses item without an upstream id (newId=${newId}, type=${originalItem.type})`);
+  const commitSnapshot = async (responseId: string): Promise<void> => {
+    try {
+      await statefulResponsesStore.commitSnapshot(responseId);
+    } catch (error) {
+      console.error('Failed to persist stored Responses snapshot:', error);
     }
-    // A native Responses upstream owns its items — except those a source
-    // interceptor synthesized this request, whose gateway-minted ids the
-    // upstream never issued. Those persist with no upstream identity so they
-    // stay non_affinity.
-    const upstreamOwned = context.targetApi === 'responses' && !request.statefulResponsesContext.newSyntheticIds.has(upstreamId);
-    const encryptedContent = responsesItemEncryptedContent(originalItem);
-    // Source interceptors register the per-item server-only payload under the
-    // wire id transformItems sees; the same id is `upstreamId` here. Attaching
-    // it lets a later turn restore the real success/failure state even when the
-    // client stripped fields from the echoed wire item.
-    const privatePayload = request.statefulResponsesContext.privatePayload.get(upstreamId);
-    const persistedPayload = privatePayload !== undefined ? { item: originalItem, private: privatePayload } : { item: originalItem };
-    const now = Date.now();
-    return {
-      id: newId,
-      apiKeyId: request.apiKeyId ?? null,
-      upstreamId: upstreamOwned ? context.upstream : null,
-      upstreamItemId: upstreamOwned ? upstreamId : null,
-      itemType: originalItem.type,
-      origin: upstreamOwned ? 'upstream' : 'synthetic',
-      payload: context.store === false ? null : persistedPayload,
-      encryptedContentHash: encryptedContent === null ? null : await hashResponsesItemEncryptedContent(encryptedContent),
-      createdAt: now,
-      refreshedAt: now,
-    };
   };
 
   const onItemFinalized: ResponsesItemFinalizedHandler = async (originalItem, newId) => {
-    const row = await buildRow(newId, originalItem);
-    if (wantsStream) await insertStoredItems([row]);
-    else buffer.push(row);
+    const row = await buildRow(newId, originalItem, context, request);
+    statefulResponsesStore.stageOutputItem(row);
+    if (wantsStream) await commitStoredItems();
   };
 
   // Streaming writes each row at its done frame, so there is nothing to flush;
   // only a non-streaming drain buffers rows for a single commit at the end.
-  const commitForNonStreaming = wantsStream ? undefined : (): Promise<void> => insertStoredItems(buffer);
+  let terminalResponseId: string | null = null;
+  const commitForNonStreaming = wantsStream
+    ? undefined
+    : async (): Promise<void> => {
+      await commitStoredItems();
+      if (context.commitSnapshot && terminalResponseId !== null) await commitSnapshot(terminalResponseId);
+    };
 
-  return { events: view.streamMapIdAsResponsesItems(frames, idMapper, onItemFinalized), commitForNonStreaming };
+  const events = commitSnapshotFromTerminal(
+    view.streamMapIdAsResponsesItems(frames, idMapper, onItemFinalized),
+    context,
+    wantsStream,
+    id => { terminalResponseId = id; },
+    commitSnapshot,
+  );
+
+  return { events, commitForNonStreaming };
+};
+
+const buildRow = async (
+  newId: string,
+  originalItem: ResponsesInputItem,
+  context: StoreResponsesContext,
+  request: RequestContext,
+): Promise<StoredResponsesItem> => {
+  const upstreamId = responsesItemId(originalItem);
+  if (upstreamId === null) {
+    throw new Error(`Cannot persist Responses item without an upstream id (newId=${newId}, type=${originalItem.type})`);
+  }
+  // A native Responses upstream owns its items — except those a source
+  // interceptor synthesized this request, whose gateway-minted ids the
+  // upstream never issued. Those persist with no upstream identity so they
+  // stay non_affinity.
+  const statefulResponsesStore = request.statefulResponsesStore;
+  const upstreamOwned = context.targetApi === 'responses' && !statefulResponsesStore.isSyntheticItem(upstreamId);
+  const encryptedContent = responsesItemEncryptedContent(originalItem);
+  // Source interceptors register the per-item server-only payload under the
+  // wire id transformItems sees; the same id is `upstreamId` here. Attaching
+  // it lets a later turn restore the real success/failure state even when the
+  // client stripped fields from the echoed wire item.
+  const privatePayload = statefulResponsesStore.getPrivatePayload(upstreamId);
+  const persistedPayload = privatePayload !== undefined ? { item: originalItem, private: privatePayload } : { item: originalItem };
+  const now = Date.now();
+  return {
+    id: newId,
+    apiKeyId: request.apiKeyId ?? null,
+    upstreamId: upstreamOwned ? context.upstream : null,
+    upstreamItemId: upstreamOwned ? upstreamId : null,
+    itemType: originalItem.type,
+    origin: upstreamOwned ? 'upstream' : 'synthetic',
+    payload: context.store === false ? null : persistedPayload,
+    contentHash: await hashResponsesItemContent(originalItem),
+    encryptedContentHash: encryptedContent === null ? null : await hashResponsesItemEncryptedContent(encryptedContent),
+    createdAt: now,
+    refreshedAt: now,
+  };
+};
+
+const commitSnapshotFromTerminal = async function* <TFrame>(
+  frames: AsyncIterable<TFrame>,
+  context: StoreResponsesContext,
+  wantsStream: boolean,
+  rememberTerminalResponseId: (id: string) => void,
+  commitSnapshot: (id: string) => Promise<void>,
+): AsyncGenerator<TFrame> {
+  for await (const frame of frames) {
+    const responseId = terminalResponseId(frame);
+    if (responseId !== null) {
+      rememberTerminalResponseId(responseId);
+      if (wantsStream && context.commitSnapshot) await commitSnapshot(responseId);
+    }
+    yield frame;
+  }
+};
+
+const terminalResponseId = (frame: unknown): string | null => {
+  if (!frame || typeof frame !== 'object' || (frame as { type?: unknown }).type !== 'event') return null;
+  const event = (frame as { event?: unknown }).event;
+  if (!event || typeof event !== 'object') return null;
+  const eventType = (event as { type?: unknown }).type;
+  if (eventType !== 'response.completed' && eventType !== 'response.incomplete' && eventType !== 'response.failed') return null;
+  const response = (event as { response?: unknown }).response;
+  if (!response || typeof response !== 'object') return null;
+  const id = (response as { id?: unknown }).id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
 };

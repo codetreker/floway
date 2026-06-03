@@ -13,10 +13,12 @@ import type {
   PerformanceTelemetryRecord,
   Repo,
   ResponsesItemsRepo,
+  ResponsesSnapshotsRepo,
   SearchConfigRepo,
   SearchUsageRecord,
   SearchUsageRepo,
   StoredResponsesItem,
+  StoredResponsesSnapshot,
   UpstreamRecord,
   UpstreamRepo,
   UsageRecord,
@@ -425,7 +427,19 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
         rows.push(cloneStoredResponsesItem(row));
       }
     }
-    return Promise.resolve(rows.toSorted((a, b) => b.refreshedAt - a.refreshedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id)));
+    return Promise.resolve(rows.toSorted(compareResponsesItemsByFreshness));
+  }
+
+  lookupManyByContentHash(apiKeyId: string | null, hashes: readonly string[]): Promise<StoredResponsesItem[]> {
+    const wanted = new Set(hashes);
+    if (wanted.size === 0) return Promise.resolve([]);
+    const rows: StoredResponsesItem[] = [];
+    for (const row of this.store.values()) {
+      if (row.apiKeyId === apiKeyId && row.contentHash !== null && wanted.has(row.contentHash)) {
+        rows.push(cloneStoredResponsesItem(row));
+      }
+    }
+    return Promise.resolve(rows.toSorted(compareResponsesItemsByFreshness));
   }
 
   insertMany(items: readonly StoredResponsesItem[]): Promise<void> {
@@ -435,6 +449,22 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
       this.store.set(key, cloneStoredResponsesItem(item));
     }
     return Promise.resolve();
+  }
+
+  fillPayloads(items: readonly StoredResponsesItem[]): Promise<number> {
+    let changes = 0;
+    for (const item of items) {
+      if (item.payload === null) continue;
+      const existing = this.store.get(responsesItemStoreKey(item.apiKeyId, item.id));
+      if (existing?.payload !== null) continue;
+      existing.payload = structuredClone(item.payload);
+      existing.contentHash = item.contentHash;
+      existing.encryptedContentHash = item.encryptedContentHash;
+      existing.createdAt = item.createdAt;
+      existing.refreshedAt = Math.max(existing.refreshedAt, item.refreshedAt);
+      changes += 1;
+    }
+    return Promise.resolve(changes);
   }
 
   refreshMany(apiKeyId: string | null, ids: readonly string[], refreshedAt: number): Promise<number> {
@@ -482,6 +512,51 @@ const cloneStoredResponsesItem = (item: StoredResponsesItem): StoredResponsesIte
   payload: item.payload === null ? null : structuredClone(item.payload),
 });
 
+class MemoryResponsesSnapshotsRepo implements ResponsesSnapshotsRepo {
+  private store = new Map<string, StoredResponsesSnapshot>();
+
+  lookup(apiKeyId: string | null, id: string): Promise<StoredResponsesSnapshot | null> {
+    const snapshot = this.store.get(responsesItemStoreKey(apiKeyId, id));
+    return Promise.resolve(snapshot ? cloneStoredResponsesSnapshot(snapshot) : null);
+  }
+
+  insert(snapshot: StoredResponsesSnapshot): Promise<void> {
+    this.store.set(responsesItemStoreKey(snapshot.apiKeyId, snapshot.id), cloneStoredResponsesSnapshot(snapshot));
+    return Promise.resolve();
+  }
+
+  refresh(apiKeyId: string | null, id: string, refreshedAt: number): Promise<boolean> {
+    const snapshot = this.store.get(responsesItemStoreKey(apiKeyId, id));
+    if (!snapshot || snapshot.refreshedAt >= refreshedAt) return Promise.resolve(false);
+    snapshot.refreshedAt = refreshedAt;
+    return Promise.resolve(true);
+  }
+
+  deleteOlderThan(refreshedBefore: number): Promise<number> {
+    let changes = 0;
+    for (const [key, snapshot] of this.store) {
+      if (snapshot.refreshedAt < refreshedBefore) {
+        this.store.delete(key);
+        changes += 1;
+      }
+    }
+    return Promise.resolve(changes);
+  }
+
+  deleteAll(): Promise<void> {
+    this.store.clear();
+    return Promise.resolve();
+  }
+}
+
+const cloneStoredResponsesSnapshot = (snapshot: StoredResponsesSnapshot): StoredResponsesSnapshot => ({
+  ...snapshot,
+  itemIds: [...snapshot.itemIds],
+});
+
+const compareResponsesItemsByFreshness = (a: StoredResponsesItem, b: StoredResponsesItem): number =>
+  b.refreshedAt - a.refreshedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+
 const responsesItemStoreKey = (apiKeyId: string | null, id: string): string => `${apiKeyId ?? ''}\0${id}`;
 
 export class InMemoryRepo implements Repo {
@@ -493,6 +568,7 @@ export class InMemoryRepo implements Repo {
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
   responsesItems: ResponsesItemsRepo;
+  responsesSnapshots: ResponsesSnapshotsRepo;
 
   constructor() {
     this.apiKeys = new MemoryApiKeyRepo();
@@ -503,5 +579,6 @@ export class InMemoryRepo implements Repo {
     this.searchConfig = new MemorySearchConfigRepo();
     this.upstreams = new MemoryUpstreamRepo();
     this.responsesItems = new MemoryResponsesItemsRepo();
+    this.responsesSnapshots = new MemoryResponsesSnapshotsRepo();
   }
 }

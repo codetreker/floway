@@ -6,14 +6,16 @@ import { assertEquals } from '../../../../../test-assert.ts';
 import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
 import { runInterceptors, type MessagesInvocation, type RequestContext } from '../../../../llm/interceptors.ts';
 import { eventResult, type ExecuteResult } from '../../../../llm/shared/errors/result.ts';
+import { createHttpStatefulResponsesStore } from '../../../../llm/sources/responses/stateful-store.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 
 const stubRequest: RequestContext = {
   requestStartedAt: 0,
   apiKeyUpstreamIds: null,
-  statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },  runtimeLocation: 'test',
+  runtimeLocation: 'test',
   clientStream: false,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
 };
 
 const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> =>

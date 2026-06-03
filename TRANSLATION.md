@@ -333,9 +333,9 @@ Known losses:
 
 - generic Responses `metadata` is omitted; it is not coerced into
   `metadata.user_id`.
-- `previous_response_id` and response-level Responses state are not emulated on
-  translated Messages paths. Responses item ids are handled by the API data
-  plane's stored-item layer, not by the pure translation package alone.
+- Pure Responses-to-Messages translation does not own response-level state.
+  The API data plane expands `previous_response_id` and stored item ids before
+  invoking this translator.
 - Freeform `custom` tool `format.definition` is preserved as a
   `Lark grammar: ${definition}` description on the wrapped `input` parameter;
   other `format` fields are not preserved.
@@ -500,9 +500,9 @@ Known losses:
 
 - Responses request-level `reasoning` has no Chat request counterpart except
   explicit effort.
-- `previous_response_id` and response-level Responses state are not emulated on
-  translated Chat paths. Responses item ids are handled by the API data plane's
-  stored-item layer, with readable reasoning ids carried through
+- Pure Responses-to-Chat translation does not own response-level state. The API
+  data plane expands `previous_response_id` and stored item ids before invoking
+  this translator, with readable reasoning ids then carried through
   `reasoning_items[]`.
 - Freeform `custom` tool `format.definition` is preserved as a
   `Lark grammar: ${definition}` description on the wrapped `input` parameter;

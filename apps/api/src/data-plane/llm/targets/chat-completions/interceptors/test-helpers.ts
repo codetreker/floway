@@ -1,5 +1,6 @@
 import { stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '../../../../../test-helpers.ts';
 import type { ChatCompletionsInvocation, RequestContext } from '../../../interceptors.ts';
+import { createHttpStatefulResponsesStore } from '../../../sources/responses/stateful-store.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 
 export { stubProvider, stubUpstreamModel, testTelemetryModelIdentity };
@@ -19,6 +20,7 @@ export const chatCompletionsInvocation = (payload: ChatCompletionsPayload, enabl
 export const stubRequestContext: RequestContext = {
   requestStartedAt: 0,
   apiKeyUpstreamIds: null,
-  statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },  runtimeLocation: 'test',
+  runtimeLocation: 'test',
   clientStream: false,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
 };

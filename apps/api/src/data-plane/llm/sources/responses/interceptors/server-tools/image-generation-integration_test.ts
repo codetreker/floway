@@ -1,8 +1,11 @@
 import { beforeEach, test, vi } from 'vitest';
 
+import { initRepo } from '../../../../../../repo/index.ts';
+import { InMemoryRepo } from '../../../../../../repo/memory.ts';
 import { assert, assertEquals } from '../../../../../../test-assert.ts';
 import type { RequestContext, ResponsesInvocation } from '../../../../interceptors.ts';
 import type { EventResult, ExecuteResult } from '../../../../shared/errors/result.ts';
+import { createHttpStatefulResponsesStore } from '../../stateful-store.ts';
 import { eventFrame } from '@floway-dev/protocols/common';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
@@ -116,7 +119,13 @@ const makeCtx = (input: unknown[], action: 'generate' | 'edit' | 'auto' = 'auto'
   enabledFlags: new Set<string>(['responses-image-generation-shim']), headers: {},
   payload: { model: 'orchestrator', input, tools: [{ type: 'image_generation', action, ...extraTool }] } as never,
 });
-const REQ = { requestStartedAt: 0, apiKeyUpstreamIds: null, runtimeLocation: 'test', clientStream: true, statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() } } as RequestContext;
+const request = (): RequestContext => ({
+  requestStartedAt: 0,
+  apiKeyUpstreamIds: null,
+  runtimeLocation: 'test',
+  clientStream: true,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
+});
 
 const drain = async (result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>): Promise<ResponsesStreamEvent[]> => {
   if (result.type !== 'events') throw new Error(`expected events, got ${result.type}`);
@@ -126,6 +135,7 @@ const drain = async (result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>)
 };
 
 beforeEach(() => {
+  initRepo(new InMemoryRepo());
   stub.generationsCalls = [];
   stub.editsForms = [];
   stub.nextGenerations = [];
@@ -134,7 +144,7 @@ beforeEach(() => {
 
 test('generates an image end-to-end and emits the native lifecycle', async () => {
   stub.nextGenerations = [jsonResponse('R0VO')]; // "GEN"
-  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw a cat' }]), REQ, scriptedRun([
+  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw a cat' }]), request(), scriptedRun([
     callTurn(0, 'call_1', 'a cat'),
     messageTurn('here it is'),
   ]));
@@ -156,7 +166,7 @@ test('relays real partial_image frames when partial_images > 0', async () => {
     JSON.stringify({ type: 'image_generation.partial_image', partial_image_index: 1, b64_json: 'UDE=' }),
     JSON.stringify({ type: 'image_generation.completed', b64_json: 'RklO' }),
   ])];
-  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw a cat' }], 'auto', { partial_images: 2 }), REQ, scriptedRun([
+  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw a cat' }], 'auto', { partial_images: 2 }), request(), scriptedRun([
     callTurn(0, 'call_1', 'a cat'),
     messageTurn('done'),
   ]));
@@ -177,7 +187,7 @@ test('an image generated in turn 1 is re-collected as an edit source in turn 2',
   // a frozen registration-time snapshot.
   stub.nextGenerations = [jsonResponse('QUFBQQ==')]; // "AAAA"
   stub.nextEdits = [jsonResponse('QkJCQg==')]; // "BBBB"
-  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw then border it' }]), REQ, scriptedRun([
+  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw then border it' }]), request(), scriptedRun([
     callTurn(0, 'call_1', 'a cat'),
     callTurn(0, 'call_2', 'add a black border'),
     messageTurn('done'),
@@ -199,7 +209,7 @@ test('retries on 429 and surfaces the eventual success', async () => {
     rateLimitResponse(1),
     jsonResponse('T0s='),
   ];
-  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw' }]), REQ, scriptedRun([
+  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw' }]), request(), scriptedRun([
     callTurn(0, 'call_1', 'a cat'),
     messageTurn('done'),
   ]));
@@ -220,7 +230,7 @@ test('gives up after MAX_RATE_LIMIT_RETRIES on persistent 429 and surfaces a fai
     rateLimitResponse(1),
     rateLimitResponse(1),
   ];
-  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw' }]), REQ, scriptedRun([
+  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw' }]), request(), scriptedRun([
     callTurn(0, 'call_1', 'a cat'),
     messageTurn('sorry'),
   ]));
@@ -242,7 +252,7 @@ test('does not retry non-rate-limit upstream failures', async () => {
       { status: 400, headers: { 'content-type': 'application/json' } },
     ),
   ];
-  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw' }]), REQ, scriptedRun([
+  const result = await shim(makeCtx([{ type: 'message', role: 'user', content: 'draw' }]), request(), scriptedRun([
     callTurn(0, 'call_1', 'a cat'),
     messageTurn('sorry'),
   ]));

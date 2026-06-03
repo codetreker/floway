@@ -29,6 +29,7 @@ import type {
 } from '../../../../tools/web-search/types.ts';
 import type { RequestContext, ResponsesInterceptor, ResponsesInvocation } from '../../../interceptors.ts';
 import type { EventResult, ExecuteResult } from '../../../shared/errors/result.ts';
+import { createHttpStatefulResponsesStore } from '../stateful-store.ts';
 import { eventFrame } from '@floway-dev/protocols/common';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type {
@@ -327,14 +328,17 @@ const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocatio
   } as ResponsesPayload,
 });
 
-const makeRequest = (apiKeyId: string | undefined = 'k1'): RequestContext => ({
-  requestStartedAt: 0,
-  apiKeyUpstreamIds: null,
-  statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },
-  runtimeLocation: 'test',
-  clientStream: true,
-  ...(apiKeyId !== undefined ? { apiKeyId } : {}),
-});
+const makeRequest = (apiKeyId: string | undefined = 'k1'): RequestContext => {
+  const statefulResponsesStore = createHttpStatefulResponsesStore(apiKeyId ?? null, undefined);
+  return {
+    requestStartedAt: 0,
+    apiKeyUpstreamIds: null,
+    runtimeLocation: 'test',
+    clientStream: true,
+    statefulResponsesStore,
+    ...(apiKeyId !== undefined ? { apiKeyId } : {}),
+  };
+};
 
 const collectFrames = async <T>(iter: AsyncIterable<T>): Promise<T[]> => {
   const out: T[] = [];
@@ -650,14 +654,15 @@ test('synthesized web_search_call ids are registered as gateway-synthetic on the
   // them with no upstream identity (non_affinity).
   const doneEvents = outputItemDoneEvents(frames);
   const wsCallDoneIds = doneEvents.filter(e => e.item.type === 'web_search_call').map(e => e.item.id!);
+  const store = request.statefulResponsesStore;
   assert(wsCallDoneIds.length > 0, 'expected a synthesized web_search_call');
   for (const id of wsCallDoneIds) {
     assert(id.startsWith('ws_gw_'));
-    assert(request.statefulResponsesContext.newSyntheticIds.has(id), `expected ${id} registered as synthetic`);
+    assert(store.isSyntheticItem(id), `expected ${id} registered as synthetic`);
   }
   // A genuine upstream item (the final message) is not registered.
   for (const e of doneEvents.filter(e => e.item.type === 'message')) {
-    assertFalse(request.statefulResponsesContext.newSyntheticIds.has(e.item.id!));
+    assertFalse(store.isSyntheticItem(e.item.id!));
   }
 });
 
@@ -4472,9 +4477,9 @@ test('downstream AbortSignal threads through to provider search / fetchPage and 
   const request: RequestContext = {
     requestStartedAt: 0,
     apiKeyUpstreamIds: null,
-    statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },
     runtimeLocation: 'test',
     clientStream: true,
+    statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
     apiKeyId: 'k1',
     downstreamAbortSignal: controller.signal,
   };

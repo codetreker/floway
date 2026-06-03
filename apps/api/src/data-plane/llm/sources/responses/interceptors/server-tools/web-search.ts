@@ -673,7 +673,7 @@ const renderOpOutputText = (action: ResponsesWebSearchAction, results: Responses
 export const transformInputItemsForWebSearch = (
   input: ResponsesInputItem[],
   toolName: string,
-  privatePayloads?: ReadonlyMap<string, unknown>,
+  getPrivatePayload?: (id: string) => unknown,
 ): ResponsesInputItem[] => {
   const out: ResponsesInputItem[] = [];
 
@@ -683,7 +683,7 @@ export const transformInputItemsForWebSearch = (
       continue;
     }
 
-    const candidatePayload = item.id !== undefined ? privatePayloads?.get(item.id) : undefined;
+    const candidatePayload = item.id !== undefined ? getPrivatePayload?.(item.id) : undefined;
     if (isWebSearchCallPrivatePayload(candidatePayload)) {
       out.push(
         candidatePayload.functionCallItem,
@@ -1334,7 +1334,7 @@ export const webSearchServerTool: ServerToolRegistration = (ctx, request) => {
   return {
     type: 'active',
     baseToolName: SHIM_TOOL_NAME,
-    transformItems: (items, toolName) => transformInputItemsForWebSearch(items, toolName, request.statefulResponsesContext.privatePayload),
+    transformItems: (items, toolName) => transformInputItemsForWebSearch(items, toolName, id => request.statefulResponsesStore.getPrivatePayload(id)),
     ...(hasHostedWebSearch
       ? {
           hosted: {

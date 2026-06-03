@@ -1,6 +1,6 @@
 // Data transfer routes — export/import operator-managed database data as JSON.
-// Ephemeral stored Responses items are omitted from exports and cleared on
-// replace imports; clients can regenerate them through normal Responses use.
+// Ephemeral stored Responses state is omitted from exports and cleared on
+// replace imports; clients can regenerate it through normal Responses use.
 
 import { parseFlagOverridesWire } from '../../data-plane/providers/flags.ts';
 import { invalidateModelsStore } from '../../data-plane/providers/models-store.ts';
@@ -467,7 +467,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     // prepared statements. A failure between the deleteAll wave and the per-record save loop
     // leaves the deployment partially wiped. Operators should back up before running replace mode.
     const existingUpstreams = await repo.upstreams.list();
-    const deletes = [repo.apiKeys.deleteAll(), repo.usage.deleteAll(), repo.searchUsage.deleteAll(), repo.upstreams.deleteAll(), repo.responsesItems.deleteAll()];
+    const deletes = [repo.apiKeys.deleteAll(), repo.usage.deleteAll(), repo.searchUsage.deleteAll(), repo.upstreams.deleteAll(), repo.responsesSnapshots.deleteAll(), repo.responsesItems.deleteAll()];
     if (performanceIncluded) deletes.push(repo.performance.deleteAll());
     await Promise.all(deletes);
     await Promise.all([...existingUpstreams, ...upstreams].map(upstream => invalidateModelsStore(upstream.id)));

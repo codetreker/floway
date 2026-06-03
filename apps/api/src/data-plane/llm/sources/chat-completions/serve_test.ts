@@ -81,6 +81,7 @@ test('/v1/chat/completions rewrites stored Responses reasoning_items before the 
       upstreamItemId: 'raw_rs_chat',
       itemType: 'reasoning',
       origin: 'upstream',
+      contentHash: null,
       encryptedContentHash: null,
       payload: { item: { ...storedItem, id } },
       createdAt: Date.now(),

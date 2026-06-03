@@ -3,6 +3,7 @@ import { test } from 'vitest';
 import {
   createStoredResponsesItemId,
   createTemporaryResponsesItemId,
+  hashResponsesItemContent,
   isStoredResponsesItemId,
 } from './format.ts';
 import { assert, assertFalse, assertThrows } from '../../../../../test-assert.ts';
@@ -75,4 +76,11 @@ test('temporary ids use the item prefix without becoming stored ids', () => {
   const temporary = createTemporaryResponsesItemId('reasoning');
   assert(/^rs_tmp_[A-Za-z0-9_-]{22}$/.test(temporary), temporary);
   assertFalse(isStoredResponsesItemId(temporary));
+});
+
+test('input content hashing includes the item id', async () => {
+  const first = await hashResponsesItemContent({ type: 'message', id: 'msg_a', role: 'user', content: 'same' });
+  const second = await hashResponsesItemContent({ type: 'message', id: 'msg_b', role: 'user', content: 'same' });
+
+  assertFalse(first === second);
 });

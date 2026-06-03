@@ -417,7 +417,7 @@ test('transformInputItemsForWebSearch replays the upstream function_call verbati
   const out = transformInputItemsForWebSearch(
     [{ type: 'web_search_call', id: 'ws_xxx_abc' }],
     'web_search',
-    map,
+    id => map.get(id),
   );
   assertEquals(out.length, 2);
   const [fc, fco] = out as [{ type: string; name: string; arguments: string; call_id: string }, { type: string; output: string; call_id: string }];
@@ -445,7 +445,7 @@ test('transformInputItemsForWebSearch replays each echoed wsc independently (one
       { type: 'web_search_call', id: 'ws_two' },
     ],
     'web_search',
-    map,
+    id => map.get(id),
   );
   assertEquals(out.length, 4);
   const callIds = out.map(it => (it as { call_id?: unknown }).call_id).filter((id): id is string => typeof id === 'string');
@@ -491,7 +491,7 @@ test('transformInputItemsForWebSearch ignores a stashed value with the wrong sch
   const out = transformInputItemsForWebSearch(
     [{ type: 'web_search_call', id: 'ws_xxx_abc', action: { type: 'search', queries: ['q'] } }],
     'web_search',
-    map,
+    id => map.get(id),
   );
   const fco = out[1] as { type: string; output: string };
   assertEquals(fco.output, 'Prior search results were not preserved in the conversation history. Call web_search again if you need them.');

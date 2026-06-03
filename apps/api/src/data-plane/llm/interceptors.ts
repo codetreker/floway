@@ -1,6 +1,7 @@
 import type { BackgroundScheduler } from '../../runtime/background.ts';
 import type { ModelProvider, ProviderTargetInterceptors, UpstreamModel } from '../providers/types.ts';
 import type { ExecuteResult } from './shared/errors/result.ts';
+import type { StatefulResponsesStore } from './sources/responses/stateful-store.ts';
 import type { ChatCompletionsStreamEvent, ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiPayload, GeminiStreamEvent } from '@floway-dev/protocols/gemini';
@@ -12,35 +13,10 @@ export type LlmSourceApi = 'messages' | 'responses' | 'chat-completions' | 'gemi
 export type LlmTargetApi = 'messages' | 'responses' | 'chat-completions';
 
 /**
- * Per-attempt bag the Responses pipeline uses to thread server-tool shim
- * state across layers (source serve → source interceptors → persistence)
- * within a single provider-binding attempt. The whole bag is reassigned at
- * the top of every attempt, so a failed attempt's writes don't leak forward.
- *
- * - `privatePayload`: wire item id → shim-defined opaque blob, round-tripped
- *   verbatim by persistence as `payload.private`. The shape is shim-specific.
- * - `newSyntheticIds`: gateway-minted item ids no upstream issued, persisted
- *   as non_affinity.
- */
-export interface StatefulResponsesContext {
-  readonly privatePayload: Map<string, unknown>;
-  readonly newSyntheticIds: Set<string>;
-}
-
-/**
  * Per client request scope. Constructed once in `createHttpRequestContext` and
  * threaded through every layer (source interceptors, target emits, target
- * interceptors, telemetry). Holds both immutable identities/adapters and
- * mutable per-request bags that cross-layer producers and consumers share.
- *
- * Anything that varies per provider-binding attempt belongs on `Invocation`,
- * not here. `statefulResponsesContext` is the one exception: the serve loop
- * reassigns it per attempt so cross-layer readers outside `Invocation`
- * plumbing (output persistence, source-interceptor `transformItems`) reach it
- * via the only handle they have. Read it through
- * `request.statefulResponsesContext` at access time; never capture the
- * inner object in a closure or background task — that snapshot belongs to
- * one attempt only.
+ * interceptors, telemetry). Holds immutable identities/adapters plus the
+ * Responses state store that owns mutable request and provider-attempt state.
  *
  * Telemetry recording is done via global helpers that accept `apiKeyId` (and
  * `scheduleBackground` for performance) explicitly so call sites stay visible
@@ -55,7 +31,7 @@ export interface RequestContext {
   readonly scheduleBackground?: BackgroundScheduler;
   readonly downstreamAbortSignal?: AbortSignal;
   readonly clientStream: boolean;
-  statefulResponsesContext: StatefulResponsesContext;
+  statefulResponsesStore: StatefulResponsesStore;
 }
 
 /**

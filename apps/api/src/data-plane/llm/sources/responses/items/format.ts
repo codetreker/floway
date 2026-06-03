@@ -80,6 +80,11 @@ export const hashResponsesItemEncryptedContent = async (encryptedContent: string
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 };
 
+export const hashResponsesItemContent = async (item: ResponsesInputItem): Promise<string> => {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stableJson(item)));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+};
+
 export const createTemporaryResponsesItemId = (itemType: string): string => `${prefixForItemType(itemType)}_tmp_${randomBody()}`;
 
 const prefixForItemType = (itemType: string): string => {
@@ -103,4 +108,17 @@ const base64UrlEncode = (bytes: Uint8Array): string => {
 const crc32Checksum = (input: string): string => {
   const crc = crc32(new TextEncoder().encode(input)) >>> 0;
   return base64UrlEncode(new Uint8Array([(crc >>> 24) & 0xff, (crc >>> 16) & 0xff, (crc >>> 8) & 0xff, crc & 0xff]));
+};
+
+const stableJson = (value: unknown): string => JSON.stringify(sortJson(value));
+
+const sortJson = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => [key, sortJson(entry)]),
+  );
 };

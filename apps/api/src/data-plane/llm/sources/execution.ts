@@ -1,5 +1,4 @@
 import { listModelProviders, resolveModelForProvider } from '../../providers/registry.ts';
-import { responsesItemId } from './responses/items/format.ts';
 import { type ResponsesItemsCommit, storeResponsesOutputItems } from './responses/items/output.ts';
 import {
   planResponsesItemProviders,
@@ -12,8 +11,16 @@ export const executeLlmSourcePlan = async <TItems, TEvent>(
   plan: LlmEndpointPlan<TItems, TEvent>,
   renderFailure: (failure: LlmServeFailure) => Result<TEvent>,
 ): Promise<{ result: Result<TEvent>; commitForNonStreaming?: ResponsesItemsCommit }> => {
-  const prepared = await prepareStoredResponsesItemsForSource(plan.items, plan.request.apiKeyId ?? null, plan.responsesItemsView);
+  const statefulResponsesStore = plan.request.statefulResponsesStore;
+  await statefulResponsesStore.loadInputItems({
+    sourceItems: plan.items,
+    view: plan.responsesItemsView,
+    ...(plan.statefulResponsesInputItems !== undefined ? { inputItemsToStage: plan.statefulResponsesInputItems } : {}),
+  });
+  const prepared = await prepareStoredResponsesItemsForSource(plan.items, plan.responsesItemsView, statefulResponsesStore);
   if (prepared.failures[0]) return { result: renderFailure(prepared.failures[0]) };
+  if (plan.statefulResponsesInputItems !== undefined) await statefulResponsesStore.stageInputItems(plan.statefulResponsesInputItems);
+  await statefulResponsesStore.refreshTouchedItems();
 
   const providerPlan = planResponsesItemProviders(await listModelProviders(plan.request.apiKeyUpstreamIds), prepared);
   if (providerPlan.type === 'failure') return { result: renderFailure(providerPlan.failure) };
@@ -28,13 +35,7 @@ export const executeLlmSourcePlan = async <TItems, TEvent>(
     const target = plan.pickTarget(binding.upstreamModel.endpoints);
     if (!target) continue;
 
-    plan.request.statefulResponsesContext = {
-      privatePayload: new Map(prepared.references.flatMap(ref => {
-        const wireId = ref.row?.payload && responsesItemId(ref.row.payload.item as { id?: unknown });
-        return wireId && ref.row?.payload?.private !== undefined ? [[wireId, ref.row.payload.private] as const] : [];
-      })),
-      newSyntheticIds: new Set(),
-    };
+    statefulResponsesStore.beginAttempt(prepared.references);
 
     const rawResult = await plan.attempt({
       binding,
@@ -44,7 +45,12 @@ export const executeLlmSourcePlan = async <TItems, TEvent>(
     });
     if (rawResult.type !== 'events') return { result: rawResult };
 
-    const stored = storeResponsesOutputItems(rawResult.events, plan.responsesItemsView, { targetApi: target, upstream: binding.upstream, store: plan.store }, plan.request, plan.wantsStream);
+    const stored = storeResponsesOutputItems(rawResult.events, plan.responsesItemsView, {
+      targetApi: target,
+      upstream: binding.upstream,
+      store: plan.store,
+      commitSnapshot: plan.commitStatefulResponsesSnapshot === true,
+    }, plan.request, plan.wantsStream);
     return { result: { ...rawResult, events: stored.events }, commitForNonStreaming: stored.commitForNonStreaming };
   }
 

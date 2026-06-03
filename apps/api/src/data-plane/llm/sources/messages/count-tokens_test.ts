@@ -238,6 +238,7 @@ test('/v1/messages/count_tokens rewrites stored Responses reasoning signatures b
       upstreamItemId: 'raw_rs_count',
       itemType: 'reasoning',
       origin: 'upstream',
+      contentHash: null,
       encryptedContentHash: null,
       payload: { item: { ...storedItem, id } },
       createdAt: Date.now(),

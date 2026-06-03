@@ -13,10 +13,12 @@ import type {
   PerformanceTelemetryRecord,
   Repo,
   ResponsesItemsRepo,
+  ResponsesSnapshotsRepo,
   SearchConfigRepo,
   SearchUsageRecord,
   SearchUsageRepo,
   StoredResponsesItem,
+  StoredResponsesSnapshot,
   UpstreamProviderKind,
   UpstreamRecord,
   UpstreamRepo,
@@ -654,7 +656,7 @@ class D1CacheRepo implements CacheRepo {
   }
 }
 
-const RESPONSES_ITEM_COLUMNS = 'id, api_key_id, upstream_id, upstream_item_id, item_type, origin, payload_json, encrypted_content_hash, created_at, refreshed_at';
+const RESPONSES_ITEM_COLUMNS = 'id, api_key_id, upstream_id, upstream_item_id, item_type, origin, payload_json, content_hash, encrypted_content_hash, created_at, refreshed_at';
 const RESPONSES_ITEM_ID_SCOPE_SQL = "COALESCE(api_key_id, '') = COALESCE(?, '')";
 
 class D1ResponsesItemsRepo implements ResponsesItemsRepo {
@@ -670,25 +672,16 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
     return await this.lookupByColumn(apiKeyId, 'encrypted_content_hash', hashes);
   }
 
+  async lookupManyByContentHash(apiKeyId: string | null, hashes: readonly string[]): Promise<StoredResponsesItem[]> {
+    return await this.lookupByColumn(apiKeyId, 'content_hash', hashes);
+  }
+
   // D1 caps bound parameters at 100 per query. A single Responses request can
   // echo back more stored items than that — long agentic sessions resubmit
   // every prior reasoning/compaction item each turn — so chunk the IN-list
   // well under the cap (the `api_key_id` bind shares the budget) and union
   // the results.
-  private async lookupByColumn(apiKeyId: string | null, column: 'id' | 'encrypted_content_hash', values: readonly string[]): Promise<StoredResponsesItem[]> {
-    interface ResponsesItemRow {
-      id: string;
-      api_key_id: string | null;
-      upstream_id: string | null;
-      upstream_item_id: string | null;
-      item_type: string;
-      origin: StoredResponsesItem['origin'];
-      payload_json: string | null;
-      encrypted_content_hash: string | null;
-      created_at: number;
-      refreshed_at: number;
-    }
-
+  private async lookupByColumn(apiKeyId: string | null, column: 'id' | 'content_hash' | 'encrypted_content_hash', values: readonly string[]): Promise<StoredResponsesItem[]> {
     const unique = [...new Set(values)];
     if (unique.length === 0) return [];
 
@@ -704,18 +697,7 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
         .prepare(`SELECT ${RESPONSES_ITEM_COLUMNS} FROM responses_items WHERE ${scopeSql} AND ${column} IN (${placeholders})${orderSql}`)
         .bind(apiKeyId, ...chunk)
         .all<ResponsesItemRow>();
-      return await Promise.all(results.map(async row => ({
-        id: row.id,
-        apiKeyId: row.api_key_id,
-        upstreamId: row.upstream_id,
-        upstreamItemId: row.upstream_item_id,
-        itemType: row.item_type,
-        origin: row.origin,
-        payload: await parseStoredResponsesPayload(row.id, row.payload_json),
-        encryptedContentHash: row.encrypted_content_hash,
-        createdAt: row.created_at,
-        refreshedAt: row.refreshed_at,
-      })));
+      return await Promise.all(results.map(toStoredResponsesItem));
     }));
     return perChunk.flat();
   }
@@ -731,12 +713,28 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
       // happen.
       return this.db
         .prepare(
-          `INSERT INTO responses_items (${RESPONSES_ITEM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO responses_items (${RESPONSES_ITEM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id, COALESCE(api_key_id, '')) DO NOTHING`,
         )
-        .bind(item.id, item.apiKeyId, item.upstreamId, item.upstreamItemId, item.itemType, item.origin, payload, item.encryptedContentHash, item.createdAt, item.refreshedAt);
+        .bind(item.id, item.apiKeyId, item.upstreamId, item.upstreamItemId, item.itemType, item.origin, payload, item.contentHash, item.encryptedContentHash, item.createdAt, item.refreshedAt);
     }));
     await this.runStatements(statements);
+  }
+
+  async fillPayloads(items: readonly StoredResponsesItem[]): Promise<number> {
+    const statements = await Promise.all(items.flatMap(item => {
+      if (item.payload === null) return [];
+      return [serializeStoredResponsesPayload(item.id, item.apiKeyId, item.createdAt, item.payload).then(payload =>
+        this.db
+          .prepare(
+            `UPDATE responses_items
+             SET payload_json = ?, content_hash = ?, encrypted_content_hash = ?, created_at = ?, refreshed_at = ?
+             WHERE ${RESPONSES_ITEM_ID_SCOPE_SQL} AND id = ? AND payload_json IS NULL`,
+          )
+          .bind(payload, item.contentHash, item.encryptedContentHash, item.createdAt, item.refreshedAt, item.apiKeyId, item.id))];
+    }));
+    const results = await this.runStatements(statements);
+    return results.reduce((sum, result) => sum + ((result.meta.changes as number | undefined) ?? 0), 0);
   }
 
   async refreshMany(apiKeyId: string | null, ids: readonly string[], refreshedAt: number): Promise<number> {
@@ -771,15 +769,105 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
     await deleteAllResponsesItemPayloadFiles();
   }
 
-  private async runStatements(statements: D1PreparedStatement[]): Promise<void> {
-    if (statements.length === 0) return;
+  private async runStatements(statements: D1PreparedStatement[]): Promise<Array<{ results: unknown[]; success: boolean; meta: Record<string, unknown> }>> {
+    if (statements.length === 0) return [];
     if (this.db.batch) {
-      await this.db.batch(statements);
-      return;
+      return await this.db.batch(statements);
     }
-    for (const statement of statements) await statement.run();
+    const results = [];
+    for (const statement of statements) results.push(await statement.run());
+    return results;
   }
 }
+
+interface ResponsesItemRow {
+  id: string;
+  api_key_id: string | null;
+  upstream_id: string | null;
+  upstream_item_id: string | null;
+  item_type: string;
+  origin: StoredResponsesItem['origin'];
+  payload_json: string | null;
+  content_hash: string | null;
+  encrypted_content_hash: string | null;
+  created_at: number;
+  refreshed_at: number;
+}
+
+const toStoredResponsesItem = async (row: ResponsesItemRow): Promise<StoredResponsesItem> => ({
+  id: row.id,
+  apiKeyId: row.api_key_id,
+  upstreamId: row.upstream_id,
+  upstreamItemId: row.upstream_item_id,
+  itemType: row.item_type,
+  origin: row.origin,
+  payload: await parseStoredResponsesPayload(row.id, row.payload_json),
+  contentHash: row.content_hash,
+  encryptedContentHash: row.encrypted_content_hash,
+  createdAt: row.created_at,
+  refreshedAt: row.refreshed_at,
+});
+
+class D1ResponsesSnapshotsRepo implements ResponsesSnapshotsRepo {
+  constructor(private db: D1Database) {}
+
+  async lookup(apiKeyId: string | null, id: string): Promise<StoredResponsesSnapshot | null> {
+    const row = await this.db
+      .prepare('SELECT id, api_key_id, item_ids_json, created_at, refreshed_at FROM responses_snapshots WHERE id = ? AND COALESCE(api_key_id, \'\') = COALESCE(?, \'\')')
+      .bind(id, apiKeyId)
+      .first<ResponsesSnapshotRow>();
+    return row ? toStoredResponsesSnapshot(row) : null;
+  }
+
+  async insert(snapshot: StoredResponsesSnapshot): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO responses_snapshots (id, api_key_id, item_ids_json, created_at, refreshed_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (id, COALESCE(api_key_id, '')) DO UPDATE SET item_ids_json = excluded.item_ids_json, refreshed_at = excluded.refreshed_at`,
+      )
+      .bind(snapshot.id, snapshot.apiKeyId, JSON.stringify(snapshot.itemIds), snapshot.createdAt, snapshot.refreshedAt)
+      .run();
+  }
+
+  async refresh(apiKeyId: string | null, id: string, refreshedAt: number): Promise<boolean> {
+    const result = await this.db
+      .prepare('UPDATE responses_snapshots SET refreshed_at = ? WHERE id = ? AND COALESCE(api_key_id, \'\') = COALESCE(?, \'\') AND refreshed_at < ?')
+      .bind(refreshedAt, id, apiKeyId, refreshedAt)
+      .run();
+    return ((result.meta.changes as number | undefined) ?? 0) > 0;
+  }
+
+  async deleteOlderThan(refreshedBefore: number): Promise<number> {
+    const result = await this.db.prepare('DELETE FROM responses_snapshots WHERE refreshed_at < ?').bind(refreshedBefore).run();
+    return (result.meta.changes as number | undefined) ?? 0;
+  }
+
+  async deleteAll(): Promise<void> {
+    await this.db.prepare('DELETE FROM responses_snapshots').run();
+  }
+}
+
+interface ResponsesSnapshotRow {
+  id: string;
+  api_key_id: string | null;
+  item_ids_json: string;
+  created_at: number;
+  refreshed_at: number;
+}
+
+const toStoredResponsesSnapshot = (row: ResponsesSnapshotRow): StoredResponsesSnapshot => {
+  const parsed: unknown = JSON.parse(row.item_ids_json);
+  if (!Array.isArray(parsed) || parsed.some(item => typeof item !== 'string')) {
+    throw new Error(`Invalid responses_snapshots.item_ids_json for id=${row.id}`);
+  }
+  return {
+    id: row.id,
+    apiKeyId: row.api_key_id,
+    itemIds: parsed,
+    createdAt: row.created_at,
+    refreshedAt: row.refreshed_at,
+  };
+};
 
 class D1SearchConfigRepo implements SearchConfigRepo {
   constructor(private db: D1Database) {}
@@ -962,6 +1050,7 @@ export class D1Repo implements Repo {
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
   responsesItems: ResponsesItemsRepo;
+  responsesSnapshots: ResponsesSnapshotsRepo;
 
   constructor(db: D1Database) {
     this.apiKeys = new D1ApiKeyRepo(db);
@@ -972,5 +1061,6 @@ export class D1Repo implements Repo {
     this.searchConfig = new D1SearchConfigRepo(db);
     this.upstreams = new D1UpstreamRepo(db);
     this.responsesItems = new D1ResponsesItemsRepo(db);
+    this.responsesSnapshots = new D1ResponsesSnapshotsRepo(db);
   }
 }

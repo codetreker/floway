@@ -6,6 +6,7 @@ import { assertEquals, assertExists } from '../../../../test-assert.ts';
 import type { RequestContext } from '../../interceptors.ts';
 import type { InternalDebugError } from '../../shared/errors/internal-debug-error.ts';
 import type { ExecuteResult } from '../../shared/errors/result.ts';
+import { createHttpStatefulResponsesStore } from '../responses/stateful-store.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import { eventFrame } from '@floway-dev/protocols/common';
 import type { GeminiErrorResponse } from '@floway-dev/protocols/gemini';
@@ -21,8 +22,9 @@ const testTelemetryModelIdentity = {
 const request = (): RequestContext => ({
   requestStartedAt: performance.now(),
   apiKeyUpstreamIds: null,
-  statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },  runtimeLocation: 'test',
+  runtimeLocation: 'test',
   clientStream: false,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
 });
 
 const requestGeminiResponse = async (result: ExecuteResult<ProtocolFrame<GeminiErrorResponse>>): Promise<Response> => {

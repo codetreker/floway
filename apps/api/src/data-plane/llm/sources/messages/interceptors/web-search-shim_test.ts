@@ -16,6 +16,7 @@ import { assertEquals, assertExists, assertRejects } from '../../../../../test-a
 import { DEFAULT_SEARCH_CONFIG } from '../../../../tools/web-search/search-config.ts';
 import type { WebSearchProvider, WebSearchProviderResult } from '../../../../tools/web-search/types.ts';
 import type { MessagesInvocation, RequestContext } from '../../../interceptors.ts';
+import { createHttpStatefulResponsesStore } from '../../responses/stateful-store.ts';
 import { messagesProtocolFrameToSSEFrame } from '../events/to-sse.ts';
 import { type ProtocolFrame, eventFrame } from '@floway-dev/protocols/common';
 import type {
@@ -52,9 +53,9 @@ const invocation = (payload: MessagesPayload): MessagesInvocation => ({
 const requestContext = (apiKeyId?: string): RequestContext => ({
   requestStartedAt: 0,
   apiKeyUpstreamIds: null,
-  statefulResponsesContext: { privatePayload: new Map(), newSyntheticIds: new Set() },
   runtimeLocation: 'test',
   clientStream: false,
+  statefulResponsesStore: createHttpStatefulResponsesStore(null, undefined),
   ...(apiKeyId !== undefined ? { apiKeyId } : {}),
 });
 

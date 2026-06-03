@@ -168,6 +168,7 @@ export interface StoredResponsesItem {
   itemType: string;
   origin: 'input' | 'upstream' | 'synthetic';
   payload: StoredResponsesItemPayload | null;
+  contentHash: string | null;
   // sha256 of the item's `encrypted_content`, when it carries one (reasoning /
   // compaction). Lets a later turn that echoes the blob without a gateway id
   // recover this row's owning upstream for affinity routing.
@@ -181,17 +182,34 @@ export interface StoredResponsesItemPayload {
   // Ancillary state stashed alongside the public `item` body but never sent on
   // the wire: a server-only slot to preserve data a stateless client strips
   // from the echoed item (e.g. the real `web_search_call` results) so a later
-  // turn can restore it on replay. Persisted and round-tripped verbatim; not
-  // yet populated by any producer.
+  // turn can restore it on replay. Persisted and round-tripped verbatim.
   private?: unknown;
 }
 
 export interface ResponsesItemsRepo {
   lookupMany(apiKeyId: string | null, ids: readonly string[]): Promise<StoredResponsesItem[]>;
+  lookupManyByContentHash(apiKeyId: string | null, hashes: readonly string[]): Promise<StoredResponsesItem[]>;
   lookupManyByEncryptedContentHash(apiKeyId: string | null, hashes: readonly string[]): Promise<StoredResponsesItem[]>;
   insertMany(items: readonly StoredResponsesItem[]): Promise<void>;
+  fillPayloads(items: readonly StoredResponsesItem[]): Promise<number>;
   refreshMany(apiKeyId: string | null, ids: readonly string[], refreshedAt: number): Promise<number>;
   clearPayloadOlderThan(createdBefore: number): Promise<number>;
+  deleteOlderThan(refreshedBefore: number): Promise<number>;
+  deleteAll(): Promise<void>;
+}
+
+export interface StoredResponsesSnapshot {
+  id: string;
+  apiKeyId: string | null;
+  itemIds: string[];
+  createdAt: number;
+  refreshedAt: number;
+}
+
+export interface ResponsesSnapshotsRepo {
+  lookup(apiKeyId: string | null, id: string): Promise<StoredResponsesSnapshot | null>;
+  insert(snapshot: StoredResponsesSnapshot): Promise<void>;
+  refresh(apiKeyId: string | null, id: string, refreshedAt: number): Promise<boolean>;
   deleteOlderThan(refreshedBefore: number): Promise<number>;
   deleteAll(): Promise<void>;
 }
@@ -205,4 +223,5 @@ export interface Repo {
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
   responsesItems: ResponsesItemsRepo;
+  responsesSnapshots: ResponsesSnapshotsRepo;
 }
