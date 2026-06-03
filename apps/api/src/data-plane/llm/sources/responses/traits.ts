@@ -1,5 +1,8 @@
+import type { Context } from 'hono';
+
 import { responsesSourceInterceptors } from './interceptors/index.ts';
 import { respondResponses } from './respond.ts';
+import type { StatefulResponsesStore } from './stateful-store.ts';
 import type { ProviderModelRecord } from '../../../providers/types.ts';
 import { type LlmTargetApi, type ResponsesInvocation, runInterceptors } from '../../interceptors.ts';
 import type { ExecuteResult } from '../../shared/errors/result.ts';
@@ -7,7 +10,7 @@ import { emitToChatCompletions } from '../../targets/chat-completions/emit.ts';
 import { emitToMessages } from '../../targets/messages/emit.ts';
 import { emitToResponses } from '../../targets/responses/emit.ts';
 import { createHttpRequestContext } from '../request-context.ts';
-import { jsonUpstreamErrorResult, sourceErrorResult, type LlmHttpEndpoint, type LlmServeFailure, type LlmSourceTraits } from '../traits.ts';
+import { jsonUpstreamErrorResult, sourceErrorResult, type LlmEndpointPlan, type LlmHttpEndpoint, type LlmServeFailure, type LlmSourceTraits } from '../traits.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload } from '@floway-dev/protocols/messages';
@@ -98,55 +101,71 @@ const renderResponsesFailure = (failure: LlmServeFailure): ExecuteResult<Protoco
   }
 };
 
+interface SetupResponsesSourceOptions {
+  readonly downstreamAbortController?: AbortController;
+  readonly statefulResponsesStore?: StatefulResponsesStore;
+  readonly storedItemsStore?: boolean | null | undefined;
+  readonly commitSnapshot?: boolean;
+}
+
+export const setupResponsesSource = async (
+  c: Context,
+  sourcePayload: ResponsesPayload,
+  options: SetupResponsesSourceOptions = {},
+): Promise<LlmEndpointPlan<string | readonly ResponsesInputItem[], RawResponsesStreamEvent> | Response> => {
+  const payload = rewriteResponsesEntryModelAlias(sourcePayload);
+  const wantsStream = payload.stream === true;
+  const downstreamAbortController = options.downstreamAbortController ?? (wantsStream ? new AbortController() : undefined);
+  const request = createHttpRequestContext(c, downstreamAbortController?.signal, wantsStream, {
+    store: payload.store,
+    ...(options.statefulResponsesStore !== undefined ? { statefulResponsesStore: options.statefulResponsesStore } : {}),
+  });
+  const currentInputItems = responsesInputItemsForStorage(payload.input);
+  const previousResponseId = payload.previous_response_id ?? null;
+  const statefulResponsesStore = request.statefulResponsesStore;
+  if (previousResponseId !== null) {
+    const snapshot = await statefulResponsesStore.loadSnapshot(previousResponseId);
+    if (snapshot === null) return previousResponseNotFoundResponse(previousResponseId);
+    payload.input = [
+      ...snapshot.itemIds.map(id => ({ type: 'item_reference' as const, id })),
+      ...currentInputItems,
+    ];
+  }
+  return {
+    request,
+    items: payload.input,
+    responsesItemsView,
+    wantsStream,
+    store: options.storedItemsStore ?? payload.store,
+    statefulResponsesInputItems: currentInputItems,
+    commitStatefulResponsesSnapshot: options.commitSnapshot ?? payload.store !== false,
+    model: payload.model,
+    downstreamAbortController,
+    pickTarget: endpoints => endpoints.responses ? 'responses' : endpoints.messages ? 'messages' : endpoints.chatCompletions ? 'chat-completions' : null,
+    attempt: async ({ binding, target, model, rewriteItems }) => {
+      const attemptPayload = structuredClone(payload);
+      attemptPayload.model = model;
+      delete attemptPayload.previous_response_id;
+      attemptPayload.input = await rewriteItems(attemptPayload.input);
+      const invocation: ResponsesInvocation = responsesInvocation(binding, target, model, attemptPayload);
+      const emits: Record<LlmTargetApi, SourceEmit<ResponsesPayload, { fallbackMaxOutputTokens?: number }, ExecuteResult<ProtocolFrame<RawResponsesStreamEvent>>>> = {
+        responses: async srcPayload => await emitToResponses({ ...invocation, payload: srcPayload }, request),
+        messages: viaTranslation(translateResponsesViaMessages, async (tgtPayload: MessagesPayload) =>
+          await emitToMessages(responsesInvocation(binding, 'messages', model, tgtPayload), request)),
+        'chat-completions': viaTranslation(translateResponsesViaChatCompletions, async (tgtPayload: ChatCompletionsPayload) =>
+          await emitToChatCompletions(responsesInvocation(binding, 'chat-completions', model, tgtPayload), request)),
+      };
+      const interceptors = [...responsesSourceInterceptors, ...(binding.sourceInterceptors?.responses ?? [])];
+      return await runInterceptors(invocation, request, interceptors, () =>
+        emits[target](invocation.payload, { model, fallbackMaxOutputTokens: binding.upstreamModel.limits.max_output_tokens }));
+    },
+  };
+};
+
 const responsesGenerate: LlmHttpEndpoint<string | readonly ResponsesInputItem[], RawResponsesStreamEvent> = {
   respond: async ({ c, result, runtime }) =>
     await respondResponses(c, result, runtime.wantsStream, runtime.request, runtime.downstreamAbortController),
-  prepare: async c => {
-    const payload = rewriteResponsesEntryModelAlias(await c.req.json<ResponsesPayload>());
-    const wantsStream = payload.stream === true;
-    const downstreamAbortController = wantsStream ? new AbortController() : undefined;
-    const request = createHttpRequestContext(c, downstreamAbortController?.signal, wantsStream, { store: payload.store });
-    const currentInputItems = responsesInputItemsForStorage(payload.input);
-    const previousResponseId = payload.previous_response_id ?? null;
-    const statefulResponsesStore = request.statefulResponsesStore;
-    if (previousResponseId !== null) {
-      const snapshot = await statefulResponsesStore.loadSnapshot(previousResponseId);
-      if (snapshot === null) return previousResponseNotFoundResponse(previousResponseId);
-      payload.input = [
-        ...snapshot.itemIds.map(id => ({ type: 'item_reference' as const, id })),
-        ...currentInputItems,
-      ];
-    }
-    return {
-      request,
-      items: payload.input,
-      responsesItemsView,
-      wantsStream,
-      store: payload.store,
-      statefulResponsesInputItems: currentInputItems,
-      commitStatefulResponsesSnapshot: payload.store !== false,
-      model: payload.model,
-      downstreamAbortController,
-      pickTarget: endpoints => endpoints.responses ? 'responses' : endpoints.messages ? 'messages' : endpoints.chatCompletions ? 'chat-completions' : null,
-      attempt: async ({ binding, target, model, rewriteItems }) => {
-        const attemptPayload = structuredClone(payload);
-        attemptPayload.model = model;
-        delete attemptPayload.previous_response_id;
-        attemptPayload.input = await rewriteItems(attemptPayload.input);
-        const invocation: ResponsesInvocation = responsesInvocation(binding, target, model, attemptPayload);
-        const emits: Record<LlmTargetApi, SourceEmit<ResponsesPayload, { fallbackMaxOutputTokens?: number }, ExecuteResult<ProtocolFrame<RawResponsesStreamEvent>>>> = {
-          responses: async srcPayload => await emitToResponses({ ...invocation, payload: srcPayload }, request),
-          messages: viaTranslation(translateResponsesViaMessages, async (tgtPayload: MessagesPayload) =>
-            await emitToMessages(responsesInvocation(binding, 'messages', model, tgtPayload), request)),
-          'chat-completions': viaTranslation(translateResponsesViaChatCompletions, async (tgtPayload: ChatCompletionsPayload) =>
-            await emitToChatCompletions(responsesInvocation(binding, 'chat-completions', model, tgtPayload), request)),
-        };
-        const interceptors = [...responsesSourceInterceptors, ...(binding.sourceInterceptors?.responses ?? [])];
-        return await runInterceptors(invocation, request, interceptors, () =>
-          emits[target](invocation.payload, { model, fallbackMaxOutputTokens: binding.upstreamModel.limits.max_output_tokens }));
-      },
-    };
-  },
+  prepare: async c => await setupResponsesSource(c, await c.req.json<ResponsesPayload>()),
 };
 
 export const responsesTraits: LlmSourceTraits<string | readonly ResponsesInputItem[], RawResponsesStreamEvent> = {

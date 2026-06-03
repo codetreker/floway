@@ -4,6 +4,7 @@ import { chatCompletionsTraits } from './sources/chat-completions/traits.ts';
 import { geminiTraits } from './sources/gemini/traits.ts';
 import { messagesTraits } from './sources/messages/traits.ts';
 import { responsesTraits } from './sources/responses/traits.ts';
+import { responsesWebSocket } from './sources/responses/websocket.ts';
 import { serveLlm } from './sources/serve.ts';
 
 export const mountLlmRoutes = (app: Hono) => {
@@ -22,6 +23,8 @@ export const mountLlmRoutes = (app: Hono) => {
   app.post('/chat/completions', serveChatCompletions);
   app.post('/v1/responses', serveResponses);
   app.post('/responses', serveResponses);
+  app.get('/v1/responses', responsesWebSocket);
+  app.get('/responses', responsesWebSocket);
   app.post('/v1/messages', serveMessages);
   app.post('/messages', serveMessages);
   app.post('/v1/messages/count_tokens', serveMessagesCountTokens);

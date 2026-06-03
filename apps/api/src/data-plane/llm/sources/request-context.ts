@@ -33,12 +33,12 @@ export const createHttpRequestContext = (
   c: Context,
   downstreamAbortSignal: AbortSignal | undefined,
   clientStream: boolean,
-  options: { readonly store?: boolean | null | undefined } = {},
+  options: { readonly store?: boolean | null | undefined; readonly statefulResponsesStore?: StatefulResponsesStore } = {},
 ): RequestContext => {
   const apiKeyId = c.get('apiKeyId') as string | undefined;
   const apiKeyUpstreamIds = c.get('apiKeyUpstreamIds') as readonly string[] | null | undefined;
   const scheduleBackground = backgroundSchedulerFromContext(c);
-  const statefulResponsesStore = createHttpStatefulResponsesStore(apiKeyId ?? null, options.store);
+  const statefulResponsesStore = options.statefulResponsesStore ?? createHttpStatefulResponsesStore(apiKeyId ?? null, options.store);
   return createRequestContext({
     ...(apiKeyId !== undefined ? { apiKeyId } : {}),
     ...(apiKeyUpstreamIds !== undefined ? { apiKeyUpstreamIds } : {}),

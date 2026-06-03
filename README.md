@@ -10,7 +10,7 @@ an Azure deployment through whichever API shape the agent already speaks.
 | Source API                              | Path                          |
 | --------------------------------------- | ----------------------------- |
 | Anthropic Messages                      | `POST /v1/messages`           |
-| OpenAI Responses                        | `POST /v1/responses`          |
+| OpenAI Responses                        | `POST /v1/responses`, `GET /v1/responses` WebSocket |
 | OpenAI Chat Completions                 | `POST /v1/chat/completions`   |
 | OpenAI Embeddings                       | `POST /v1/embeddings`         |
 | OpenAI Images                           | `POST /v1/images/generations` |
@@ -75,12 +75,17 @@ the shim driving the internal multi-turn loop and replaying prior
 ## Stateful Responses
 
 `/v1/responses` stores replayable Responses input and output items for API-key
-scoped requests. Clients can send `previous_response_id` to continue from a
-stored snapshot, or resend full input history; repeated full-history input is
-deduplicated by content hash instead of stored again. `store: false` does not
-create durable snapshots or input payload rows, but it keeps output item
+scoped HTTP requests. Clients can send `previous_response_id` to continue from
+a stored snapshot, or resend full input history; repeated full-history input is
+deduplicated by content hash instead of stored again. HTTP `store: false` does
+not create durable snapshots or input payload rows, but it keeps output item
 metadata for routing; if a later `store: true` request echoes that item with a
 full payload, the metadata row is filled in place.
+
+The same endpoint accepts `GET` WebSocket upgrades for streaming Responses
+events. WebSocket `store: false` keeps replay state only inside the open
+session, so same-socket `previous_response_id` works without writing those
+items or snapshots to durable storage.
 
 ## Development
 
