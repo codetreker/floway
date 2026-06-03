@@ -1,7 +1,7 @@
 import type { StoredResponsesItemPayload } from './types.ts';
 import { getFileProvider } from '../runtime/file-provider.ts';
 
-export type StoredResponsesPayloadJson =
+type StoredResponsesPayloadJson =
   | {
     version: 1;
     storage: 'inline';
@@ -22,6 +22,10 @@ const INLINE_PAYLOAD_LIMIT_BYTES = 512 * 1024;
 export const RESPONSES_ITEM_PAYLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
+// Root under which every stored-payload file lives, regardless of expiry hour.
+// The replace path deletes this whole tree alongside the D1 rows it clears.
+const RESPONSES_ITEMS_FILE_ROOT = 'responses-items/v1/expires/';
+
 const encoder = new TextEncoder();
 
 export const serializeStoredResponsesPayload = async (
@@ -40,7 +44,9 @@ export const serializeStoredResponsesPayload = async (
   // sha256, and byteLength; the body itself does not repeat them.
   const fileBody = encoder.encode(JSON.stringify(payload));
   const sha256 = await sha256Hex(fileBody);
-  const key = await storedResponsesPayloadFileKey(id, apiKeyId, createdAt, sha256);
+  const expiresAt = createdAt + RESPONSES_ITEM_PAYLOAD_TTL_MS;
+  const apiKeyHashPrefix = (await sha256Hex(encoder.encode(apiKeyId ?? ''))).slice(0, 16);
+  const key = `${responsesItemsExpiryBucketPrefix(expiresAt)}${apiKeyHashPrefix}/${id}/${sha256}.json`;
   await getFileProvider().put(key, fileBody);
   return JSON.stringify({
     version: 1,
@@ -116,37 +122,25 @@ const clonePayload = (payload: StoredResponsesItemPayload): StoredResponsesItemP
   ...(Object.hasOwn(payload, 'private') ? { private: structuredClone(payload.private) } : {}),
 });
 
-const storedResponsesPayloadFileKey = async (
-  id: string,
-  apiKeyId: string | null,
-  createdAt: number,
-  sha256: string,
-): Promise<string> => {
-  const expires = new Date(createdAt + RESPONSES_ITEM_PAYLOAD_TTL_MS);
-  const scope = (await sha256Hex(encoder.encode(apiKeyId ?? ''))).slice(0, 16);
-  return `${responsesItemsHourPrefix(expires.getTime())}${scope}/${id}/${sha256}.json`;
-};
-
 // Files live under their expiry hour. A bucket whose hour is strictly before
 // the current hour is fully past its TTL, so the sweep enumerates the existing
-// bucket prefixes under the expiry root and deletes every expired one. This
-// is resilient to missed cron runs: a skipped hour is revisited on the next
-// run rather than leaking into R2.
+// bucket prefixes under the expiry root and deletes every expired one. Bucket
+// prefixes use UTC YYYY/MM/DD/HH, so lexical order matches chronological order.
+// This is resilient to missed cron runs: a skipped hour is revisited on the
+// next run rather than leaking into R2.
 export const sweepExpiredResponsesItemPayloadFiles = async (now: number): Promise<void> => {
-  const currentHourPrefix = responsesItemsHourPrefix(startOfUtcHour(now));
+  const currentHourPrefix = responsesItemsExpiryBucketPrefix(startOfUtcHour(now));
   const provider = getFileProvider();
   const keys = await provider.listKeys(RESPONSES_ITEMS_FILE_ROOT);
   const expiredBuckets = new Set<string>();
   for (const key of keys) {
-    const bucket = hourPrefixOfKey(key);
-    if (bucket !== null && bucket < currentHourPrefix) expiredBuckets.add(bucket);
+    const pathParts = key.slice(RESPONSES_ITEMS_FILE_ROOT.length).split('/');
+    if (pathParts.length < 4) continue;
+    const bucket = `${RESPONSES_ITEMS_FILE_ROOT}${pathParts.slice(0, 4).join('/')}/`;
+    if (bucket < currentHourPrefix) expiredBuckets.add(bucket);
   }
   for (const bucket of expiredBuckets) await provider.deletePrefix(bucket);
 };
-
-// Root under which every stored-payload file lives, regardless of expiry hour.
-// The replace path deletes this whole tree alongside the D1 rows it clears.
-export const RESPONSES_ITEMS_FILE_ROOT = 'responses-items/v1/expires/';
 
 // Drop every spilled payload file. Paired with a `deleteAll` over the
 // responses_items rows so a full replace/clear does not orphan R2 objects.
@@ -154,23 +148,13 @@ export const deleteAllResponsesItemPayloadFiles = async (): Promise<void> => {
   await getFileProvider().deletePrefix(RESPONSES_ITEMS_FILE_ROOT);
 };
 
-const responsesItemsHourPrefix = (hourTimestamp: number): string => {
+const responsesItemsExpiryBucketPrefix = (hourTimestamp: number): string => {
   const date = new Date(hourTimestamp);
   const yyyy = String(date.getUTCFullYear()).padStart(4, '0');
   const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(date.getUTCDate()).padStart(2, '0');
   const hh = String(date.getUTCHours()).padStart(2, '0');
   return `${RESPONSES_ITEMS_FILE_ROOT}${yyyy}/${mm}/${dd}/${hh}/`;
-};
-
-// Recover the `…/expires/YYYY/MM/DD/HH/` bucket prefix from a full object key.
-// The lexical order of these prefixes matches chronological order, so a string
-// comparison against the current-hour prefix decides expiry.
-const hourPrefixOfKey = (key: string): string | null => {
-  if (!key.startsWith(RESPONSES_ITEMS_FILE_ROOT)) return null;
-  const rest = key.slice(RESPONSES_ITEMS_FILE_ROOT.length).split('/');
-  if (rest.length < 4) return null;
-  return `${RESPONSES_ITEMS_FILE_ROOT}${rest.slice(0, 4).join('/')}/`;
 };
 
 export const startOfUtcHour = (timestamp: number): number => Math.floor(timestamp / HOUR_MS) * HOUR_MS;
