@@ -137,9 +137,11 @@ const messagesGenerate: LlmHttpEndpoint<readonly MessagesMessage[], MessagesStre
 };
 
 // count_tokens shares the Messages input and provider walk but produces a
-// measurement, not a stream: it gates on the `messages.countTokens` upstream
-// capability, calls that endpoint through the same count_tokens interceptors,
-// and proxies the upstream body back as a plain result.
+// count_tokens shares the Messages input and provider walk but produces a
+// measurement, not a stream: it routes alongside the Messages capability
+// (presence of `messages` implies count_tokens), calls the count_tokens
+// endpoint through the same count_tokens interceptors, and proxies the
+// upstream body back as a plain result.
 const messagesCountTokens: LlmHttpEndpoint<readonly MessagesMessage[], MessagesStreamEvent> = {
   respond: async ({ c, result, runtime }) =>
     await respondMessages(c, result, runtime.wantsStream, runtime.request, runtime.downstreamAbortController),
@@ -157,7 +159,7 @@ const messagesCountTokens: LlmHttpEndpoint<readonly MessagesMessage[], MessagesS
       store: undefined,
       model: payload.model,
       downstreamAbortController: undefined,
-      pickTarget: endpoints => endpoints.messages?.countTokens ? 'messages' : null,
+      pickTarget: endpoints => endpoints.messages ? 'messages' : null,
       attempt: async ({ binding, model, rewriteItems }) => {
         const attemptPayload = structuredClone(payload);
         attemptPayload.model = model;

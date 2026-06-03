@@ -3,7 +3,7 @@ import { assertAzureUpstreamRecord, createAzureUpstream } from '../../../shared/
 import { publicModelId, type UpstreamModelConfig } from '../../../shared/upstream/model-config.ts';
 import type { EndpointKey } from '../../../shared/upstream/types.ts';
 import { mergeAnthropicBetaHeader } from '../anthropic-beta.ts';
-import { isStreamingEndpoint, modelConfigEndpoints } from '../endpoints.ts';
+import { isStreamingEndpoint } from '../endpoints.ts';
 import { resolveEffectiveFlags } from '../flags-resolve.ts';
 import { defaultsForProvider } from '../flags.ts';
 import type { ModelProvider, ModelProviderInstance, ProviderCallResult, UpstreamModel } from '../types.ts';
@@ -50,7 +50,7 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
         // defaults or the upstream. See `resolveEffectiveFlags` for layer semantics.
         const modelLayer = model.flagOverrides?.enabled ? model.flagOverrides.values : undefined;
         const effective = resolveEffectiveFlags(defaultsForProvider('azure'), [azure.flagOverrides, modelLayer]);
-        const endpoints = modelConfigEndpoints(model);
+        const endpoints = model.endpoints;
         return {
           ...azureInternalModel(model),
           kind: kindForEndpoints(endpoints),

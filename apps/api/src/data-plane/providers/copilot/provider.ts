@@ -12,7 +12,7 @@ import type { UpstreamRecord } from '../../../repo/types.ts';
 import { isCopilotAccountType, type CopilotAccountType } from '../../../shared/copilot.ts';
 import { createCopilotUpstream } from '../../../shared/upstream/copilot.ts';
 import type { EndpointKey } from '../../../shared/upstream/types.ts';
-import { isStreamingEndpoint, withMessagesCountTokens } from '../endpoints.ts';
+import { isStreamingEndpoint } from '../endpoints.ts';
 import { resolveEffectiveFlags } from '../flags-resolve.ts';
 import { defaultsForProvider } from '../flags.ts';
 import { inProcessMemo, readModelsStore, writeModelsStore } from '../models-store.ts';
@@ -171,7 +171,7 @@ const copilotModelEndpoints = (publicModel: CopilotRawModel, rawModels: readonly
   }
 
   if (publicModel.id.startsWith('claude-') || rawModels.some(model => rawModelSupportsEndpoint(model, 'messages'))) {
-    return withMessagesCountTokens({ messages: {} });
+    return { messages: {} };
   }
 
   if (rawModels.some(model => rawModelSupportsEndpoint(model, 'chatCompletions'))) {

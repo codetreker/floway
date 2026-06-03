@@ -194,7 +194,7 @@ test('createAzureProvider supports native Azure Anthropic Messages models', asyn
   const seen: Array<{ url: string; xApiKey: string | null; body: Record<string, unknown>; beta: string | null }> = [];
 
   assertEquals(model.id, 'claude-public');
-  assertEquals(model.endpoints, { messages: { countTokens: true } });
+  assertEquals(model.endpoints, { messages: {} });
 
   await withMockedFetch(
     async request => {

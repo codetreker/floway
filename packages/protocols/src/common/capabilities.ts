@@ -4,14 +4,16 @@
 
 import type { ModelKind } from './models.ts';
 
-// Structured per-endpoint capability map. A key being present means the model is
-// served by that endpoint; its value object carries that endpoint's
-// sub-capabilities. `messages.countTokens` is an auxiliary sub-path of its
-// primary endpoint, not an independently advertised endpoint.
+// Structured per-endpoint capability map. A key being present means the model
+// is served by that endpoint; its value object carries that endpoint's
+// sub-capabilities, if any. Sub-paths derived from a base endpoint
+// (`/messages/count_tokens` from `messages`, `/responses/compact` from
+// `responses`) are not modeled separately — presence of the base endpoint
+// implies them.
 export interface ModelEndpoints {
   chatCompletions?: {};
   responses?: {};
-  messages?: { countTokens?: boolean };
+  messages?: {};
   embeddings?: {};
   imagesGenerations?: {};
   imagesEdits?: {};

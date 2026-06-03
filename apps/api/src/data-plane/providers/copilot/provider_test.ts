@@ -155,7 +155,7 @@ test('Copilot provider owns the claude-* Messages capability workaround', async 
       const [model] = await provider.getProvidedModels();
 
       assertEquals(model.id, 'claude-haiku-chat-listed');
-      assertEquals(model.endpoints, { messages: { countTokens: true } });
+      assertEquals(model.endpoints, { messages: {} });
 
       await provider.callMessages(model, {
         max_tokens: 100,

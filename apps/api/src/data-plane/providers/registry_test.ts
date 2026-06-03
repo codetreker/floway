@@ -183,7 +183,7 @@ test('getInternalModels returns the catalog projection without execution binding
       assertEquals(Object.hasOwn(model!, 'providerData'), false);
 
       const resolved = await resolveModelForRequest('shared-model');
-      assertEquals(resolved.model?.endpoints, { messages: { countTokens: true }, chatCompletions: {} });
+      assertEquals(resolved.model?.endpoints, { messages: {}, chatCompletions: {} });
       assertEquals(
         resolved.model?.providers.map(({ upstream }) => upstream),
         ['up_copilot', 'up_custom'],
@@ -235,7 +235,7 @@ test('resolveModelForRequest applies provider-owned aliases only to that provide
       const resolved = await resolveModelForRequest('claude-opus-4-7-20300101');
 
       assertEquals(resolved.id, 'claude-opus-4-7');
-      assertEquals(resolved.model?.endpoints, { messages: { countTokens: true } });
+      assertEquals(resolved.model?.endpoints, { messages: {} });
       assertEquals(
         resolved.model?.providers.map(({ upstream }) => upstream),
         ['up_copilot'],

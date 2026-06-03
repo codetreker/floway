@@ -131,7 +131,7 @@ const geminiCountTokens: LlmHttpEndpoint<readonly GeminiContent[], GeminiStreamE
       store: undefined,
       model: parsed.model,
       downstreamAbortController: undefined,
-      pickTarget: endpoints => endpoints.messages?.countTokens ? 'messages' : null,
+      pickTarget: endpoints => endpoints.messages ? 'messages' : null,
       attempt: async ({ binding, model: resolvedModelId, rewriteItems }) => {
         const countRequest = structuredClone(generateContentRequest);
         if (countRequest.contents !== undefined) countRequest.contents = await rewriteItems(countRequest.contents);

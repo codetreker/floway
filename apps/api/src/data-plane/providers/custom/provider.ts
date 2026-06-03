@@ -5,7 +5,7 @@ import { assertCustomUpstreamRecord, createCustomUpstream } from '../../../share
 import { publicModelId } from '../../../shared/upstream/model-config.ts';
 import type { EndpointKey } from '../../../shared/upstream/types.ts';
 import { mergeAnthropicBetaHeader } from '../anthropic-beta.ts';
-import { isStreamingEndpoint, modelConfigEndpoints } from '../endpoints.ts';
+import { isStreamingEndpoint } from '../endpoints.ts';
 import { resolveEffectiveFlags } from '../flags-resolve.ts';
 import { defaultsForProvider } from '../flags.ts';
 import { inProcessMemo, isProviderModelsHttpStatus, readModelsStore, writeModelsStore } from '../models-store.ts';
@@ -113,7 +113,7 @@ export const createCustomProvider = (record: UpstreamRecord): ModelProviderInsta
     // `resolveEffectiveFlags` for layer semantics.
     const modelLayer = model.flagOverrides?.enabled ? model.flagOverrides.values : undefined;
     const enabledFlags = resolveEffectiveFlags(defaultsForProvider('custom'), [record.flagOverrides, modelLayer]);
-    const endpoints = modelConfigEndpoints(model);
+    const endpoints = model.endpoints;
     const internal: UpstreamModel = {
       id: publicModelId(model),
       limits: { ...(model.limits ?? {}) },

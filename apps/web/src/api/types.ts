@@ -12,7 +12,7 @@ export type ModelKind = 'chat' | 'embedding' | 'image';
 export interface ModelEndpoints {
   chatCompletions?: {};
   responses?: {};
-  messages?: { countTokens?: boolean };
+  messages?: {};
   embeddings?: {};
   imagesGenerations?: {};
   imagesEdits?: {};
