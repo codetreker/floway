@@ -118,6 +118,10 @@ class ControlledResponsesItemsRepo implements ResponsesItemsRepo {
     });
   }
 
+  refreshMany(): Promise<number> {
+    return Promise.resolve(0);
+  }
+
   clearPayloadOlderThan(): Promise<number> {
     return Promise.resolve(0);
   }

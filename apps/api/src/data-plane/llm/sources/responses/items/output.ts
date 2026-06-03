@@ -96,8 +96,41 @@ export const storeResponsesOutputItems = <TFrame>(
   };
 
   const buffer: StoredResponsesItem[] = [];
+
+  const buildRow = async (newId: string, originalItem: ResponsesInputItem): Promise<StoredResponsesItem> => {
+    const upstreamId = responsesItemId(originalItem);
+    if (upstreamId === null) {
+      throw new Error(`Cannot persist Responses item without an upstream id (newId=${newId}, type=${originalItem.type})`);
+    }
+    // A native Responses upstream owns its items — except those a source
+    // interceptor synthesized this request, whose gateway-minted ids the
+    // upstream never issued. Those persist with no upstream identity so they
+    // stay non_affinity.
+    const upstreamOwned = context.targetApi === 'responses' && !request.statefulResponsesContext.newSyntheticIds.has(upstreamId);
+    const encryptedContent = responsesItemEncryptedContent(originalItem);
+    // Source interceptors register the per-item server-only payload under the
+    // wire id transformItems sees; the same id is `upstreamId` here. Attaching
+    // it lets a later turn restore the real success/failure state even when the
+    // client stripped fields from the echoed wire item.
+    const privatePayload = request.statefulResponsesContext.privatePayload.get(upstreamId);
+    const persistedPayload = privatePayload !== undefined ? { item: originalItem, private: privatePayload } : { item: originalItem };
+    const now = Date.now();
+    return {
+      id: newId,
+      apiKeyId: request.apiKeyId ?? null,
+      upstreamId: upstreamOwned ? context.upstream : null,
+      upstreamItemId: upstreamOwned ? upstreamId : null,
+      itemType: originalItem.type,
+      origin: upstreamOwned ? 'upstream' : 'synthetic',
+      payload: context.store === false ? null : persistedPayload,
+      encryptedContentHash: encryptedContent === null ? null : await hashResponsesItemEncryptedContent(encryptedContent),
+      createdAt: now,
+      refreshedAt: now,
+    };
+  };
+
   const onItemFinalized: ResponsesItemFinalizedHandler = async (originalItem, newId) => {
-    const row = await buildRow(newId, originalItem, context, request);
+    const row = await buildRow(newId, originalItem);
     if (wantsStream) await insertStoredItems([row]);
     else buffer.push(row);
   };
@@ -107,38 +140,4 @@ export const storeResponsesOutputItems = <TFrame>(
   const commitForNonStreaming = wantsStream ? undefined : (): Promise<void> => insertStoredItems(buffer);
 
   return { events: view.streamMapIdAsResponsesItems(frames, idMapper, onItemFinalized), commitForNonStreaming };
-};
-
-const buildRow = async (
-  newId: string,
-  originalItem: ResponsesInputItem,
-  context: StoreResponsesContext,
-  request: RequestContext,
-): Promise<StoredResponsesItem> => {
-  const upstreamId = responsesItemId(originalItem);
-  if (upstreamId === null) {
-    throw new Error(`Cannot persist Responses item without an upstream id (newId=${newId}, type=${originalItem.type})`);
-  }
-  // A native Responses upstream owns its items — except those a source
-  // interceptor synthesized this request, whose gateway-minted ids the
-  // upstream never issued. Those persist with no upstream identity so they
-  // stay non_affinity.
-  const upstreamOwned = context.targetApi === 'responses' && !request.statefulResponsesContext.newSyntheticIds.has(upstreamId);
-  const encryptedContent = responsesItemEncryptedContent(originalItem);
-  // Source interceptors register the per-item server-only payload under the
-  // wire id transformItems sees; the same id is `upstreamId` here. Attaching
-  // it lets a later turn restore the real success/failure state even when the
-  // client stripped fields from the echoed wire item.
-  const privatePayload = request.statefulResponsesContext.privatePayload.get(upstreamId);
-  const persistedPayload = privatePayload !== undefined ? { item: originalItem, private: privatePayload } : { item: originalItem };
-  return {
-    id: newId,
-    apiKeyId: request.apiKeyId ?? null,
-    upstreamId: upstreamOwned ? context.upstream : null,
-    upstreamItemId: upstreamOwned ? upstreamId : null,
-    itemType: originalItem.type,
-    payload: context.store === false ? null : persistedPayload,
-    encryptedContentHash: encryptedContent === null ? null : await hashResponsesItemEncryptedContent(encryptedContent),
-    createdAt: Date.now(),
-  };
 };

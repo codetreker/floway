@@ -654,7 +654,8 @@ class D1CacheRepo implements CacheRepo {
   }
 }
 
-const RESPONSES_ITEM_COLUMNS = 'id, api_key_id, upstream_id, upstream_item_id, item_type, payload_json, encrypted_content_hash, created_at';
+const RESPONSES_ITEM_COLUMNS = 'id, api_key_id, upstream_id, upstream_item_id, item_type, origin, payload_json, encrypted_content_hash, created_at, refreshed_at';
+const RESPONSES_ITEM_ID_SCOPE_SQL = "COALESCE(api_key_id, '') = COALESCE(?, '')";
 
 class D1ResponsesItemsRepo implements ResponsesItemsRepo {
   constructor(private db: D1Database) {}
@@ -675,6 +676,19 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
   // well under the cap (the `api_key_id` bind shares the budget) and union
   // the results.
   private async lookupByColumn(apiKeyId: string | null, column: 'id' | 'encrypted_content_hash', values: readonly string[]): Promise<StoredResponsesItem[]> {
+    interface ResponsesItemRow {
+      id: string;
+      api_key_id: string | null;
+      upstream_id: string | null;
+      upstream_item_id: string | null;
+      item_type: string;
+      origin: StoredResponsesItem['origin'];
+      payload_json: string | null;
+      encrypted_content_hash: string | null;
+      created_at: number;
+      refreshed_at: number;
+    }
+
     const unique = [...new Set(values)];
     if (unique.length === 0) return [];
 
@@ -684,11 +698,24 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
 
     const perChunk = await Promise.all(chunks.map(async chunk => {
       const placeholders = chunk.map(() => '?').join(', ');
+      const orderSql = column === 'id' ? '' : ' ORDER BY refreshed_at DESC, created_at DESC, id ASC';
+      const scopeSql = column === 'id' ? RESPONSES_ITEM_ID_SCOPE_SQL : 'api_key_id IS ?';
       const { results } = await this.db
-        .prepare(`SELECT ${RESPONSES_ITEM_COLUMNS} FROM responses_items WHERE api_key_id IS ? AND ${column} IN (${placeholders})`)
+        .prepare(`SELECT ${RESPONSES_ITEM_COLUMNS} FROM responses_items WHERE ${scopeSql} AND ${column} IN (${placeholders})${orderSql}`)
         .bind(apiKeyId, ...chunk)
         .all<ResponsesItemRow>();
-      return await Promise.all(results.map(toStoredResponsesItem));
+      return await Promise.all(results.map(async row => ({
+        id: row.id,
+        apiKeyId: row.api_key_id,
+        upstreamId: row.upstream_id,
+        upstreamItemId: row.upstream_item_id,
+        itemType: row.item_type,
+        origin: row.origin,
+        payload: await parseStoredResponsesPayload(row.id, row.payload_json),
+        encryptedContentHash: row.encrypted_content_hash,
+        createdAt: row.created_at,
+        refreshedAt: row.refreshed_at,
+      })));
     }));
     return perChunk.flat();
   }
@@ -704,12 +731,29 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
       // happen.
       return this.db
         .prepare(
-          `INSERT INTO responses_items (${RESPONSES_ITEM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO responses_items (${RESPONSES_ITEM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (id, COALESCE(api_key_id, '')) DO NOTHING`,
         )
-        .bind(item.id, item.apiKeyId, item.upstreamId, item.upstreamItemId, item.itemType, payload, item.encryptedContentHash, item.createdAt);
+        .bind(item.id, item.apiKeyId, item.upstreamId, item.upstreamItemId, item.itemType, item.origin, payload, item.encryptedContentHash, item.createdAt, item.refreshedAt);
     }));
     await this.runStatements(statements);
+  }
+
+  async refreshMany(apiKeyId: string | null, ids: readonly string[], refreshedAt: number): Promise<number> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return 0;
+
+    const CHUNK = 88;
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += CHUNK) chunks.push(unique.slice(i, i + CHUNK));
+    const results = await Promise.all(chunks.map(async chunk => {
+      const placeholders = chunk.map(() => '?').join(', ');
+      return await this.db
+        .prepare(`UPDATE responses_items SET refreshed_at = ? WHERE ${RESPONSES_ITEM_ID_SCOPE_SQL} AND id IN (${placeholders}) AND refreshed_at < ?`)
+        .bind(refreshedAt, apiKeyId, ...chunk, refreshedAt)
+        .run();
+    }));
+    return results.reduce((sum, result) => sum + ((result.meta.changes as number | undefined) ?? 0), 0);
   }
 
   async clearPayloadOlderThan(createdBefore: number): Promise<number> {
@@ -717,8 +761,8 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
     return (result.meta.changes as number | undefined) ?? 0;
   }
 
-  async deleteOlderThan(createdBefore: number): Promise<number> {
-    const result = await this.db.prepare('DELETE FROM responses_items WHERE created_at < ?').bind(createdBefore).run();
+  async deleteOlderThan(refreshedBefore: number): Promise<number> {
+    const result = await this.db.prepare('DELETE FROM responses_items WHERE refreshed_at < ?').bind(refreshedBefore).run();
     return (result.meta.changes as number | undefined) ?? 0;
   }
 
@@ -736,28 +780,6 @@ class D1ResponsesItemsRepo implements ResponsesItemsRepo {
     for (const statement of statements) await statement.run();
   }
 }
-
-interface ResponsesItemRow {
-  id: string;
-  api_key_id: string | null;
-  upstream_id: string | null;
-  upstream_item_id: string | null;
-  item_type: string;
-  payload_json: string | null;
-  encrypted_content_hash: string | null;
-  created_at: number;
-}
-
-const toStoredResponsesItem = async (row: ResponsesItemRow): Promise<StoredResponsesItem> => ({
-  id: row.id,
-  apiKeyId: row.api_key_id,
-  upstreamId: row.upstream_id,
-  upstreamItemId: row.upstream_item_id,
-  itemType: row.item_type,
-  payload: await parseStoredResponsesPayload(row.id, row.payload_json),
-  encryptedContentHash: row.encrypted_content_hash,
-  createdAt: row.created_at,
-});
 
 class D1SearchConfigRepo implements SearchConfigRepo {
   constructor(private db: D1Database) {}

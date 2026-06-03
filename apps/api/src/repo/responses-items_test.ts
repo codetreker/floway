@@ -11,8 +11,10 @@ const storedItem = (overrides: Partial<StoredResponsesItem> & Pick<StoredRespons
   upstreamId: null,
   upstreamItemId: null,
   itemType: 'message',
+  origin: 'upstream',
   encryptedContentHash: null,
   payload: { item: { id: overrides.id, type: 'message', content: [{ type: 'output_text', text: overrides.id }] } },
+  refreshedAt: overrides.createdAt,
   ...overrides,
 });
 
@@ -50,19 +52,33 @@ const exerciseResponsesItemsRepo = async (repo: ResponsesItemsRepo) => {
   assertEquals(await repo.lookupMany('key_b', [first.id, second.id, adminScoped.id]), []);
   assertEquals(await repo.lookupMany('key_a', []), []);
 
+  assertEquals(await repo.refreshMany('key_a', [first.id, first.id, second.id, adminScoped.id, 'missing'], 4_000), 2);
+  assertEquals(
+    await repo.lookupMany('key_a', [first.id, second.id]),
+    [
+      { ...first, refreshedAt: 4_000 },
+      { ...second, refreshedAt: 4_000 },
+    ],
+  );
+  assertEquals(await repo.refreshMany('key_a', [first.id], 3_500), 0);
+  assertEquals(await repo.refreshMany(null, [adminScoped.id], 5_000), 1);
+  const refreshedAdminScoped = { ...adminScoped, refreshedAt: 5_000 };
+
+  assertEquals(await repo.clearPayloadOlderThan(500), 0);
   assertEquals(await repo.clearPayloadOlderThan(2_500), 2);
   assertEquals(
     await repo.lookupMany('key_a', [first.id, second.id]),
     [
-      { ...first, payload: null },
-      { ...second, payload: null },
+      { ...first, payload: null, refreshedAt: 4_000 },
+      { ...second, payload: null, refreshedAt: 4_000 },
     ],
   );
-  assertEquals(await repo.lookupMany(null, [adminScoped.id]), [adminScoped]);
+  assertEquals(await repo.lookupMany(null, [adminScoped.id]), [refreshedAdminScoped]);
 
-  assertEquals(await repo.deleteOlderThan(3_000), 2);
+  assertEquals(await repo.deleteOlderThan(3_000), 0);
+  assertEquals(await repo.deleteOlderThan(4_500), 2);
   assertEquals(await repo.lookupMany('key_a', [first.id, second.id]), []);
-  assertEquals(await repo.lookupMany(null, [adminScoped.id]), [adminScoped]);
+  assertEquals(await repo.lookupMany(null, [adminScoped.id]), [refreshedAdminScoped]);
 
   await repo.deleteAll();
   assertEquals(await repo.lookupMany(null, [adminScoped.id]), []);
@@ -120,9 +136,11 @@ test('D1 responses items repo rejects malformed stored payload_json', async () =
     upstream_id: null,
     upstream_item_id: null,
     item_type: 'message',
+    origin: 'synthetic',
     payload_json: '{bad json',
     encrypted_content_hash: null,
     created_at: 1_000,
+    refreshed_at: 1_000,
   });
 
   await assertRejects(() => new D1Repo(db).responsesItems.lookupMany('key_a', ['msg_z1mVjw_0xVvS8c_KjD1sBkZk5qbdA']), Error, 'Malformed responses_items.payload_json JSON');
@@ -234,15 +252,75 @@ test('migration 0023 creates the responses_items table and cleanup indexes', asy
   }
 });
 
+test('migration 0025 adds responses item metadata and refresh index', async () => {
+  const SQL = await initSqlJs();
+  const db = new SQL.Database();
+  try {
+    applySqlJsFile(db, '0023_responses_items.sql');
+    db.run(`
+      INSERT INTO responses_items (id, upstream_id, upstream_item_id, item_type, created_at)
+      VALUES
+        ('msg_z1mVjw_0xVvS8c_KjD1sBkZk5qbdA', NULL, NULL, 'message', 1),
+        ('rs_mFBDiA_Lh1uXb7nD_bQb4I1CUYH2w', 'up_a', 'raw_rs_a', 'reasoning', 2)
+    `);
+    applySqlJsFile(db, '0025_responses_item_metadata.sql');
+
+    assertEquals(
+      sqlJsRows<{ name: string }>(db, 'PRAGMA table_info(responses_items)').map(row => row.name).filter(name => name === 'origin' || name === 'refreshed_at'),
+      ['origin', 'refreshed_at'],
+    );
+    assertEquals(
+      sqlJsRows<{ id: string; origin: string; refreshed_at: number }>(db, 'SELECT id, origin, refreshed_at FROM responses_items ORDER BY created_at'),
+      [
+        { id: 'msg_z1mVjw_0xVvS8c_KjD1sBkZk5qbdA', origin: 'synthetic', refreshed_at: 1 },
+        { id: 'rs_mFBDiA_Lh1uXb7nD_bQb4I1CUYH2w', origin: 'upstream', refreshed_at: 2 },
+      ],
+    );
+    assertEquals(
+      sqlJsRows<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'responses_items' ORDER BY name").map(row => row.name),
+      ['idx_responses_items_api_key_id', 'idx_responses_items_created_at', 'idx_responses_items_enc_hash', 'idx_responses_items_id_scope', 'idx_responses_items_refreshed_at'],
+    );
+    db.run("INSERT INTO responses_items (id, item_type, created_at) VALUES ('ws_WGRXTA_sVlhxg6BAV0BUzj0KkWSqA', 'web_search_call', 3)");
+    assertEquals(
+      sqlJsRows<{ origin: string; refreshed_at: number }>(db, "SELECT origin, refreshed_at FROM responses_items WHERE id = 'ws_WGRXTA_sVlhxg6BAV0BUzj0KkWSqA'")[0],
+      { origin: 'upstream', refreshed_at: 3 },
+    );
+    assert(
+      sqlJsRows<{ detail: string }>(db, 'EXPLAIN QUERY PLAN DELETE FROM responses_items WHERE refreshed_at < 10')
+        .some(row => row.detail.includes('idx_responses_items_refreshed_at')),
+    );
+    assert(
+      sqlJsRows<{ detail: string }>(db, 'EXPLAIN QUERY PLAN UPDATE responses_items SET payload_json = NULL WHERE payload_json IS NOT NULL AND created_at < 10')
+        .some(row => row.detail.includes('idx_responses_items_created_at')),
+    );
+    assert(
+      sqlJsRows<{ detail: string }>(
+        db,
+        "EXPLAIN QUERY PLAN SELECT id FROM responses_items WHERE COALESCE(api_key_id, '') = COALESCE('key_a', '') AND id IN ('msg_z1mVjw_0xVvS8c_KjD1sBkZk5qbdA')",
+      ).some(row => row.detail.includes('idx_responses_items_id_scope')),
+    );
+    assert(
+      sqlJsRows<{ detail: string }>(
+        db,
+        "EXPLAIN QUERY PLAN UPDATE responses_items SET refreshed_at = 10 WHERE COALESCE(api_key_id, '') = COALESCE('key_a', '') AND id IN ('msg_z1mVjw_0xVvS8c_KjD1sBkZk5qbdA') AND refreshed_at < 10",
+      ).some(row => row.detail.includes('idx_responses_items_id_scope')),
+    );
+  } finally {
+    db.close();
+  }
+});
+
 type FakeResponsesItemRow = {
   id: string;
   api_key_id: string | null;
   upstream_id: string | null;
   upstream_item_id: string | null;
   item_type: string;
+  origin: StoredResponsesItem['origin'];
   payload_json: string | null;
   encrypted_content_hash: string | null;
   created_at: number;
+  refreshed_at: number;
 };
 
 class FakeResponsesItemsD1PreparedStatement {
@@ -276,11 +354,15 @@ class FakeResponsesItemsD1PreparedStatement {
       this.db.insert(this.binds);
       return Promise.resolve({ results: [], success: true, meta: { changes: 1 } });
     }
+    if (this.query.startsWith('UPDATE responses_items SET refreshed_at = ?')) {
+      const changes = this.db.refresh(this.binds);
+      return Promise.resolve({ results: [], success: true, meta: { changes } });
+    }
     if (this.query.startsWith('UPDATE responses_items SET payload_json = NULL')) {
       const changes = this.db.clearPayloadOlderThan(this.binds[0] as number);
       return Promise.resolve({ results: [], success: true, meta: { changes } });
     }
-    if (this.query.startsWith('DELETE FROM responses_items WHERE created_at < ?')) {
+    if (this.query.startsWith('DELETE FROM responses_items WHERE refreshed_at < ?')) {
       const changes = this.db.deleteOlderThan(this.binds[0] as number);
       return Promise.resolve({ results: [], success: true, meta: { changes } });
     }
@@ -308,7 +390,18 @@ class FakeResponsesItemsD1Database implements D1Database {
   }
 
   insert(binds: unknown[]): void {
-    const [id, apiKeyId, upstreamId, upstreamItemId, itemType, payload, encryptedContentHash, createdAt] = binds as [string, string | null, string | null, string | null, string, string | null, string | null, number];
+    const [id, apiKeyId, upstreamId, upstreamItemId, itemType, origin, payload, encryptedContentHash, createdAt, refreshedAt] = binds as [
+      string,
+      string | null,
+      string | null,
+      string | null,
+      string,
+      StoredResponsesItem['origin'],
+      string | null,
+      string | null,
+      number,
+      number,
+    ];
     const existing = this.rows.find(row => row.id === id && row.api_key_id === apiKeyId);
     if (existing) return;  // mirrors d1.ts `ON CONFLICT DO NOTHING`
     this.rows.push({
@@ -317,10 +410,26 @@ class FakeResponsesItemsD1Database implements D1Database {
       upstream_id: upstreamId,
       upstream_item_id: upstreamItemId,
       item_type: itemType,
+      origin,
       payload_json: payload,
       encrypted_content_hash: encryptedContentHash,
       created_at: createdAt,
+      refreshed_at: refreshedAt,
     });
+  }
+
+  refresh(binds: unknown[]): number {
+    const [refreshedAt, apiKeyId, ...rest] = binds as [number, string | null, ...Array<string | number>];
+    const ids = new Set(rest.slice(0, -1) as string[]);
+    const maxExisting = rest.at(-1) as number;
+    let changes = 0;
+    for (const row of this.rows) {
+      if (row.api_key_id === apiKeyId && ids.has(row.id) && row.refreshed_at < maxExisting) {
+        row.refreshed_at = refreshedAt;
+        changes += 1;
+      }
+    }
+    return changes;
   }
 
   lookup(query: string, binds: unknown[]): FakeResponsesItemRow[] {
@@ -329,7 +438,8 @@ class FakeResponsesItemsD1Database implements D1Database {
     if (query.includes('encrypted_content_hash IN')) {
       return this.rows
         .filter(row => row.api_key_id === apiKeyId && row.encrypted_content_hash !== null && wanted.has(row.encrypted_content_hash))
-        .map(row => ({ ...row }));
+        .map(row => ({ ...row }))
+        .toSorted(compareFakeResponsesItemsByFreshness);
     }
     const matches = this.rows.filter(row => wanted.has(row.id) && row.api_key_id === apiKeyId);
     const order = new Map(keys.map((id, index) => [id, index]));
@@ -349,10 +459,13 @@ class FakeResponsesItemsD1Database implements D1Database {
 
   deleteOlderThan(createdBefore: number): number {
     const previousLength = this.rows.length;
-    this.rows = this.rows.filter(row => row.created_at >= createdBefore);
+    this.rows = this.rows.filter(row => row.refreshed_at >= createdBefore);
     return previousLength - this.rows.length;
   }
 }
+
+const compareFakeResponsesItemsByFreshness = (a: FakeResponsesItemRow, b: FakeResponsesItemRow): number =>
+  b.refreshed_at - a.refreshed_at || b.created_at - a.created_at || a.id.localeCompare(b.id);
 
 type SqlJsDatabase = {
   run(sql: string): void;

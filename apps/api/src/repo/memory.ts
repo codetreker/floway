@@ -425,7 +425,7 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
         rows.push(cloneStoredResponsesItem(row));
       }
     }
-    return Promise.resolve(rows);
+    return Promise.resolve(rows.toSorted((a, b) => b.refreshedAt - a.refreshedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id)));
   }
 
   insertMany(items: readonly StoredResponsesItem[]): Promise<void> {
@@ -435,6 +435,18 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
       this.store.set(key, cloneStoredResponsesItem(item));
     }
     return Promise.resolve();
+  }
+
+  refreshMany(apiKeyId: string | null, ids: readonly string[], refreshedAt: number): Promise<number> {
+    let changes = 0;
+    for (const id of new Set(ids)) {
+      const row = this.store.get(responsesItemStoreKey(apiKeyId, id));
+      if (row && row.refreshedAt < refreshedAt) {
+        row.refreshedAt = refreshedAt;
+        changes += 1;
+      }
+    }
+    return Promise.resolve(changes);
   }
 
   clearPayloadOlderThan(createdBefore: number): Promise<number> {
@@ -448,10 +460,10 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
     return Promise.resolve(changes);
   }
 
-  deleteOlderThan(createdBefore: number): Promise<number> {
+  deleteOlderThan(refreshedBefore: number): Promise<number> {
     let changes = 0;
     for (const [id, row] of this.store) {
-      if (row.createdAt < createdBefore) {
+      if (row.refreshedAt < refreshedBefore) {
         this.store.delete(id);
         changes += 1;
       }

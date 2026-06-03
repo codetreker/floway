@@ -36,8 +36,8 @@ export interface StatefulResponsesContext {
  * Anything that varies per provider-binding attempt belongs on `Invocation`,
  * not here. `statefulResponsesContext` is the one exception: the serve loop
  * reassigns it per attempt so cross-layer readers outside `Invocation`
- * plumbing (output.ts:buildRow, source-interceptor `transformItems`) reach
- * it via the only handle they have. Read it through
+ * plumbing (output persistence, source-interceptor `transformItems`) reach it
+ * via the only handle they have. Read it through
  * `request.statefulResponsesContext` at access time; never capture the
  * inner object in a closure or background task — that snapshot belongs to
  * one attempt only.

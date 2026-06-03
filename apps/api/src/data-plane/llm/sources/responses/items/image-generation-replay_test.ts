@@ -43,9 +43,11 @@ test('a stored image_generation_call referenced by id is inline-expanded with it
     upstreamId: null, // synthetic / portable — no upstream owns it
     upstreamItemId: null,
     itemType: 'image_generation_call',
+    origin: 'synthetic',
     payload: { item: { type: 'image_generation_call', id: storedId, status: 'completed', result: PNG_B64, revised_prompt: 'a cat', output_format: 'png' } },
     encryptedContentHash: null,
     createdAt: Date.now(),
+    refreshedAt: Date.now(),
   };
   const repo = new InMemoryRepo();
   initRepo(repo);

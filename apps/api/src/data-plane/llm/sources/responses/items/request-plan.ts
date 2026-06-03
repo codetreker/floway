@@ -67,9 +67,15 @@ export const prepareStoredResponsesItemsForSource = async <TSourceItems>(
     getRepo().responsesItems.lookupManyByEncryptedContentHash(apiKeyId, [...new Set(hashByContent.values())]),
   ]);
   const rowById = new Map(byId.map(row => [row.id, row]));
-  const rowByHash = new Map(byHash.flatMap(row => row.encryptedContentHash !== null ? [[row.encryptedContentHash, row] as const] : []));
+  const rowByHash = new Map<string, StoredResponsesItem>();
+  for (const row of byHash) {
+    if (row.encryptedContentHash !== null && !rowByHash.has(row.encryptedContentHash)) {
+      rowByHash.set(row.encryptedContentHash, row);
+    }
+  }
 
   const failures: StoredResponsesItemsFailure[] = [];
+  const touchedIds = new Set<string>();
   for (const ref of references) {
     const row = (ref.id !== undefined ? rowById.get(ref.id) : undefined)
       ?? (ref.encryptedContent !== undefined ? rowByHash.get(hashByContent.get(ref.encryptedContent)!) : undefined);
@@ -84,6 +90,7 @@ export const prepareStoredResponsesItemsForSource = async <TSourceItems>(
     }
 
     ref.row = row;
+    touchedIds.add(row.id);
     if (ref.type === 'item_reference' && row.payload === null && row.upstreamItemId === null) {
       failures.push({ kind: 'item-not-found', itemId: row.id });
       continue;
@@ -100,6 +107,7 @@ export const prepareStoredResponsesItemsForSource = async <TSourceItems>(
       failures.push({ kind: 'item-not-found', itemId: row.id });
     }
   }
+  if (touchedIds.size > 0) await getRepo().responsesItems.refreshMany(apiKeyId, [...touchedIds], Date.now());
 
   return {
     references,

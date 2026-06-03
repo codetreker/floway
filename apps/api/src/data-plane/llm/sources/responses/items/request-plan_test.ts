@@ -43,6 +43,7 @@ const insertRows = async (rows: readonly StoredResponsesItem[]) => {
   const repo = new InMemoryRepo();
   initRepo(repo);
   await repo.responsesItems.insertMany(rows);
+  return repo;
 };
 
 const prepareResponsesItems = async (sourceItems: string | readonly ResponsesInputItem[]) =>
@@ -80,6 +81,7 @@ const storedRow = (
     apiKeyId: API_KEY_ID,
     upstreamId: null,
     upstreamItemId: null,
+    origin: overrides.origin ?? (overrides.upstreamId === undefined || overrides.upstreamId === null ? 'synthetic' : 'upstream'),
     encryptedContentHash: null,
     payload: payload === undefined || payload === null
       ? null
@@ -87,6 +89,7 @@ const storedRow = (
         ? payload as StoredResponsesItem['payload']
         : { item: payload },
     createdAt: 1_000,
+    refreshedAt: 1_000,
     ...rest,
   };
 };
@@ -491,6 +494,35 @@ test('id-less reasoning is matched by encrypted_content hash and prefers its own
   // Routed elsewhere (owner unavailable): the blob would not verify, so the
   // reasoning item is dropped rather than carried.
   assertEquals(await rewriteResponsesItems(items, prepared, provider('up_b')), []);
+});
+
+test('matched stored items are refreshed during preparation', async () => {
+  const id = storedReasoningId('refresh');
+  const repo = await insertRows([
+    storedRow({ id, itemType: 'reasoning', upstreamId: 'up_a', upstreamItemId: 'raw_rs_a', payload: null, createdAt: 1_000, refreshedAt: 1_000 }),
+  ]);
+
+  await prepareResponsesItems([{ type: 'item_reference', id }]);
+
+  const [row] = await repo.responsesItems.lookupMany(API_KEY_ID, [id]);
+  assert(row.refreshedAt > 1_000);
+});
+
+test('id-less encrypted_content duplicate hash keeps the freshest stored row', async () => {
+  const enc = 'duplicate-enc';
+  const hash = await hashResponsesItemEncryptedContent(enc);
+  await insertRows([
+    storedRow({ id: storedReasoningId('old'), itemType: 'reasoning', upstreamId: 'up_old', upstreamItemId: 'raw_old', encryptedContentHash: hash, payload: null, createdAt: 1_000, refreshedAt: 1_000 }),
+    storedRow({ id: storedReasoningId('new'), itemType: 'reasoning', upstreamId: 'up_new', upstreamItemId: 'raw_new', encryptedContentHash: hash, payload: null, createdAt: 2_000, refreshedAt: 2_000 }),
+  ]);
+
+  const items = [{ type: 'reasoning', summary: [], encrypted_content: enc }] as unknown as ResponsesInputItem[];
+  const prepared = await prepareResponsesItems(items);
+  const plan = planResponsesItemProviders([provider('up_old'), provider('up_new')], prepared);
+
+  assertEquals(plan.type, 'providers');
+  if (plan.type === 'providers') assertEquals(plan.providers.map(item => item.upstream), ['up_new', 'up_old']);
+  assertEquals(await rewriteResponsesItems(items, prepared, provider('up_new')), [{ type: 'reasoning', summary: [], encrypted_content: enc, id: 'raw_new' }]);
 });
 
 test('id-less compaction is matched by encrypted_content hash and forces its owning upstream', async () => {

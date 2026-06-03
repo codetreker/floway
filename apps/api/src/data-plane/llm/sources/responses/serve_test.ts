@@ -138,11 +138,13 @@ test('/v1/responses expands stored synthetic item_reference before the upstream 
       upstreamId: null,
       upstreamItemId: null,
       itemType: 'message',
+      origin: 'synthetic',
       encryptedContentHash: null,
       // payload.item.id is the original wire id, distinct from the stored row
       // id; the rewriter preserves it verbatim on the wire for synthetic rows.
       payload: { item: storedItem },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
   ]);
 
@@ -225,9 +227,11 @@ test('/v1/responses expands same-origin item_reference for Copilot because Copil
       upstreamId: copilotUpstream.id,
       upstreamItemId: 'raw_msg_copilot',
       itemType: 'message',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...storedItem, id } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
   ]);
 
@@ -307,9 +311,11 @@ test('/v1/responses rejects metadata-only item_reference for Copilot before upst
       upstreamId: copilotUpstream.id,
       upstreamItemId: 'raw_msg_copilot_metadata',
       itemType: 'message',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: null,
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
   ]);
   let generationFetchCalls = 0;
@@ -397,9 +403,11 @@ test('/v1/responses prefers latest portable stored-item origin and rewrites only
       upstreamId: 'up_a',
       upstreamItemId: 'raw_rs_a',
       itemType: 'reasoning',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...firstItem, id: firstId } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
     {
       id: secondId,
@@ -407,9 +415,11 @@ test('/v1/responses prefers latest portable stored-item origin and rewrites only
       upstreamId: 'up_b',
       upstreamItemId: 'raw_rs_b',
       itemType: 'reasoning',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...secondItem, id: secondId } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
   ]);
 
@@ -498,9 +508,11 @@ test('/v1/responses falls back with portable non-origin message items using temp
       upstreamId: 'up_a',
       upstreamItemId: 'raw_msg_a',
       itemType: 'message',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...firstItem, id: firstId } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
     {
       id: secondId,
@@ -508,9 +520,11 @@ test('/v1/responses falls back with portable non-origin message items using temp
       upstreamId: 'up_b',
       upstreamItemId: 'raw_msg_b',
       itemType: 'message',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...secondItem, id: secondId } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
   ]);
 
@@ -584,9 +598,11 @@ test('/v1/responses rejects multiple forcing stored-item origins before generati
       upstreamId: 'up_a',
       upstreamItemId: 'raw_cmp_a',
       itemType: 'compaction',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...firstItem, id: firstId } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
     {
       id: secondId,
@@ -594,9 +610,11 @@ test('/v1/responses rejects multiple forcing stored-item origins before generati
       upstreamId: 'up_b',
       upstreamItemId: 'raw_cmp_b',
       itemType: 'compaction',
+      origin: 'upstream',
       encryptedContentHash: null,
       payload: { item: { ...secondItem, id: secondId } },
       createdAt: Date.now(),
+      refreshedAt: Date.now(),
     },
   ]);
   let generationFetchCalls = 0;
