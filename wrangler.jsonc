@@ -1,0 +1,74 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "copilot",
+  "main": "apps/api/entry-cloudflare.ts",
+  "compatibility_date": "2025-01-01",
+  "account_id": "7d7db4dda3319d23e2cedcf70ea2aa45",
+  "routes": [
+    {
+      "pattern": "copilot.codetrek.work/*",
+      "zone_name": "codetrek.work"
+    }
+  ],
+  "triggers": {
+    "crons": ["17 * * * *"]
+  },
+  "assets": {
+    "directory": "apps/web/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/auth",
+      "/auth/*",
+      "/v1/*",
+      "/v1beta/*",
+      "/chat/*",
+      "/responses",
+      "/messages",
+      "/messages/*",
+      "/embeddings",
+      "/images/*",
+      "/models",
+      "/favicon.ico"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "copilot-db",
+      "database_id": "0f5eeb05-be0b-49b2-814a-3712767da571",
+      "migrations_dir": "apps/api/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "copilot-files"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "0bd4f3fa818e4109ab7fd2a4988f989a"
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "copilot-staging",
+      "workers_dev": true,
+      "routes": [],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "copilot-db-staging",
+          "database_id": "fd6eef68-ddee-402d-adbf-3b525418fa64",
+          "migrations_dir": "apps/api/migrations"
+        }
+      ]
+    }
+  }
+}
