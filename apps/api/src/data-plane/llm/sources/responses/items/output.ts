@@ -1,6 +1,7 @@
 import { createStoredResponsesItemId, hashResponsesItemContent, hashResponsesItemEncryptedContent, responsesItemEncryptedContent, responsesItemId } from './format.ts';
 import type { StoredResponsesItem } from '../../../../../repo/types.ts';
 import type { LlmTargetApi, RequestContext } from '../../../interceptors.ts';
+import type { ResponsesSnapshotMode } from '../stateful-store.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
 import type {
   ResponsesItemFinalizedHandler,
@@ -47,7 +48,7 @@ export interface StoreResponsesContext {
   readonly targetApi: LlmTargetApi;
   readonly upstream: string;
   readonly store: boolean | null | undefined;
-  readonly commitSnapshot?: boolean;
+  readonly snapshotMode: ResponsesSnapshotMode;
 }
 
 // Flushes the rows buffered during a non-streaming drain. Streaming has no
@@ -91,9 +92,9 @@ export const storeResponsesOutputItems = <TFrame>(
       console.error('Failed to persist stored Responses items:', error);
     }
   };
-  const commitSnapshot = async (responseId: string): Promise<void> => {
+  const commitSnapshot = async (responseId: string, mode: 'append' | 'replace'): Promise<void> => {
     try {
-      await statefulResponsesStore.commitSnapshot(responseId);
+      await statefulResponsesStore.commitSnapshot(responseId, mode);
     } catch (error) {
       console.error('Failed to persist stored Responses snapshot:', error);
     }
@@ -112,7 +113,7 @@ export const storeResponsesOutputItems = <TFrame>(
     ? undefined
     : async (): Promise<void> => {
       await commitStoredItems();
-      if (context.commitSnapshot && terminalResponseId !== null) await commitSnapshot(terminalResponseId);
+      if (context.snapshotMode !== 'none' && terminalResponseId !== null) await commitSnapshot(terminalResponseId, context.snapshotMode);
     };
 
   const events = commitSnapshotFromTerminal(
@@ -170,13 +171,13 @@ const commitSnapshotFromTerminal = async function* <TFrame>(
   context: StoreResponsesContext,
   wantsStream: boolean,
   rememberTerminalResponseId: (id: string) => void,
-  commitSnapshot: (id: string) => Promise<void>,
+  commitSnapshot: (id: string, mode: 'append' | 'replace') => Promise<void>,
 ): AsyncGenerator<TFrame> {
   for await (const frame of frames) {
     const responseId = terminalResponseId(frame);
     if (responseId !== null) {
       rememberTerminalResponseId(responseId);
-      if (wantsStream && context.commitSnapshot) await commitSnapshot(responseId);
+      if (wantsStream && context.snapshotMode !== 'none') await commitSnapshot(responseId, context.snapshotMode);
     }
     yield frame;
   }

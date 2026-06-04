@@ -6,8 +6,8 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const trimTrailingSlash = (s: string): string => s.replace(/\/+$/, '');
 
 // Per-endpoint default paths. Admin pathOverrides (see config.ts) replace
-// these one-for-one; messages_count_tokens tracks the override of its parent
-// endpoint (suffix appended).
+// these one-for-one; messages_count_tokens / responses_compact track the
+// override of their parent endpoint (suffix appended).
 const CUSTOM_DEFAULT_PATHS = {
   chat_completions: '/v1/chat/completions',
   responses: '/v1/responses',
@@ -45,14 +45,16 @@ const customFetchInternal = async (
   return await fetch(joinBaseAndPath(trimTrailingSlash(config.baseUrl), path), { ...init, headers });
 };
 
-// Typed transports — one per logical endpoint Custom serves. count_tokens
-// derives its path by suffixing the (possibly admin-overridden) parent
-// endpoint, so renaming `messages` to `/custom/messages` implicitly moves
-// `messages/count_tokens` to `/custom/messages/count_tokens`.
+// Typed transports — one per logical endpoint Custom serves. count_tokens /
+// responses_compact derive their path by suffixing the (possibly admin-
+// overridden) parent endpoint, so renaming `messages` to `/custom/messages`
+// implicitly moves `messages/count_tokens` to `/custom/messages/count_tokens`.
 export const customFetchChatCompletions = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
   customFetchInternal(config, resolveOverridable(config, 'chat_completions'), init, options);
 export const customFetchResponses = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
   customFetchInternal(config, resolveOverridable(config, 'responses'), init, options);
+export const customFetchResponsesCompact = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, `${resolveOverridable(config, 'responses')}/compact`, init, options);
 export const customFetchMessages = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
   customFetchInternal(config, resolveOverridable(config, 'messages'), init, options);
 export const customFetchMessagesCountTokens = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>

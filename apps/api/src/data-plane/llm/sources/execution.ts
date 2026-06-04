@@ -49,7 +49,7 @@ export const executeLlmSourcePlan = async <TItems, TEvent>(
       targetApi: target,
       upstream: binding.upstream,
       store: plan.store,
-      commitSnapshot: plan.commitStatefulResponsesSnapshot === true,
+      snapshotMode: plan.responsesSnapshotMode ?? 'none',
     }, plan.request, plan.wantsStream);
     return { result: { ...rawResult, events: stored.events }, commitForNonStreaming: stored.commitForNonStreaming };
   }

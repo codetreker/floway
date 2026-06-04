@@ -2102,3 +2102,385 @@ test('/v1/responses preserves custom upstream /models HTTP errors', async () => 
     },
   );
 });
+
+test('/v1/responses/compact rebuilds a compaction envelope from Copilot via compaction_trigger', async () => {
+  const { apiKey } = await setupAppTest();
+  let upstreamBody: Record<string, unknown> | undefined;
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+      if (url.pathname === '/models') return jsonResponse(copilotModels([{ id: 'gpt-direct-responses', supported_endpoints: ['/responses'] }]));
+      if (url.pathname === '/responses') {
+        upstreamBody = JSON.parse(await request.text()) as Record<string, unknown>;
+        // Copilot has no native /responses/compact: it drives /responses with a
+        // trailing compaction_trigger and gets back the single compaction item.
+        return jsonResponse({
+          id: 'resp_trigger',
+          object: 'response',
+          model: 'gpt-direct-responses',
+          status: 'completed',
+          output: [{ type: 'compaction', id: 'cmp_upstream', encrypted_content: 'BLOB' }],
+          usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+        });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const response = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({ model: 'gpt-direct-responses', input: [{ type: 'message', role: 'user', content: 'summarize me' }] }),
+      });
+
+      assertEquals(response.status, 200);
+      const body = (await response.json()) as { object: string; output: Array<Record<string, unknown>> };
+      assertEquals(body.object, 'response.compaction');
+      const output = body.output;
+      const last = output[output.length - 1];
+      assertEquals(last.type, 'compaction');
+      assertEquals(last.encrypted_content, 'BLOB');
+      assertEquals(output[0].type, 'message');
+      assertEquals(output[0].role, 'user');
+    },
+  );
+
+  assertExists(upstreamBody);
+  const input = upstreamBody.input as Array<Record<string, unknown>>;
+  assertEquals(input[input.length - 1].type, 'compaction_trigger');
+  assertEquals(upstreamBody.stream, false);
+});
+
+test('/v1/responses/compact passes a native custom /responses/compact through', async () => {
+  const { repo, apiKey, copilotUpstream } = await setupAppTest();
+  await repo.upstreams.delete(copilotUpstream.id);
+  clearModelsStore();
+  await clearCopilotTokenCache();
+  await repo.upstreams.save(buildCustomUpstreamRecord({
+    id: 'up_native',
+    config: { baseUrl: 'https://native.example.com', bearerToken: 'sk-n', endpoints: { responses: {} } },
+  }));
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'native.example.com' && url.pathname === '/v1/models') return jsonResponse({ data: [{ id: 'native-model' }] });
+      if (url.hostname === 'native.example.com' && url.pathname === '/v1/responses/compact') {
+        return jsonResponse({
+          id: 'resp_native',
+          object: 'response.compaction',
+          model: 'native-model',
+          output: [
+            { type: 'message', id: 'msg_u', role: 'user', status: 'completed', content: [{ type: 'input_text', text: 'kept' }] },
+            { type: 'compaction', id: 'cmp_native', encrypted_content: 'NATIVE' },
+          ],
+          usage: { input_tokens: 3, output_tokens: 0, total_tokens: 3 },
+        });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const response = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({ model: 'native-model', input: [{ type: 'message', role: 'user', content: 'compact me' }] }),
+      });
+
+      assertEquals(response.status, 200);
+      const body = (await response.json()) as { object: string; output: Array<Record<string, unknown>> };
+      assertEquals(body.object, 'response.compaction');
+      const last = body.output[body.output.length - 1];
+      assertEquals(last.type, 'compaction');
+      assertEquals(last.encrypted_content, 'NATIVE');
+    },
+  );
+});
+
+test('/v1/responses/compact rejects a model without a native /responses endpoint', async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+      if (url.pathname === '/models') return jsonResponse(copilotModels([{ id: 'gpt-chat-only', supported_endpoints: ['/chat/completions'] }]));
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const response = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({ model: 'gpt-chat-only', input: [{ type: 'message', role: 'user', content: 'hi' }] }),
+      });
+
+      assertEquals(response.status, 400);
+      const body = (await response.json()) as { error: { message: string } };
+      assertStringIncludes(body.error.message, 'does not support the /responses endpoint');
+    },
+  );
+});
+
+test('/v1/responses/compact relays a non-2xx native upstream response verbatim', async () => {
+  const { repo, apiKey, copilotUpstream } = await setupAppTest();
+  await repo.upstreams.delete(copilotUpstream.id);
+  clearModelsStore();
+  await clearCopilotTokenCache();
+  await repo.upstreams.save(buildCustomUpstreamRecord({
+    id: 'up_native_err',
+    config: { baseUrl: 'https://err.example.com', bearerToken: 'sk-e', endpoints: { responses: {} } },
+  }));
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'err.example.com' && url.pathname === '/v1/models') return jsonResponse({ data: [{ id: 'failing-model' }] });
+      if (url.hostname === 'err.example.com' && url.pathname === '/v1/responses/compact') {
+        return new Response(JSON.stringify({ error: { message: 'upstream blew up', type: 'server_error' } }), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const response = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({ model: 'failing-model', input: [{ type: 'message', role: 'user', content: 'compact me' }] }),
+      });
+
+      assertEquals(response.status, 503);
+      const body = (await response.json()) as { error: { message: string; type: string } };
+      assertEquals(body.error.message, 'upstream blew up');
+      assertEquals(body.error.type, 'server_error');
+    },
+  );
+});
+
+test('/v1/responses/compact rejects an unknown previous_response_id with the OpenAI not-found envelope', async () => {
+  const { apiKey } = await setupAppTest();
+
+  await withMockedFetch(
+    async request => {
+      throw new Error(`Unexpected fetch ${request.url}`);
+    },
+    async () => {
+      const response = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({
+          model: 'gpt-direct-responses',
+          previous_response_id: 'resp_does_not_exist',
+          input: [{ type: 'message', role: 'user', content: 'summarize me' }],
+        }),
+      });
+
+      assertEquals(response.status, 400);
+      const body = (await response.json()) as { error: { code: string; param: string; type: string } };
+      assertEquals(body.error.code, 'previous_response_not_found');
+      assertEquals(body.error.param, 'previous_response_id');
+      assertEquals(body.error.type, 'invalid_request_error');
+    },
+  );
+});
+
+test('/v1/responses/compact expands previous_response_id snapshot in front of the current input', async () => {
+  const { apiKey, repo } = await setupAppTest();
+  const upstreamBodies: Array<Record<string, unknown>> = [];
+  const assistantItem = {
+    type: 'message',
+    id: 'raw_assistant_turn1',
+    role: 'assistant',
+    status: 'completed',
+    content: [{ type: 'output_text', text: 'First answer' }],
+  };
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+      if (url.pathname === '/models') return jsonResponse(copilotModels([{ id: 'gpt-direct-responses', supported_endpoints: ['/responses'] }]));
+      if (url.pathname === '/responses') {
+        upstreamBodies.push(JSON.parse(await request.text()) as Record<string, unknown>);
+        const turn = upstreamBodies.length;
+        if (turn === 1) {
+          return sseResponsesResponse({
+            id: 'resp_turn1',
+            object: 'response',
+            model: 'gpt-direct-responses',
+            status: 'completed',
+            output: [assistantItem],
+            output_text: 'First answer',
+            usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+          });
+        }
+        return jsonResponse({
+          id: 'resp_trigger',
+          object: 'response',
+          model: 'gpt-direct-responses',
+          status: 'completed',
+          output: [{ type: 'compaction', id: 'cmp_upstream', encrypted_content: 'BLOB' }],
+          usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+        });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const first = await requestApp('/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({
+          model: 'gpt-direct-responses',
+          input: [{ type: 'message', role: 'user', content: 'First question' }],
+          stream: false,
+        }),
+      });
+      assertEquals(first.status, 200);
+      await first.json();
+
+      const snapshot = await repo.responsesSnapshots.lookup(apiKey.id, 'resp_turn1');
+      assertExists(snapshot);
+      assertEquals(snapshot.itemIds.length, 2);
+
+      const compact = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({
+          model: 'gpt-direct-responses',
+          previous_response_id: 'resp_turn1',
+          input: [{ type: 'message', role: 'user', content: 'compact me' }],
+        }),
+      });
+      assertEquals(compact.status, 200);
+      await compact.json();
+    },
+  );
+
+  assertEquals(upstreamBodies.length, 2);
+  // Gateway resolves previous_response_id in-process: snapshot items first, current input next, compaction_trigger last.
+  assertEquals(Object.hasOwn(upstreamBodies[1], 'previous_response_id'), false);
+  assertEquals(upstreamBodies[1].stream, false);
+  const compactInput = upstreamBodies[1].input as Array<Record<string, unknown>>;
+  assertEquals(compactInput.map(item => item.type), ['message', 'message', 'message', 'compaction_trigger']);
+  assertEquals(compactInput[0].role, 'user');
+  assertEquals(compactInput[0].content, 'First question');
+  assertEquals(compactInput[1].role, 'assistant');
+  assertEquals(compactInput[2].role, 'user');
+  assertEquals(compactInput[2].content, 'compact me');
+});
+
+test('/v1/responses → /v1/responses/compact → /v1/responses chain: compact snapshot replaces history, third turn replays only the compact output', async () => {
+  const { apiKey, repo } = await setupAppTest();
+  const upstreamBodies: Array<Record<string, unknown>> = [];
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+      if (url.pathname === '/models') return jsonResponse(copilotModels([{ id: 'gpt-direct-responses', supported_endpoints: ['/responses'] }]));
+      if (url.pathname === '/responses') {
+        const body = JSON.parse(await request.text()) as Record<string, unknown>;
+        upstreamBodies.push(body);
+        const turn = upstreamBodies.length;
+        if (turn === 2) {
+          return jsonResponse({
+            id: 'resp_compact',
+            object: 'response',
+            model: 'gpt-direct-responses',
+            status: 'completed',
+            output: [{ type: 'compaction', id: 'cmp_upstream', encrypted_content: 'BLOB' }],
+            usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+          });
+        }
+        return sseResponsesResponse({
+          id: turn === 1 ? 'resp_turn1' : 'resp_turn3',
+          object: 'response',
+          model: 'gpt-direct-responses',
+          status: 'completed',
+          output: turn === 1
+            ? [{ type: 'message', id: 'raw_a1', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'First answer' }] }]
+            : [{ type: 'message', id: 'raw_a3', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Third answer' }] }],
+          output_text: turn === 1 ? 'First answer' : 'Third answer',
+          usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+        });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      // Turn 1: a normal /responses call seeds a snapshot for resp_turn1
+      // containing the user's "First question" + the assistant's reply.
+      const first = await requestApp('/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({
+          model: 'gpt-direct-responses',
+          input: [{ type: 'message', role: 'user', content: 'First question' }],
+          stream: false,
+        }),
+      });
+      assertEquals(first.status, 200);
+      await first.json();
+
+      // Turn 2: /responses/compact with previous_response_id=resp_turn1.
+      // Its snapshot should commit in 'replace' mode — output ONLY (the
+      // compaction blob), not previous + input + output.
+      const compact = await requestApp('/v1/responses/compact', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({
+          model: 'gpt-direct-responses',
+          previous_response_id: 'resp_turn1',
+          input: [{ type: 'message', role: 'user', content: 'compact me' }],
+        }),
+      });
+      assertEquals(compact.status, 200);
+      await compact.json();
+
+      const turn1Snapshot = await repo.responsesSnapshots.lookup(apiKey.id, 'resp_turn1');
+      assertExists(turn1Snapshot);
+      // Compact snapshot in 'replace' mode = compact response's output items
+      // only. The pre-compact resp_turn1 itemIds must NOT appear in the
+      // compact snapshot — that's the whole point: a follow-up call with
+      // previous_response_id=resp_compact replays only the compact context.
+      const compactSnapshot = await repo.responsesSnapshots.lookup(apiKey.id, 'resp_compact');
+      assertExists(compactSnapshot);
+      assertEquals(compactSnapshot.itemIds.some(id => turn1Snapshot.itemIds.includes(id)), false);
+      // The compact response's output here is `compactionResponse` reshaped:
+      // 3 retained input-shape messages (first_question, first_answer,
+      // "compact me") + the compaction blob = 4 items.
+      assertEquals(compactSnapshot.itemIds.length, 4);
+
+      // Turn 3: a follow-up /responses with previous_response_id=resp_compact.
+      // The upstream's input must be the compact output only — no original
+      // first-question/first-answer leakage.
+      const third = await requestApp('/v1/responses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': apiKey.key },
+        body: JSON.stringify({
+          model: 'gpt-direct-responses',
+          previous_response_id: 'resp_compact',
+          input: [{ type: 'message', role: 'user', content: 'continue' }],
+          stream: false,
+        }),
+      });
+      assertEquals(third.status, 200);
+      await third.json();
+    },
+  );
+
+  assertEquals(upstreamBodies.length, 3);
+  const thirdInput = upstreamBodies[2].input as Array<Record<string, unknown>>;
+  // Replayed input carries the compaction blob + the new "continue" message.
+  // The snapshot-itemIds assertion above already pins the no-leakage
+  // invariant; here we just check the blob made it onto the wire and the
+  // new turn lands at the tail.
+  const types = thirdInput.map(item => item.type);
+  assertEquals(types.includes('compaction'), true);
+  const tail = thirdInput[thirdInput.length - 1];
+  assertEquals(tail.role, 'user');
+  const tailContent = tail.content;
+  const tailText = typeof tailContent === 'string' ? tailContent : (tailContent as Array<{ text?: string }>)[0]?.text;
+  assertEquals(tailText, 'continue');
+});

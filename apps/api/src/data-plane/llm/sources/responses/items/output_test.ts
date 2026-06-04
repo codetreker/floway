@@ -22,6 +22,7 @@ const makeContext = (overrides: Partial<StoreResponsesContext> = {}): StoreRespo
   targetApi: overrides.targetApi ?? 'responses',
   upstream: overrides.upstream ?? 'up_native',
   store: overrides.store,
+  snapshotMode: overrides.snapshotMode ?? 'none',
 });
 
 const makeRequest = (

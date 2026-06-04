@@ -40,10 +40,21 @@ interface LayeredStatefulResponsesStoreOptions {
   readonly stageInputs: boolean;
 }
 
+// How a Responses turn should commit its snapshot:
+//   - 'none'    : do not write a snapshot at all
+//   - 'append'  : conversation continuation — previous snapshot + this turn's
+//                 input + this turn's output. Default for /responses generate.
+//   - 'replace' : the turn's output IS the new conversation — drop prior
+//                 history and the stitched-in input. Used by /responses/compact
+//                 so that referencing the compact response via
+//                 previous_response_id replays only the retained messages +
+//                 the encrypted compaction blob, not the original full history.
+export type ResponsesSnapshotMode = 'none' | 'append' | 'replace';
+
 export interface WebSocketStatefulResponsesStoragePolicy {
   readonly statefulResponsesStore: StatefulResponsesStore;
   readonly outputStore: boolean | null | undefined;
-  readonly commitSnapshot: boolean;
+  readonly snapshotMode: ResponsesSnapshotMode;
 }
 
 export interface StatefulResponsesStore {
@@ -63,7 +74,7 @@ export interface StatefulResponsesStore {
   getPrivatePayload(id: string): unknown;
   stageOutputItem(row: StoredResponsesItem): void;
   commitOutputItems(): Promise<void>;
-  commitSnapshot(responseId: string): Promise<void>;
+  commitSnapshot(responseId: string, mode: 'append' | 'replace'): Promise<void>;
   refreshTouchedItems(): Promise<void>;
 }
 
@@ -194,10 +205,18 @@ class LayeredStatefulResponsesStore implements StatefulResponsesStore {
     await this.commitItems([...this.stagedOutputItems.values()]);
   }
 
-  async commitSnapshot(responseId: string): Promise<void> {
+  async commitSnapshot(responseId: string, mode: 'append' | 'replace'): Promise<void> {
     if (this.options.snapshotWrites.length === 0 || this.committedSnapshotIds.has(responseId)) return;
     await this.commitItems([...this.stagedInputItems.values(), ...this.stagedOutputItems.values()]);
-    const itemIds = [...this.previousSnapshotItemIds, ...this.stagedInputItemIds, ...this.stagedOutputItemIds];
+    // 'append' is the conversation continuation default: previous snapshot +
+    // this turn's input + this turn's output. 'replace' (used by
+    // /responses/compact) drops the prior history and the stitched-in input
+    // — the upstream's compact output already echoes the retained messages
+    // and carries the encrypted blob, which is the entire context the next
+    // turn should see.
+    const itemIds = mode === 'replace'
+      ? [...this.stagedOutputItemIds]
+      : [...this.previousSnapshotItemIds, ...this.stagedInputItemIds, ...this.stagedOutputItemIds];
     if (itemIds.length === 0) return;
 
     const replayableRows = this.replayableRowsForSnapshot(itemIds);
@@ -560,7 +579,7 @@ const webSocketSessionOnlyPolicy = (
     stageInputs: true,
   }),
   outputStore: true,
-  commitSnapshot: true,
+  snapshotMode: 'append',
 });
 
 const webSocketDurablePolicy = (
@@ -580,7 +599,7 @@ const webSocketDurablePolicy = (
       stageInputs: true,
     }),
     outputStore: store,
-    commitSnapshot: true,
+    snapshotMode: 'append',
   };
 };
 

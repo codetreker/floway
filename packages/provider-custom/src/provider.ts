@@ -1,11 +1,11 @@
 import { assertCustomUpstreamRecord, type CustomUpstreamConfig } from './config.ts';
 import { fetchCustomModels, type CustomModelsResponse, type CustomRawModel } from './fetch-models.ts';
-import { customFetchChatCompletions, customFetchEmbeddings, customFetchImagesEdits, customFetchImagesGenerations, customFetchMessages, customFetchMessagesCountTokens, customFetchResponses } from './fetch.ts';
+import { customFetchChatCompletions, customFetchEmbeddings, customFetchImagesEdits, customFetchImagesGenerations, customFetchMessages, customFetchMessagesCountTokens, customFetchResponses, customFetchResponsesCompact } from './fetch.ts';
 import { inferEndpointsFromModelId } from './infer-endpoints.ts';
 import { parseChatCompletionsStream } from '@floway-dev/protocols/chat-completions';
 import { type ModelEndpoints, type ModelPricing, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream } from '@floway-dev/protocols/messages';
-import { parseResponsesStream } from '@floway-dev/protocols/responses';
+import { parseResponsesStream, type ResponsesResult } from '@floway-dev/protocols/responses';
 import { mergeAnthropicBetaHeader, publicModelId, resolveEffectiveFlags, defaultsForProvider, inProcessMemo, isProviderModelsHttpStatus, readModelsStore, writeModelsStore, streamingProviderCall, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderStreamParser, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
 
 interface CustomProviderData {
@@ -206,6 +206,17 @@ export const createCustomProvider = (record: UpstreamRecord): ModelProviderInsta
     getPricingForModelKey: modelKey => manualPricingByUpstreamId.get(modelKey) ?? pricingByRawId.get(modelKey) ?? null,
     callChatCompletions: (model, body, signal, headers) => callStreaming(customFetchChatCompletions, model, body, signal, headers, parseChatCompletionsStream),
     callResponses: (model, body, signal, headers) => callStreaming(customFetchResponses, model, body, signal, headers, parseResponsesStream),
+    callResponsesCompact: async (model, body, signal, headers) => {
+      const rawModelId = providerData(model).rawModelId;
+      const response = await customFetchResponsesCompact(
+        config,
+        { method: 'POST', body: JSON.stringify({ ...body, model: rawModelId }), signal },
+        { extraHeaders: headers },
+      );
+      return response.ok
+        ? { ok: true, result: (await response.json()) as ResponsesResult, modelKey: rawModelId }
+        : { ok: false, response, modelKey: rawModelId };
+    },
     callMessages: (model, body, signal, headers, anthropicBeta) => callStreaming(customFetchMessages, model, body, signal, mergeAnthropicBetaHeader(headers, anthropicBeta), parseMessagesStream),
     callMessagesCountTokens: (model, body, signal, headers, anthropicBeta) => call(customFetchMessagesCountTokens, model, body, signal, mergeAnthropicBetaHeader(headers, anthropicBeta)),
     callEmbeddings: (model, body, signal, headers) => call(customFetchEmbeddings, model, body, signal, headers),

@@ -286,12 +286,23 @@ const responsesOutputItemEvents = (item: ResponsesOutputItem, outputIndex: numbe
   }
 };
 
-export const responsesResultToEvents = (response: ResponsesResult): EventFrame<ResponsesStreamEvent>[] => {
+// `genericOutputItems` collapses every output item — assistant messages,
+// reasoning, tool calls, the lot — into the bare `output_item.added` /
+// `output_item.done` envelope (no inner content_part / output_text expansion).
+// `/responses/compact` callers need this because the retained items are
+// input-shaped (user/assistant messages echoed as `input_text`) and the
+// compaction blob is opaque; expanding them as assistant-message content
+// would mint mid-stream `output_text.delta` events that would not match the
+// item shape.
+export const responsesResultToEvents = (response: ResponsesResult, options?: { genericOutputItems?: boolean }): EventFrame<ResponsesStreamEvent>[] => {
   const started = responsesStartSnapshot(response);
+  const outputEvents = options?.genericOutputItems
+    ? response.output.flatMap(responsesGenericOutputItemEvents)
+    : response.output.flatMap(responsesOutputItemEvents);
   const events: ResponsesStreamEvent[] = [
     { type: 'response.created', response: started },
     { type: 'response.in_progress', response: started },
-    ...response.output.flatMap(responsesOutputItemEvents),
+    ...outputEvents,
     { type: getTerminalEventName(response), response },
   ];
 

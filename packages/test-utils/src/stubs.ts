@@ -54,6 +54,7 @@ export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvi
   getPricingForModelKey: () => null,
   callChatCompletions: () => Promise.reject(new Error('stubProvider.callChatCompletions was called')),
   callResponses: () => Promise.reject(new Error('stubProvider.callResponses was called')),
+  callResponsesCompact: () => Promise.reject(new Error('stubProvider.callResponsesCompact was called')),
   callMessages: () => Promise.reject(new Error('stubProvider.callMessages was called')),
   callMessagesCountTokens: () => Promise.reject(new Error('stubProvider.callMessagesCountTokens was called')),
   callEmbeddings: () => Promise.reject(new Error('stubProvider.callEmbeddings was called')),

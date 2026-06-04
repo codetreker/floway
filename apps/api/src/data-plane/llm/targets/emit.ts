@@ -2,7 +2,7 @@ import { recordUpstreamHttpFailure, targetPerformanceContext, withUpstreamTeleme
 import type { NonLlmServeApiName } from '../../shared/api-names.ts';
 import type { Invocation, RequestContext } from '../interceptors.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import { type PerformanceApiName, type TelemetryModelIdentity, type ProviderStreamResult, type ExecuteResult, type InternalErrorResult, eventResult, internalErrorResult } from '@floway-dev/provider';
+import { type PerformanceApiName, type TelemetryModelIdentity, type ProviderStreamResult, type UpstreamErrorResult, type ExecuteResult, type InternalErrorResult, eventResult, internalErrorResult } from '@floway-dev/provider';
 import { toInternalDebugError, readUpstreamError } from '@floway-dev/provider';
 
 export type TargetEmitApiName = Exclude<PerformanceApiName, NonLlmServeApiName | 'gemini'>;
@@ -38,6 +38,21 @@ export const targetStreamResultToExecuteResult = async <TEvent>(
     modelIdentity,
     perfContext,
   );
+};
+
+// Boundary helper for the non-streaming `/responses/compact` path. The
+// streaming pipeline's UpstreamError translation is reused here because both
+// shapes relay the upstream response verbatim — the difference is only that
+// compact does not have a frame stream to wrap with telemetry.
+export const targetUpstreamErrorResult = async (
+  response: Response,
+  invocation: Invocation<unknown>,
+  request: RequestContext,
+  targetApi: TargetEmitApiName,
+  modelIdentity: TelemetryModelIdentity,
+): Promise<UpstreamErrorResult> => {
+  recordUpstreamHttpFailure(invocation, request, targetApi, modelIdentity);
+  return { ...(await readUpstreamError(response)), performance: targetPerformanceContext(invocation, request, targetApi, modelIdentity) };
 };
 
 export const targetInternalError = (

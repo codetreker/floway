@@ -106,7 +106,7 @@ const handleClientMessage = async (
       downstreamAbortController,
       statefulResponsesStore: storage.statefulResponsesStore,
       storedItemsStore: storage.outputStore,
-      commitSnapshot: storage.commitSnapshot,
+      snapshotMode: storage.snapshotMode,
     });
     if (plan instanceof Response) {
       if (signal.aborted || isClosed()) return;

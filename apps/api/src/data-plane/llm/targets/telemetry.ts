@@ -67,6 +67,15 @@ export function recordUpstreamHttpFailure(invocation: Invocation<unknown>, reque
   request.scheduleBackground ? request.scheduleBackground(promise) : void promise;
 }
 
+// Non-streaming endpoints can't be instrumented via withUpstreamTelemetry
+// (no frame stream to observe), so they call this directly with the
+// already-measured wall-clock duration once the upstream Response is in hand.
+export function recordUpstreamLatency(invocation: Invocation<unknown>, request: RequestContext, targetApi: PerformanceApiName, modelIdentity: TelemetryModelIdentity, durationMs: number): void {
+  if (!request.apiKeyId) return;
+  const promise = recordPerformanceLatency(targetPerformanceContext(invocation, request, targetApi, modelIdentity), 'upstream_success', durationMs);
+  request.scheduleBackground ? request.scheduleBackground(promise) : void promise;
+}
+
 function classifyTerminalFrame<T>(frame: ProtocolFrame<T>, targetApi: PerformanceApiName): TerminalKind | null {
   if (frame.type === 'done') {
     // Chat Completions's terminal signal IS the `[DONE]` sentinel; Messages

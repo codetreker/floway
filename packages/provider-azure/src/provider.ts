@@ -1,9 +1,9 @@
 import { assertAzureUpstreamRecord } from './config.ts';
-import { azureFetchChatCompletions, azureFetchEmbeddings, azureFetchImagesEdits, azureFetchImagesGenerations, azureFetchMessages, azureFetchMessagesCountTokens, azureFetchResponses } from './fetch.ts';
+import { azureFetchChatCompletions, azureFetchEmbeddings, azureFetchImagesEdits, azureFetchImagesGenerations, azureFetchMessages, azureFetchMessagesCountTokens, azureFetchResponses, azureFetchResponsesCompact } from './fetch.ts';
 import { parseChatCompletionsStream } from '@floway-dev/protocols/chat-completions';
 import { kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream } from '@floway-dev/protocols/messages';
-import { parseResponsesStream } from '@floway-dev/protocols/responses';
+import { parseResponsesStream, type ResponsesResult } from '@floway-dev/protocols/responses';
 import { type ModelProvider, type ModelProviderInstance, type ProviderStreamParser, type UpstreamFetchOptions, type UpstreamModel, type UpstreamModelConfig, type UpstreamRecord, defaultsForProvider, mergeAnthropicBetaHeader, publicModelId, resolveEffectiveFlags, streamingProviderCall } from '@floway-dev/provider';
 
 interface AzureProviderData {
@@ -82,6 +82,17 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
     },
     callChatCompletions: (model, body, signal, headers) => callStreaming(azureFetchChatCompletions, model, body, signal, headers, parseChatCompletionsStream),
     callResponses: (model, body, signal, headers) => callStreaming(azureFetchResponses, model, body, signal, headers, parseResponsesStream),
+    callResponsesCompact: async (model, body, signal, headers) => {
+      const upstreamModelId = providerData(model).upstreamModelId;
+      const response = await azureFetchResponsesCompact(
+        azure.config,
+        { method: 'POST', body: JSON.stringify({ ...body, model: upstreamModelId }), signal },
+        { extraHeaders: headers },
+      );
+      return response.ok
+        ? { ok: true, result: (await response.json()) as ResponsesResult, modelKey: upstreamModelId }
+        : { ok: false, response, modelKey: upstreamModelId };
+    },
     callMessages: (model, body, signal, headers, anthropicBeta) => callStreaming(azureFetchMessages, model, body, signal, mergeAnthropicBetaHeader(headers, anthropicBeta), parseMessagesStream),
     callMessagesCountTokens: (model, body, signal, headers, anthropicBeta) => callNonStreaming(azureFetchMessagesCountTokens, model, body, signal, mergeAnthropicBetaHeader(headers, anthropicBeta)),
     callEmbeddings: (model, body, signal, headers) => callNonStreaming(azureFetchEmbeddings, model, body, signal, headers),

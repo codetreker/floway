@@ -1,3 +1,4 @@
+import { COMPACTION_TRIGGER, compactionResponse } from './compaction.ts';
 import { assertCopilotUpstreamRecord } from './config.ts';
 import { fetchCopilotModels } from './fetch-models.ts';
 import { copilotFetchChatCompletions, copilotFetchEmbeddings, copilotFetchMessages, copilotFetchMessagesCountTokens, copilotFetchResponses } from './fetch.ts';
@@ -13,7 +14,7 @@ import type { CopilotRawModel } from './types.ts';
 import { parseChatCompletionsStream, type ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import { type ModelEndpointKey, type ModelEndpoints, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream, type MessagesPayload } from '@floway-dev/protocols/messages';
-import { parseResponsesStream, type ResponsesPayload } from '@floway-dev/protocols/responses';
+import { parseResponsesStream, type ResponsesInputItem, type ResponsesPayload, type ResponsesResult } from '@floway-dev/protocols/responses';
 import { inProcessMemo, readModelsStore, writeModelsStore, defaultsForProvider, resolveEffectiveFlags, streamingProviderCall, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
 
 interface CopilotProviderData {
@@ -247,6 +248,25 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Mod
       callStreaming(copilotFetchChatCompletions, body, signal, rawModelFor(model, 'chatCompletions', { reasoningEffort: chatReasoningEffort(body) }), headers, parseChatCompletionsStream),
     callResponses: (model, body, signal, headers) =>
       callStreaming(copilotFetchResponses, body, signal, rawModelFor(model, 'responses', { reasoningEffort: responsesReasoningEffort(body) }), headers, parseResponsesStream),
+    callResponsesCompact: async (model, body, signal, headers) => {
+      const rawModel = rawModelFor(model, 'responses', { reasoningEffort: responsesReasoningEffort(body) });
+      // Normalize `input` to an item array so the trigger item can be appended
+      // regardless of whether the caller sent the convenience string form.
+      const input: ResponsesInputItem[] = typeof body.input === 'string' ? [{ type: 'message', role: 'user', content: body.input }] : (body.input ?? []);
+      // Compaction is inherently non-streaming — a single encrypted blob, not
+      // a token stream — so we drive /responses with stream:false (bypassing
+      // the SSE-forcing callStreaming helper) and reshape the response into
+      // the canonical `response.compaction` envelope.
+      const triggered = { ...body, input: [...input, COMPACTION_TRIGGER], stream: false, model: rawModel.id };
+      const response = await copilotFetchResponses(
+        upstreamConfig,
+        { method: 'POST', body: JSON.stringify(triggered), signal },
+        headers && Object.keys(headers).length > 0 ? { extraHeaders: headers } : undefined,
+      );
+      if (!response.ok) return { ok: false, response, modelKey: rawModel.id };
+      const generated = (await response.json()) as ResponsesResult;
+      return { ok: true, result: compactionResponse(input, generated), modelKey: rawModel.id };
+    },
     callMessages: (model, body, signal, headers, anthropicBeta) =>
       callStreaming(copilotFetchMessages, body, signal, messagesRawModel(model, body, anthropicBeta), headers, parseMessagesStream),
     callMessagesCountTokens: (model, body, signal, headers, anthropicBeta) =>

@@ -10,6 +10,7 @@ import { serveLlm } from './sources/serve.ts';
 export const mountLlmRoutes = (app: Hono) => {
   const serveChatCompletions = serveLlm(chatCompletionsTraits, 'generate');
   const serveResponses = serveLlm(responsesTraits, 'generate');
+  const serveResponsesCompact = serveLlm(responsesTraits, 'compact');
   const serveMessages = serveLlm(messagesTraits, 'generate');
   const serveMessagesCountTokens = serveLlm(messagesTraits, 'countTokens');
   const serveGeminiGenerate = serveLlm(geminiTraits, 'generate');
@@ -23,6 +24,8 @@ export const mountLlmRoutes = (app: Hono) => {
   app.post('/chat/completions', serveChatCompletions);
   app.post('/v1/responses', serveResponses);
   app.post('/responses', serveResponses);
+  app.post('/v1/responses/compact', serveResponsesCompact);
+  app.post('/responses/compact', serveResponsesCompact);
   app.get('/v1/responses', responsesWebSocket);
   app.get('/responses', responsesWebSocket);
   app.post('/v1/messages', serveMessages);

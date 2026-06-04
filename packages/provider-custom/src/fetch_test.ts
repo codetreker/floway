@@ -8,6 +8,7 @@ import {
   customFetchMessagesCountTokens,
   customFetchModels,
   customFetchResponses,
+  customFetchResponsesCompact,
 } from './fetch.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
@@ -41,6 +42,7 @@ test('typed transports use default /v1/* paths', async () => {
     async () => {
       await customFetchChatCompletions(config, { method: 'POST', body: '{}' });
       await customFetchResponses(config, { method: 'POST', body: '{}' });
+      await customFetchResponsesCompact(config, { method: 'POST', body: '{}' });
       await customFetchMessages(config, { method: 'POST', body: '{}' });
       await customFetchMessagesCountTokens(config, { method: 'POST', body: '{}' });
       await customFetchEmbeddings(config, { method: 'POST', body: '{}' });
@@ -51,6 +53,7 @@ test('typed transports use default /v1/* paths', async () => {
   assertEquals(seen, [
     'https://custom.example.com/v1/chat/completions',
     'https://custom.example.com/v1/responses',
+    'https://custom.example.com/v1/responses/compact',
     'https://custom.example.com/v1/messages',
     'https://custom.example.com/v1/messages/count_tokens',
     'https://custom.example.com/v1/embeddings',
@@ -65,6 +68,7 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
       ...(baseRecord.config as Record<string, unknown>),
       pathOverrides: {
         messages: '/api/v1/messages',
+        responses: '/api/v1/responses',
       },
     },
   });
@@ -76,8 +80,9 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
     },
     async () => {
       await customFetchMessages(config, { method: 'POST', body: '{}' });
-      // count_tokens follows its parent override.
+      // count_tokens / compact follow their parent override.
       await customFetchMessagesCountTokens(config, { method: 'POST', body: '{}' });
+      await customFetchResponsesCompact(config, { method: 'POST', body: '{}' });
       // Endpoints without an override fall back to the OpenAI default.
       await customFetchChatCompletions(config, { method: 'POST', body: '{}' });
     },
@@ -86,6 +91,7 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
   assertEquals(seen, [
     'https://custom.example.com/api/v1/messages',
     'https://custom.example.com/api/v1/messages/count_tokens',
+    'https://custom.example.com/api/v1/responses/compact',
     'https://custom.example.com/v1/chat/completions',
   ]);
 });

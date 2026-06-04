@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 
 import type { NonLlmServeApiName } from '../../shared/api-names.ts';
 import type { LlmTargetApi, RequestContext } from '../interceptors.ts';
+import type { ResponsesSnapshotMode } from './responses/stateful-store.ts';
 import type { ModelEndpoints, ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
 import { type PerformanceApiName, type ProviderModelRecord, type ExecuteResult, type PlainResult, type UpstreamErrorResult, internalErrorResult } from '@floway-dev/provider';
@@ -115,7 +116,10 @@ export interface LlmEndpointPlan<TItems, TEvent> extends LlmSourceRuntime {
   // separately because only native Responses requests expose those concepts.
   readonly store: boolean | null | undefined;
   readonly statefulResponsesInputItems?: readonly ResponsesInputItem[];
-  readonly commitStatefulResponsesSnapshot?: boolean;
+  // How to compose this turn's snapshot (default 'none' — no snapshot
+  // commit). `/responses` generate uses 'append' (previous + input + output);
+  // `/responses/compact` uses 'replace' (output only — see ResponsesSnapshotMode).
+  readonly responsesSnapshotMode?: ResponsesSnapshotMode;
   // The model id the planner resolves against. Most sources read it off the
   // parsed payload; Gemini carries it on the request path instead of the body.
   readonly model: string;
@@ -158,7 +162,7 @@ export interface LlmHttpEndpoint<TItems, TEvent> {
   }): Promise<{ success: boolean; response: Response }>;
 }
 
-export type LlmEndpointName = 'generate' | 'countTokens';
+export type LlmEndpointName = 'generate' | 'countTokens' | 'compact';
 
 // A source exposes one or more endpoints that share its input and error
 // envelope. `renderFailure` is source-wide — every endpoint answers a failure

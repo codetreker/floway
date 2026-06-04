@@ -9,6 +9,7 @@ import {
   azureFetchMessagesCountTokens,
   azureFetchModels,
   azureFetchResponses,
+  azureFetchResponsesCompact,
 } from './fetch.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
@@ -52,6 +53,7 @@ test('OpenAI v1 transports apply api-key auth and the canonical paths', async ()
     async () => {
       await azureFetchChatCompletions(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
       await azureFetchResponses(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
+      await azureFetchResponsesCompact(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
       await azureFetchEmbeddings(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
       await azureFetchModels(config, { method: 'GET' });
     },
@@ -62,17 +64,18 @@ test('OpenAI v1 transports apply api-key auth and the canonical paths', async ()
     [
       'https://example.openai.azure.com/openai/v1/chat/completions',
       'https://example.openai.azure.com/openai/v1/responses',
+      'https://example.openai.azure.com/openai/v1/responses/compact',
       'https://example.openai.azure.com/openai/v1/embeddings',
       'https://example.openai.azure.com/openai/v1/models',
     ],
   );
   assertEquals(
     seen.map(item => item.apiKey),
-    ['az-key', 'az-key', 'az-key', 'az-key'],
+    ['az-key', 'az-key', 'az-key', 'az-key', 'az-key'],
   );
   assertEquals(
     seen.map(item => item.contentType),
-    ['application/json', 'application/json', 'application/json', null],
+    ['application/json', 'application/json', 'application/json', 'application/json', null],
   );
   assertEquals(seen[0].body, { model: 'set-by-provider' });
 });

@@ -5,7 +5,7 @@ import type { ModelEndpoints, ModelPricing, ProtocolFrame } from '@floway-dev/pr
 import type { EmbeddingsPayload } from '@floway-dev/protocols/embeddings';
 import type { ImagesGenerationsPayload } from '@floway-dev/protocols/images';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
+import type { ResponsesCompactPayload, ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 
 export interface ProviderModelRecord {
   upstream: string;
@@ -104,6 +104,12 @@ export interface ModelProvider {
   // interceptor stack today, but the parameter stays for interface uniformity.
   callChatCompletions(model: UpstreamModel, body: Omit<ChatCompletionsPayload, 'model'>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderStreamResult<ChatCompletionsStreamEvent>>;
   callResponses(model: UpstreamModel, body: Omit<ResponsesPayload, 'model'>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderStreamResult<ResponsesStreamEvent>>;
+  // `/responses/compact` is non-streaming: the upstream returns a single
+  // `response.compaction` envelope rather than a token stream. Azure/custom
+  // pass the native sub-path straight through; Copilot has no native endpoint
+  // and replicates codex's RemoteCompactionV2 inside the provider, returning
+  // the synthesized envelope as the result value.
+  callResponsesCompact(model: UpstreamModel, body: Omit<ResponsesCompactPayload, 'model' | 'store'>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderCompactionResult>;
   // Messages and count_tokens additionally receive the source-derived
   // `anthropicBeta` slice as a typed read-only input separate from the wire
   // headers. Copilot uses it to pick a raw upstream model variant

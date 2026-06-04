@@ -82,6 +82,8 @@ export const azureFetchChatCompletions = (config: AzureUpstreamConfig, init: Req
   azureFetchInternal(config, 'openai', '/chat/completions', init, options);
 export const azureFetchResponses = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
   azureFetchInternal(config, 'openai', '/responses', init, options);
+export const azureFetchResponsesCompact = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/responses/compact', init, options);
 export const azureFetchEmbeddings = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
   azureFetchInternal(config, 'openai', '/embeddings', init, options);
 // gpt-image-2 (released 2026-04-21) and the gpt-image-1 family are exposed
