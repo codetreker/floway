@@ -68,7 +68,7 @@ export const OPTIONAL_FLAGS = [
     id: 'responses-image-generation-shim',
     label: 'Responses image generation shim',
     description: "Execute the Responses `image_generation` hosted tool through the gateway's image-capable upstream (gpt-image-*) instead of forwarding it to a Responses upstream. The orchestrator model calls a generated function tool; the shim drives the standalone /images/{generations,edits} backend and synthesizes the native image_generation_call lifecycle. (When a Responses request is routed to a non-Responses backend, the shim always runs regardless of this flag, because those targets cannot carry the hosted image_generation tool.)",
-    defaultFor: [],
+    defaultFor: ['copilot', 'azure'],
   },
   {
     id: 'disable-reasoning-on-forced-tool-choice',

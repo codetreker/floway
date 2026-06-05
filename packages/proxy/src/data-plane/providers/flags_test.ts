@@ -46,9 +46,9 @@ test('provider flags: every catalog entry has id, label, description string fiel
 
 test('provider flags: defaultsForProvider returns the catalog-declared defaults', () => {
   const copilotDefaults = [...defaultsForProvider('copilot')].sort();
-  assertEquals(copilotDefaults, ['messages-web-search-shim', 'retry-cyber-policy']);
+  assertEquals(copilotDefaults, ['messages-web-search-shim', 'responses-image-generation-shim', 'retry-cyber-policy']);
   const azureDefaults = [...defaultsForProvider('azure')].sort();
-  assertEquals(azureDefaults, ['messages-web-search-shim']);
+  assertEquals(azureDefaults, ['messages-web-search-shim', 'responses-image-generation-shim']);
   assertEquals(defaultsForProvider('custom').size, 0);
 });
 
