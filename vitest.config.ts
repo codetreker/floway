@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     projects: [
       'apps/platform-cloudflare/vitest.config.ts',
+      'apps/platform-node/vitest.config.ts',
       'apps/web/vitest.config.ts',
       'packages/platform/vitest.config.ts',
       'packages/protocols/vitest.config.ts',
