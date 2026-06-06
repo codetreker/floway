@@ -1,6 +1,6 @@
-// Subset of the proxy-internal Repo that provider-layer code actually reads from
-// (KV-style cache only). packages/proxy wires its concrete repo accessor at boot via
-// `initProviderRepo` so provider-package helpers never reach back into the proxy.
+// Subset of the gateway-internal Repo that provider-layer code actually reads from
+// (KV-style cache only). packages/gateway wires its concrete repo accessor at boot via
+// `initProviderRepo` so provider-package helpers never reach back into the gateway.
 export interface CacheRepo {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlMs?: number): Promise<void>;

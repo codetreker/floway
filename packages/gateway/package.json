@@ -1,5 +1,5 @@
 {
-  "name": "@floway-dev/proxy",
+  "name": "@floway-dev/gateway",
   "private": true,
   "version": "0.0.0",
   "type": "module",

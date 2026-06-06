@@ -10,7 +10,7 @@
 //     required;
 //   - its extractUsage reads OpenAI-style `usage.prompt_tokens`, so a
 //     2xx JSON body with that shape triggers a real usage write;
-//   - it shares the exact same proxyUpstreamResponse + scheduleUsageRecord
+//   - it shares the exact same forwardUpstreamResponse + scheduleUsageRecord
 //     path as the images endpoints — the behaviors under test are owned by
 //     passthroughServe, not the endpoint shape.
 

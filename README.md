@@ -133,7 +133,7 @@ The repo is a pnpm workspace.
   hold the upstream-side adapters.
 - `packages/platform` exposes the runtime contracts (`FileProvider`,
   `ImageProcessor`, `SqlDatabase`, etc.) and a few portable helpers.
-- `packages/proxy` is the runtime-agnostic gateway core: Hono app, all
+- `packages/gateway` is the runtime-agnostic gateway core: Hono app, all
   control- and data-plane routes, the Repo interface and impls, middleware,
   and the migrations SQL.
 - `apps/platform-cloudflare` ships the Cloudflare implementations

@@ -7,7 +7,7 @@ import { responsesServe } from './serve.ts';
 import { tokenUsage } from '../../shared/telemetry/usage.ts';
 import { createGatewayCtxForWs, type GatewayCtx } from '../shared/gateway-ctx.ts';
 import { SourceStreamState, eventResultMetadata, recordPerformance, recordUsage } from '../shared/respond.ts';
-import type { StreamCompletion } from '../shared/stream/proxy-sse.ts';
+import type { StreamCompletion } from '../shared/stream/sse.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import { isResponsesTerminalEvent, type ResponsesPayload, type ResponsesResult, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 import type { ExecuteResult } from '@floway-dev/provider';

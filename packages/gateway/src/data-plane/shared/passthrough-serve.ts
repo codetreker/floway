@@ -2,10 +2,10 @@
 // generations, image edits). These bypass the LLM source/target executor
 // because they have no protocol translation — the request body is forwarded
 // to the chosen provider's matching endpoint and the JSON response is
-// proxied back. The shape is:
+// passed through back to the client. The shape is:
 //
 //   resolve model -> iterate provider bindings -> first matching binding
-//     -> provider call -> proxy response -> fire-and-forget usage + perf
+//     -> provider call -> passthrough response -> fire-and-forget usage + perf
 //
 // Usage extraction is provided by the caller because each endpoint family
 // reports usage differently (OpenAI embeddings use `prompt_tokens`, images
@@ -29,7 +29,7 @@ import { httpResponseToResponse, ProviderModelsUnavailableError, toInternalDebug
 import type { ProviderCallResult, ProviderModelRecord } from '@floway-dev/provider';
 
 // Headers we forward verbatim from a successful upstream JSON response.
-// The set is intentionally narrow and matches the proxy contract that
+// The set is intentionally narrow and matches the passthrough contract that
 // OpenAI clients (and the OpenAI Node SDK retry policy) expect to see:
 //   - x-request-id              upstream-assigned request correlation id
 //   - openai-*                  organization, model, processing-ms, version, etc.
@@ -41,7 +41,7 @@ import type { ProviderCallResult, ProviderModelRecord } from '@floway-dev/provid
 const FORWARDED_RESPONSE_HEADER_PREFIXES = ['openai-', 'x-ratelimit-'] as const;
 const FORWARDED_RESPONSE_HEADERS = new Set(['x-request-id', 'retry-after', 'cf-ray']);
 
-const proxyResponseHeaders = (resp: Response): Headers => {
+const forwardedResponseHeaders = (resp: Response): Headers => {
   const headers = new Headers({ 'content-type': resp.headers.get('content-type') ?? 'application/json' });
   for (const [name, value] of resp.headers.entries()) {
     const lower = name.toLowerCase();
@@ -57,10 +57,10 @@ const proxyResponseHeaders = (resp: Response): Headers => {
 // preserve the status, with the header allow-list applied (see
 // FORWARDED_RESPONSE_HEADER_PREFIXES / FORWARDED_RESPONSE_HEADERS). Content-
 // type falls back to application/json only when the upstream omitted it.
-const proxyUpstreamResponse = (resp: Response): Response =>
+const forwardUpstreamResponse = (resp: Response): Response =>
   new Response(resp.body, {
     status: resp.status,
-    headers: proxyResponseHeaders(resp),
+    headers: forwardedResponseHeaders(resp),
   });
 
 const recordUpstreamPerformance = (
@@ -83,7 +83,7 @@ const scheduleUsageRecord = (scheduler: BackgroundScheduler, promise: Promise<vo
 };
 
 // Defensive JSON parse: a successful 200 with a non-JSON or unexpected body
-// (rare for these endpoints, but possible if a provider proxy starts
+// (rare for these endpoints, but possible if an upstream-side proxy starts
 // returning binary or a wrapped envelope) must not 502 the client; we
 // simply skip usage extraction in that case, but log the parse failure so
 // operators can correlate when usage rows go missing.
@@ -169,7 +169,7 @@ export const passthroughServe = async (ctx: PassthroughServeContext): Promise<Re
       if (!response.ok) {
         recordUpstreamPerformance(scheduleBackground, performanceContext, true, performance.now() - upstreamStartedAt);
         recordRequestPerformanceForApiKey(apiKeyId, scheduleBackground, performanceContext, true, performance.now() - requestStartedAt);
-        return proxyUpstreamResponse(response);
+        return forwardUpstreamResponse(response);
       }
 
       recordUpstreamPerformance(scheduleBackground, performanceContext, false, performance.now() - upstreamStartedAt);
@@ -192,14 +192,14 @@ export const passthroughServe = async (ctx: PassthroughServeContext): Promise<Re
         );
       }
       recordRequestPerformanceForApiKey(apiKeyId, scheduleBackground, performanceContext, false, performance.now() - requestStartedAt);
-      return proxyUpstreamResponse(response);
+      return forwardUpstreamResponse(response);
     }
 
     return passthroughApiError(c, noBindingMessage(modelId), 400);
   } catch (e) {
     if (e instanceof ProviderModelsUnavailableError) {
-      const proxied = httpResponseToResponse(e.httpResponse);
-      if (proxied) return proxied;
+      const forwarded = httpResponseToResponse(e.httpResponse);
+      if (forwarded) return forwarded;
     }
     recordRequestPerformanceForApiKey(apiKeyId, scheduleBackground, lastPerformance, true, performance.now() - requestStartedAt);
     return c.json({ error: toInternalDebugError(e, sourceApi) }, 502);

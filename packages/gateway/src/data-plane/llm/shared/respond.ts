@@ -1,4 +1,4 @@
-import type { StreamCompletion } from './stream/proxy-sse.ts';
+import type { StreamCompletion } from './stream/sse.ts';
 import type { TokenUsage } from '../../../repo/types.ts';
 import { recordRequestPerformanceForApiKey } from '../../shared/telemetry/performance.ts';
 import { hasTokenUsage, recordTokenUsageForApiKey } from '../../shared/telemetry/usage.ts';
@@ -14,8 +14,8 @@ export const plainResultToResponse = (result: PlainResult): Response =>
   new Response(result.body.slice().buffer, { status: result.status, headers: result.headers });
 
 // Captures an upstream HTTP response as a plain result, keeping its status and
-// content type. Used by count_tokens endpoints that either proxy the upstream
-// body or wrap an already-built error/success Response.
+// content type. Used by count_tokens endpoints that either pass through the
+// upstream body or wrap an already-built error/success Response.
 export const plainResultFromResponse = async (response: Response): Promise<PlainResult> =>
   plainResult(
     response.status,

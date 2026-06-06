@@ -43,7 +43,7 @@
       "binding": "DB",
       "database_name": "floway",
       "database_id": "<YOUR_D1_DATABASE_ID>",
-      "migrations_dir": "packages/proxy/migrations"
+      "migrations_dir": "packages/gateway/migrations"
     }
   ],
   "r2_buckets": [

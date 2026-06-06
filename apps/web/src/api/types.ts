@@ -1,5 +1,5 @@
 // Control-plane DTOs the SPA consumes. These mirror the serialized shapes that
-// the proxy emits from the unified /api endpoints — keeping them here (rather
+// the gateway emits from the unified /api endpoints — keeping them here (rather
 // than re-using internal repo types) prevents the bundler from pulling Worker
 // runtime code into the browser bundle.
 

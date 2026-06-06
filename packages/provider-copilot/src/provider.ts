@@ -386,7 +386,7 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Mod
     callEmbeddings: (model, body, signal, headers) => call(copilotFetchEmbeddings, copilotEmbeddingsBody(body), signal, rawModelFor(model, 'embeddings'), headers),
     // Copilot has no /images/... upstream. getProvidedModels never emits a
     // kind='image' model for Copilot bindings, so the source-side dispatcher
-    // in packages/proxy/src/data-plane/images/serve.ts never selects this provider
+    // in packages/gateway/src/data-plane/images/serve.ts never selects this provider
     // for image requests. These stubs satisfy the ModelProvider interface
     // only; they are unreachable in normal operation. The `headers` parameter
     // is present for signature parity with the other call methods even

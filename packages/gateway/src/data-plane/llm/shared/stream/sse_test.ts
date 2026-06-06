@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { test } from 'vitest';
 
-import { writeSSEFrames } from './proxy-sse.ts';
+import { writeSSEFrames } from './sse.ts';
 import { FakeTime } from '../../../../test-time.ts';
 import { parseSSEStream } from '@floway-dev/protocols/common';
 import { sseCommentFrame, type SseFrame, sseFrame } from '@floway-dev/protocols/common';
@@ -76,7 +76,7 @@ const waitForIteratorReturn = async (events: ReturnType<typeof createIdleSSEEven
   throw new Error('SSE iterator was not stopped');
 };
 
-const requestProxySSE = async (events: AsyncIterable<SseFrame>, options: NonNullable<Parameters<typeof writeSSEFrames>[2]>): Promise<Response> => {
+const requestSSE = async (events: AsyncIterable<SseFrame>, options: NonNullable<Parameters<typeof writeSSEFrames>[2]>): Promise<Response> => {
   const app = new Hono();
   app.get('/', c =>
     streamSSE(c, async stream => {
@@ -110,7 +110,7 @@ test('writeSSEFrames emits SSE comment keepalive frames while idle', async () =>
   const idle = createIdleSSEEvents();
 
   try {
-    const response = await requestProxySSE(idle.events, {
+    const response = await requestSSE(idle.events, {
       keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
     });
     const reader = response.body!.getReader();
@@ -133,7 +133,7 @@ test('writeSSEFrames emits Messages ping keepalive frames while idle', async () 
   const idle = createIdleSSEEvents();
 
   try {
-    const response = await requestProxySSE(idle.events, {
+    const response = await requestSSE(idle.events, {
       keepAlive: {
         intervalMs: 1_000,
         frame: sseFrame(JSON.stringify({ type: 'ping' }), 'ping'),
@@ -155,7 +155,7 @@ test('writeSSEFrames emits Messages ping keepalive frames while idle', async () 
 });
 
 test('writeSSEFrames does not emit keepalive before ready events', async () => {
-  const response = await requestProxySSE(
+  const response = await requestSSE(
     (async function* () {
       yield sseFrame('{}', 'response.completed');
     })(),
@@ -170,7 +170,7 @@ test('writeSSEFrames stops idle iterator and timer when the response is canceled
   const idle = createIdleSSEEvents();
 
   try {
-    const response = await requestProxySSE(idle.events, {
+    const response = await requestSSE(idle.events, {
       keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
     });
     const reader = response.body!.getReader();
@@ -188,7 +188,7 @@ test('writeSSEFrames stops idle iterator and timer when the response is canceled
 
 test('writeSSEFrames handles pending iterator errors after the response is canceled', async () => {
   const idle = createIdleSSEEvents();
-  const response = await requestProxySSE(idle.events, {
+  const response = await requestSSE(idle.events, {
     keepAlive: { intervalMs: 1_000, frame: sseCommentFrame('keepalive') },
   });
   const reader = response.body!.getReader();
@@ -213,7 +213,7 @@ test('writeSSEFrames aborts a pending upstream SSE reader when the downstream re
       upstreamCanceled.resolve();
     },
   });
-  const response = await requestProxySSE(
+  const response = await requestSSE(
     parseSSEStream(upstreamBody, {
       signal: downstreamAbortController.signal,
     }),

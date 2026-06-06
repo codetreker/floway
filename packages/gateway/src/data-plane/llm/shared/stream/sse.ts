@@ -4,23 +4,23 @@ import type { SseFrame, SseWritableFrame } from '@floway-dev/protocols/common';
 
 export const DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS = 15_000;
 
-interface ProxySSEKeepAliveOptions {
+interface SseKeepAliveOptions {
   intervalMs?: number;
   frame: SseWritableFrame;
 }
 
-interface ProxySSEOptions {
-  keepAlive?: ProxySSEKeepAliveOptions;
+interface SseStreamOptions {
+  keepAlive?: SseKeepAliveOptions;
   downstreamAbortController?: AbortController;
 }
 
-type ResolvedProxySSEKeepAliveOptions = Required<ProxySSEKeepAliveOptions>;
+type ResolvedSseKeepAliveOptions = Required<SseKeepAliveOptions>;
 
 type NextFrameResult = { type: 'frame'; result: IteratorResult<SseFrame> } | { type: 'next-error'; error: unknown } | { type: 'keep-alive' } | { type: 'abort' };
 
 export type StreamCompletion = 'eof' | 'error' | 'cancel';
 
-const resolveKeepAliveOptions = (keepAlive: ProxySSEKeepAliveOptions | undefined): ResolvedProxySSEKeepAliveOptions | undefined => {
+const resolveKeepAliveOptions = (keepAlive: SseKeepAliveOptions | undefined): ResolvedSseKeepAliveOptions | undefined => {
   if (!keepAlive) return undefined;
 
   const intervalMs = keepAlive.intervalMs ?? DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS;
@@ -68,7 +68,7 @@ const pendingFrameResult = (pendingNext: Promise<IteratorResult<SseFrame>>): Pro
 const nextFrameOrKeepAlive = async (
   pendingFrame: Promise<NextFrameResult>,
   pendingAbort: Promise<NextFrameResult>,
-  keepAlive: ResolvedProxySSEKeepAliveOptions | undefined,
+  keepAlive: ResolvedSseKeepAliveOptions | undefined,
 ): Promise<NextFrameResult> => {
   if (!keepAlive) return await Promise.race([pendingFrame, pendingAbort]);
 
@@ -90,7 +90,7 @@ const nextFrameOrKeepAlive = async (
 const drainSSEFrames = async (
   stream: SSEStreamingApi,
   events: AsyncIterable<SseFrame>,
-  keepAlive: ResolvedProxySSEKeepAliveOptions | undefined,
+  keepAlive: ResolvedSseKeepAliveOptions | undefined,
   downstreamAbortController: AbortController | undefined,
 ): Promise<StreamCompletion> => {
   const iterator = events[Symbol.asyncIterator]();
@@ -158,7 +158,7 @@ const drainSSEFrames = async (
   }
 };
 
-export const writeSSEFrames = async (stream: SSEStreamingApi, events: AsyncIterable<SseFrame>, options: ProxySSEOptions = {}): Promise<StreamCompletion> => {
+export const writeSSEFrames = async (stream: SSEStreamingApi, events: AsyncIterable<SseFrame>, options: SseStreamOptions = {}): Promise<StreamCompletion> => {
   const keepAlive = resolveKeepAliveOptions(options.keepAlive);
   return await drainSSEFrames(stream, events, keepAlive, options.downstreamAbortController);
 };

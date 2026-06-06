@@ -6,8 +6,8 @@ import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-comp
 import { eventFrame, type ProtocolFrame, type SseFrame, sseFrame } from '@floway-dev/protocols/common';
 import { responsesResultToEvents, type ResponsesResult, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 
-// Inlined copy of the proxy's chatCompletionsProtocolFrameToSSEFrame: kept here so this
-// translate-package test does not deep-import into packages/proxy. The behavior
+// Inlined copy of the gateway's chatCompletionsProtocolFrameToSSEFrame: kept here so this
+// translate-package test does not deep-import into packages/gateway. The behavior
 // under test is the translate output's terminal-frame discipline, not the
 // SSE projection itself.
 const isUsageOnlyChunk = (frame: ProtocolFrame<ChatCompletionsStreamEvent>): boolean =>

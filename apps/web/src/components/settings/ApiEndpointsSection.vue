@@ -2,7 +2,7 @@
 // Read-only reference card listing every public endpoint the gateway exposes.
 // The list is static — the URLs don't change per upstream, so there's no
 // fetch backing this. Keep in sync with `mountLlmRoutes` /
-// `mountDataPlaneRoutes` in `@floway-dev/proxy`.
+// `mountDataPlaneRoutes` in `@floway-dev/gateway`.
 
 import { Card } from '@floway-dev/ui';
 

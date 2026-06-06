@@ -8,7 +8,7 @@ import {
   initRepo,
   runScheduledMaintenance,
   SqlRepo,
-} from '@floway-dev/proxy';
+} from '@floway-dev/gateway';
 
 // In Node we don't have Workers' executionCtx.waitUntil — there's no request
 // lifecycle to attach background work to — so the resolver fire-and-forgets

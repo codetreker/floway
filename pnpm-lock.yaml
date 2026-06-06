@@ -64,12 +64,12 @@ importers:
 
   apps/platform-cloudflare:
     dependencies:
+      '@floway-dev/gateway':
+        specifier: workspace:*
+        version: link:../../packages/gateway
       '@floway-dev/platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@floway-dev/proxy':
-        specifier: workspace:*
-        version: link:../../packages/proxy
       hono:
         specifier: ^4
         version: 4.12.22
@@ -80,12 +80,12 @@ importers:
 
   apps/platform-node:
     dependencies:
+      '@floway-dev/gateway':
+        specifier: workspace:*
+        version: link:../../packages/gateway
       '@floway-dev/platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@floway-dev/proxy':
-        specifier: workspace:*
-        version: link:../../packages/proxy
       '@hono/node-server':
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.22)
@@ -154,9 +154,9 @@ importers:
         specifier: ^4.6.3
         version: 4.6.4(vue@3.5.34(typescript@5.9.3))
     devDependencies:
-      '@floway-dev/proxy':
+      '@floway-dev/gateway':
         specifier: workspace:*
-        version: link:../../packages/proxy
+        version: link:../../packages/gateway
       '@iconify-json/lucide':
         specifier: ^1.2.73
         version: 1.2.109
@@ -196,6 +196,52 @@ importers:
       vue-tsc:
         specifier: ^2.2.0
         version: 2.2.12(typescript@5.9.3)
+
+  packages/gateway:
+    dependencies:
+      '@floway-dev/interceptor':
+        specifier: workspace:*
+        version: link:../interceptor
+      '@floway-dev/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@floway-dev/protocols':
+        specifier: workspace:*
+        version: link:../protocols
+      '@floway-dev/provider':
+        specifier: workspace:*
+        version: link:../provider
+      '@floway-dev/provider-azure':
+        specifier: workspace:*
+        version: link:../provider-azure
+      '@floway-dev/provider-copilot':
+        specifier: workspace:*
+        version: link:../provider-copilot
+      '@floway-dev/provider-custom':
+        specifier: workspace:*
+        version: link:../provider-custom
+      '@floway-dev/translate':
+        specifier: workspace:*
+        version: link:../translate
+      '@hono/zod-validator':
+        specifier: ^0.8.0
+        version: 0.8.0(hono@4.12.22)(zod@4.4.3)
+      crc-32:
+        specifier: ^1.2.2
+        version: 1.2.2
+      hono:
+        specifier: ^4
+        version: 4.12.22
+      jsonrepair:
+        specifier: ^3.14.0
+        version: 3.14.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@floway-dev/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
 
   packages/interceptor:
     devDependencies:
@@ -281,52 +327,6 @@ importers:
       '@floway-dev/provider':
         specifier: workspace:*
         version: link:../provider
-    devDependencies:
-      '@floway-dev/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-
-  packages/proxy:
-    dependencies:
-      '@floway-dev/interceptor':
-        specifier: workspace:*
-        version: link:../interceptor
-      '@floway-dev/platform':
-        specifier: workspace:*
-        version: link:../platform
-      '@floway-dev/protocols':
-        specifier: workspace:*
-        version: link:../protocols
-      '@floway-dev/provider':
-        specifier: workspace:*
-        version: link:../provider
-      '@floway-dev/provider-azure':
-        specifier: workspace:*
-        version: link:../provider-azure
-      '@floway-dev/provider-copilot':
-        specifier: workspace:*
-        version: link:../provider-copilot
-      '@floway-dev/provider-custom':
-        specifier: workspace:*
-        version: link:../provider-custom
-      '@floway-dev/translate':
-        specifier: workspace:*
-        version: link:../translate
-      '@hono/zod-validator':
-        specifier: ^0.8.0
-        version: 0.8.0(hono@4.12.22)(zod@4.4.3)
-      crc-32:
-        specifier: ^1.2.2
-        version: 1.2.2
-      hono:
-        specifier: ^4
-        version: 4.12.22
-      jsonrepair:
-        specifier: ^3.14.0
-        version: 3.14.0
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
     devDependencies:
       '@floway-dev/test-utils':
         specifier: workspace:*
