@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Read-only reference card listing every public endpoint the gateway exposes.
-// Mirrors the prerender dashboard's right-column section (apps/web pre-SPA
-// dashboard/tabs.tsx renderApiEndpointsCard). The list is static — the URLs
-// don't change per upstream, so there's no fetch backing this.
+// The list is static — the URLs don't change per upstream, so there's no
+// fetch backing this. Keep in sync with `mountLlmRoutes` /
+// `mountDataPlaneRoutes` in `@floway-dev/proxy`.
 
 import { Card } from '@floway-dev/ui';
 
@@ -17,9 +17,14 @@ const endpoints: EndpointRow[] = [
   { method: 'POST', path: '/v1/messages', name: 'Anthropic Messages', docs: 'https://docs.anthropic.com/en/api/messages' },
   { method: 'POST', path: '/v1/messages/count_tokens', name: 'Anthropic Count Tokens', docs: 'https://docs.anthropic.com/en/api/messages-count-tokens' },
   { method: 'POST', path: '/v1/responses', name: 'OpenAI Responses', docs: 'https://platform.openai.com/docs/api-reference/responses/create' },
+  { method: 'POST', path: '/v1/responses/compact', name: 'OpenAI Responses Compact', docs: 'https://platform.openai.com/docs/api-reference/responses/compact' },
+  { method: 'GET', path: '/v1/responses', name: 'OpenAI Responses (WebSocket)', docs: 'https://developers.openai.com/api/docs/guides/websocket-mode' },
   { method: 'POST', path: '/v1/chat/completions', name: 'OpenAI Chat Completions', docs: 'https://platform.openai.com/docs/api-reference/chat/create' },
   { method: 'POST', path: '/v1/embeddings', name: 'OpenAI Embeddings', docs: 'https://platform.openai.com/docs/api-reference/embeddings/create' },
+  { method: 'POST', path: '/v1/images/generations', name: 'OpenAI Image Generations', docs: 'https://platform.openai.com/docs/api-reference/images/create' },
+  { method: 'POST', path: '/v1/images/edits', name: 'OpenAI Image Edits', docs: 'https://platform.openai.com/docs/api-reference/images/createEdit' },
   { method: 'GET', path: '/v1/models', name: 'OpenAI Models', docs: 'https://platform.openai.com/docs/api-reference/models/list' },
+  { method: 'POST', path: '/v1beta/models/{model}:{action}', name: 'Google Gemini', docs: 'https://ai.google.dev/api/generate-content' },
 ];
 </script>
 
@@ -29,7 +34,7 @@ const endpoints: EndpointRow[] = [
     <div class="min-w-0">
       <div
         v-for="ep in endpoints"
-        :key="ep.path"
+        :key="`${ep.method} ${ep.path}`"
         class="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-white/[0.04] py-2 last:border-b-0"
       >
         <span

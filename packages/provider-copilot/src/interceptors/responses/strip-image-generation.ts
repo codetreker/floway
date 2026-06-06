@@ -1,5 +1,5 @@
+import type { ResponsesBoundaryCtx } from './types.ts';
 import type { ResponsesPayload, ResponsesTool, ResponsesToolChoice } from '@floway-dev/protocols/responses';
-import type { ProviderResponsesInterceptor } from '@floway-dev/provider';
 
 /**
  * Copilot's `/responses` endpoint rejects public `image_generation` tool
@@ -49,7 +49,11 @@ export const stripImageGenerationFromPayload = (payload: ResponsesPayload): void
   }
 };
 
-export const withImageGenerationStripped: ProviderResponsesInterceptor = async (ctx, _request, run) => {
+export const withImageGenerationStripped = async <TResult>(
+  ctx: ResponsesBoundaryCtx,
+  _request: object,
+  run: () => Promise<TResult>,
+): Promise<TResult> => {
   stripImageGenerationFromPayload(ctx.payload);
   return await run();
 };

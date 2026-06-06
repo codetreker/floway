@@ -35,6 +35,7 @@ export const usePerformancePageData = defineBasicLoader(async () => {
 
 <script setup lang="ts">
 import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
+import { useIntervalFn } from '@vueuse/core';
 import type { TooltipItem } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js/auto';
 import { computed, ref, watch, watchEffect } from 'vue';
@@ -114,6 +115,7 @@ const load = async () => {
 };
 
 watch([performanceRange, performanceMetricScope], load);
+useIntervalFn(load, 60_000);
 
 const seriesValue = (r: DisplayRecord, p: PercentileKey) => r[p];
 

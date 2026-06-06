@@ -9,4 +9,4 @@ export {
   assertThrows,
 } from './assert.ts';
 export { jsonResponse, sseResponse, withMockedFetch } from './mock-fetch.ts';
-export { createInMemoryImageProcessor, memoryCacheRepo, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from './stubs.ts';
+export { memoryCacheRepo, stubProvider, stubProviderCandidate, stubProviderInstance, stubProviderModelRecord, stubUpstreamModel, testTelemetryModelIdentity } from './stubs.ts';

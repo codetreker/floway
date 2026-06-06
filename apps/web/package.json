@@ -29,7 +29,7 @@
     "vue-router": "^4.6.3"
   },
   "devDependencies": {
-    "@floway-dev/api": "workspace:*",
+    "@floway-dev/proxy": "workspace:*",
     "@iconify-json/lucide": "^1.2.73",
     "@types/nprogress": "^0.2.3",
     "@types/prismjs": "^1.26.6",

@@ -1,27 +1,22 @@
 import { test } from 'vitest';
 
 import { type CopilotCacheableMessage, withCacheControlMarkersAttached } from './attach-cache-control-markers.ts';
+import type { ChatCompletionsBoundaryCtx } from './types.ts';
 import type { ChatCompletionsStreamEvent, ChatCompletionsMessage } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import type { ChatCompletionsInvocation, InterceptorRequest, ExecuteResult } from '@floway-dev/provider';
+import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assert, assertEquals, assertFalse, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assert, assertEquals, assertFalse, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
-const stubRequest: InterceptorRequest = {};
+const stubRequest = {};
 
 const okEvents = (): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> =>
   Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<ChatCompletionsStreamEvent>> {})(), testTelemetryModelIdentity));
 
-const invocation = (messages: ChatCompletionsMessage[]): ChatCompletionsInvocation => ({
-  sourceApi: 'chat-completions',
-  targetApi: 'chat-completions',
-  model: 'gpt-test',
-  upstream: 'test-upstream',
+const invocation = (messages: ChatCompletionsMessage[]): ChatCompletionsBoundaryCtx => ({
   payload: { model: 'gpt-test', messages },
-  provider: stubProvider(),
-  upstreamModel: stubUpstreamModel(),
-  enabledFlags: new Set<string>(),
   headers: {},
+  model: stubUpstreamModel({ endpoints: { chatCompletions: {} } }),
 });
 
 const markedIndexes = (messages: readonly ChatCompletionsMessage[]): number[] =>

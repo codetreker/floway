@@ -1,29 +1,5 @@
 import { type AzureUpstreamConfig, isFoundryProjectRootPath, trimTrailingSlash } from './config.ts';
-import { type EndpointKey, type UpstreamFetchOptions, joinBaseAndPath } from '@floway-dev/provider';
-
-const AZURE_OPENAI_PATHS: Partial<Record<EndpointKey, string>> = {
-  chat_completions: '/chat/completions',
-  responses: '/responses',
-  embeddings: '/embeddings',
-  models: '/models',
-  images_generations: '/images/generations',
-  images_edits: '/images/edits',
-};
-
-// Per-endpoint query suffix appended to the resolved request URL. Image
-// endpoints on Azure's /openai/v1 surface currently require
-// ?api-version=preview because gpt-image-2 (released 2026-04-21) and the
-// gpt-image-1 family are exposed only under the preview lifecycle. We will
-// drop this entry once Azure promotes the image endpoints to the GA default.
-const AZURE_OPENAI_QUERY: Partial<Record<EndpointKey, string>> = {
-  images_generations: 'api-version=preview',
-  images_edits: 'api-version=preview',
-};
-
-const AZURE_ANTHROPIC_PATHS: Partial<Record<EndpointKey, string>> = {
-  messages: '/v1/messages',
-  messages_count_tokens: '/v1/messages/count_tokens',
-};
+import { type UpstreamFetchOptions, joinBaseAndPath } from '@floway-dev/provider';
 
 const azureOpenAiV1BaseUrl = (endpoint: string): string => {
   const url = new URL(trimTrailingSlash(endpoint));
@@ -63,44 +39,21 @@ const azureAnthropicBaseUrl = (endpoint: string): string => {
   return trimTrailingSlash(url.href);
 };
 
-const requestUrl = (openAiBaseUrl: string | undefined, anthropicBaseUrl: string | undefined, endpoint: EndpointKey): string => {
-  const openAiPath = AZURE_OPENAI_PATHS[endpoint];
-  if (openAiPath) {
-    if (!openAiBaseUrl) throw new Error('Azure upstream config does not include an OpenAI v1 endpoint');
-    const url = joinBaseAndPath(openAiBaseUrl, openAiPath);
-    const query = AZURE_OPENAI_QUERY[endpoint];
-    if (!query) return url;
-    // Append per-endpoint query through URL.searchParams so a future path
-    // that itself carries a query suffix does not produce `path?a?b`.
-    // AZURE_OPENAI_QUERY stores already-encoded pairs (e.g. `api-version=
-    // preview`); parsing-then-appending preserves their encoding.
-    const parsed = new URL(url);
-    for (const [key, value] of new URLSearchParams(query).entries()) {
-      parsed.searchParams.append(key, value);
-    }
-    return parsed.href;
-  }
-
-  const anthropicPath = AZURE_ANTHROPIC_PATHS[endpoint];
-  if (anthropicPath) {
-    if (!anthropicBaseUrl) throw new Error('Azure upstream config does not include an Anthropic endpoint');
-    return joinBaseAndPath(anthropicBaseUrl, anthropicPath);
-  }
-
-  throw new Error(`Unsupported Azure upstream endpoint ${endpoint}`);
-};
-
-const isAnthropicEndpoint = (endpoint: EndpointKey): boolean => endpoint === 'messages' || endpoint === 'messages_count_tokens';
-
-// Issue an HTTP call against the Azure upstream described by `config`. Applies
-// the right credential header per surface (api-key for OpenAI v1, x-api-key +
-// anthropic-version for /anthropic), default JSON Content-Type, any extra
-// headers, and resolves the URL through the per-surface base/path logic above.
-export const azureFetch = async (config: AzureUpstreamConfig, endpoint: EndpointKey, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> => {
-  const openAiBaseUrl = azureOpenAiV1BaseUrl(config.endpoint);
-  const anthropicBaseUrl = azureAnthropicBaseUrl(config.endpoint);
+// Private base dispatcher: applies the right credential header per surface
+// (api-key for OpenAI v1, x-api-key + anthropic-version for /anthropic),
+// JSON Content-Type when carrying a body, plus any extra headers, then
+// resolves URL on the per-surface base.
+const azureFetchInternal = async (
+  config: AzureUpstreamConfig,
+  surface: 'openai' | 'anthropic',
+  path: string,
+  init: RequestInit,
+  options?: UpstreamFetchOptions,
+  query?: string,
+): Promise<Response> => {
+  const baseUrl = surface === 'openai' ? azureOpenAiV1BaseUrl(config.endpoint) : azureAnthropicBaseUrl(config.endpoint);
   const headers = new Headers(init.headers);
-  if (isAnthropicEndpoint(endpoint)) {
+  if (surface === 'anthropic') {
     headers.set('x-api-key', config.apiKey);
     headers.set('anthropic-version', '2023-06-01');
   } else {
@@ -112,5 +65,37 @@ export const azureFetch = async (config: AzureUpstreamConfig, endpoint: Endpoint
   if (options?.extraHeaders) {
     for (const [key, value] of Object.entries(options.extraHeaders)) headers.set(key, value);
   }
-  return await fetch(requestUrl(openAiBaseUrl, anthropicBaseUrl, endpoint), { ...init, headers });
+  const url = joinBaseAndPath(baseUrl, path);
+  if (!query) return await fetch(url, { ...init, headers });
+  // Append per-endpoint query through URL.searchParams so a future path
+  // that itself carries a query suffix does not produce `path?a?b`.
+  const parsed = new URL(url);
+  for (const [key, value] of new URLSearchParams(query).entries()) parsed.searchParams.append(key, value);
+  return await fetch(parsed.href, { ...init, headers });
 };
+
+// Typed transports — one per logical endpoint Azure serves. Streaming and
+// non-streaming alike return a raw Response; per-endpoint return-type
+// wrapping (event stream parse, compaction envelope parse) lives in the
+// provider call methods that consume these.
+export const azureFetchChatCompletions = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/chat/completions', init, options);
+export const azureFetchResponses = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/responses', init, options);
+export const azureFetchResponsesCompact = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/responses/compact', init, options);
+export const azureFetchEmbeddings = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/embeddings', init, options);
+// gpt-image-2 (released 2026-04-21) and the gpt-image-1 family are exposed
+// only under Azure's preview lifecycle today. We will drop the query suffix
+// once Azure promotes the image endpoints to the GA default.
+export const azureFetchImagesGenerations = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/images/generations', init, options, 'api-version=preview');
+export const azureFetchImagesEdits = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/images/edits', init, options, 'api-version=preview');
+export const azureFetchModels = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'openai', '/models', init, options);
+export const azureFetchMessages = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'anthropic', '/v1/messages', init, options);
+export const azureFetchMessagesCountTokens = (config: AzureUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  azureFetchInternal(config, 'anthropic', '/v1/messages/count_tokens', init, options);

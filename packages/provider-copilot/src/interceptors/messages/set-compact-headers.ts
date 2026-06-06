@@ -1,5 +1,5 @@
+import type { CopilotMessagesBoundaryInterceptor } from './types.ts';
 import type { MessagesMessage, MessagesTextBlock } from '@floway-dev/protocols/messages';
-import type { ProviderMessagesInterceptor } from '@floway-dev/provider';
 
 /**
  * Claude Code (and OpenCode) periodically asks the model to summarize the
@@ -105,7 +105,7 @@ const classifyCompact = (payload: { messages: MessagesMessage[]; system?: string
   return null;
 };
 
-export const withCompactHeadersSet: ProviderMessagesInterceptor = async (ctx, _request, run) => {
+export const withCompactHeadersSet: CopilotMessagesBoundaryInterceptor = async (ctx, _request, run) => {
   const kind = classifyCompact(ctx.payload);
   if (kind === 'compact-request') {
     ctx.headers['x-initiator'] = 'agent';

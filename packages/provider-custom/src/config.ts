@@ -19,10 +19,18 @@
 // path override, because it only matters when fetching is enabled.
 
 import type { ModelEndpoints } from '@floway-dev/protocols/common';
-import type { EndpointKey, UpstreamModelConfig, UpstreamRecord } from '@floway-dev/provider';
+import type { UpstreamModelConfig, UpstreamRecord } from '@floway-dev/provider';
 import { endpointsField, modelsField, validateUpstreamPath } from '@floway-dev/provider';
 
 export type CustomAuthStyle = 'bearer' | 'anthropic';
+
+// Logical endpoints the admin may override. Sub-paths (messages_count_tokens,
+// responses_compact) and the catalog (models — owned by modelsFetch.endpoint)
+// are intentionally absent: they derive their URL from a parent override or
+// a separate field. Kept package-internal because outside callers reach the
+// upstream through the typed `customFetchXxx` transports, not by naming an
+// endpoint key.
+type CustomPathOverrideKey = 'chat_completions' | 'responses' | 'messages' | 'embeddings' | 'images_generations' | 'images_edits';
 
 export interface CustomModelsFetch {
   enabled: boolean;
@@ -34,7 +42,7 @@ export interface CustomUpstreamConfig {
   bearerToken: string;
   authStyle: CustomAuthStyle;
   endpoints: ModelEndpoints;
-  pathOverrides?: Partial<Record<Exclude<EndpointKey, 'messages_count_tokens' | 'models'>, string>>;
+  pathOverrides?: Partial<Record<CustomPathOverrideKey, string>>;
   modelsFetch: CustomModelsFetch;
   models: UpstreamModelConfig[];
 }
@@ -76,7 +84,7 @@ const baseUrlField = (value: unknown): string => {
   return baseUrl;
 };
 
-const PATH_OVERRIDE_KEYS = new Set<Exclude<EndpointKey, 'messages_count_tokens' | 'models'>>(['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits']);
+const PATH_OVERRIDE_KEYS = new Set<CustomPathOverrideKey>(['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits']);
 
 const pathOverridesField = (value: unknown): CustomUpstreamConfig['pathOverrides'] => {
   if (value === undefined) return undefined;
@@ -84,12 +92,12 @@ const pathOverridesField = (value: unknown): CustomUpstreamConfig['pathOverrides
 
   const pathOverrides: NonNullable<CustomUpstreamConfig['pathOverrides']> = {};
   for (const [key, path] of Object.entries(value)) {
-    if (!PATH_OVERRIDE_KEYS.has(key as Exclude<EndpointKey, 'messages_count_tokens' | 'models'>)) {
+    if (!PATH_OVERRIDE_KEYS.has(key as CustomPathOverrideKey)) {
       throw new Error(`Malformed custom upstream config: unsupported pathOverrides key ${key}`);
     }
     const validPath = validateUpstreamPath(path, `pathOverrides.${key}`);
     if (!validPath.ok) throw new Error(`Malformed custom upstream config: ${validPath.error}`);
-    pathOverrides[key as Exclude<EndpointKey, 'messages_count_tokens' | 'models'>] = validPath.value;
+    pathOverrides[key as CustomPathOverrideKey] = validPath.value;
   }
   return pathOverrides;
 };

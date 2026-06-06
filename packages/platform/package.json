@@ -1,0 +1,18 @@
+{
+  "name": "@floway-dev/platform",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": { "import": "./src/index.ts", "types": "./src/index.ts" }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "image-size": "^2.0.2"
+  },
+  "devDependencies": {
+    "@floway-dev/test-utils": "workspace:*"
+  }
+}

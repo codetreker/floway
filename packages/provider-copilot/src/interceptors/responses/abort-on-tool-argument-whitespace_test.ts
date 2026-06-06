@@ -1,18 +1,15 @@
 import { test } from 'vitest';
 
 import { withToolArgumentWhitespaceAborted } from './abort-on-tool-argument-whitespace.ts';
+import type { ResponsesBoundaryCtx } from './types.ts';
 import { MAX_CONSECUTIVE_WHITESPACE } from '../shared/whitespace-overflow.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesPayload, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { InterceptorRequest, ResponsesInvocation, ExecuteResult } from '@floway-dev/provider';
+import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
-const invocation = (): ResponsesInvocation => ({
-  sourceApi: 'responses',
-  targetApi: 'responses',
-  model: 'test-model',
-  upstream: 'test-upstream',
+const invocation = (): ResponsesBoundaryCtx => ({
   payload: {
     model: 'test-model',
     input: [] as unknown as ResponsesPayload['input'],
@@ -27,13 +24,11 @@ const invocation = (): ResponsesInvocation => ({
     store: false,
     parallel_tool_calls: true,
   },
-  provider: stubProvider(),
-  upstreamModel: stubUpstreamModel(),
-  enabledFlags: new Set<string>(),
   headers: {},
+  model: stubUpstreamModel({ endpoints: { responses: {} } }),
 });
 
-const stubRequest: InterceptorRequest = {};
+const stubRequest = {};
 
 const argsDelta = (outputIndex: number, delta: string): ResponsesStreamEvent =>
   ({

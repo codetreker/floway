@@ -1,81 +1,57 @@
-import type { UpstreamModel } from './model.ts';
-import type { ProviderTargetInterceptors } from './provider.ts';
-import type { ExecuteResult } from './result.ts';
-import type { Interceptor } from '@floway-dev/interceptor';
-import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
-import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import type { GeminiPayload, GeminiStreamEvent } from '@floway-dev/protocols/gemini';
-import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { ResponsesStreamEvent, ResponsesPayload } from '@floway-dev/protocols/responses';
+import type { ModelProviderInstance, ProviderModelRecord } from './provider.ts';
+import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
+import type { GeminiPayload } from '@floway-dev/protocols/gemini';
+import type { MessagesPayload } from '@floway-dev/protocols/messages';
+import type { ResponsesPayload } from '@floway-dev/protocols/responses';
 
-export type LlmSourceApi = 'messages' | 'responses' | 'chat-completions' | 'gemini';
 export type LlmTargetApi = 'messages' | 'responses' | 'chat-completions';
 
-// Marker the per-protocol Interceptor aliases use for their `request` slot.
-// Provider-layer interceptors do not read fields off `request` — the api side
-// supplies a richer context object that structurally satisfies this empty
-// marker, so an api-side interceptor typed against the richer context remains
-// assignable when it is sliced into a provider-side list (parameter types are
-// contravariant: a function accepting `{}` accepts any concrete request).
-export interface InterceptorRequest {}
-
-// Per-provider-binding-attempt request-side description. Rebuilt for every
-// binding the planner tries inside one client request.
-//
-// - sourceApi / targetApi: the protocol the client spoke and the protocol
-//   the planner picked for this binding.
-// - model: the resolved public model id.
-// - upstream / upstreamModel / provider: the planner's binding choice.
-// - enabledFlags: the effective flag set for this binding.
-// - targetInterceptors: the provider-registered target interceptor table.
-// - payload: the source-shape request body, mutable so source interceptors
-//   can clean it.
-// - headers: mutable HTTP-header bag the source serve seeds empty and target
-//   interceptors populate. The provider's upstream call passes it through to
-//   the wire fetch unchanged, so workarounds that only need to set or drop a
-//   header (vision, initiator, anthropic-beta, ...) stay at the owning
-//   interceptor boundary instead of widening the provider call signature.
-//
-// Named `Invocation` (not `Exchange`) because "exchange" implies a
-// request/response pair; this object carries only the request side plus the
-// planner's binding decisions. The response flows through `ExecuteResult`,
-// not back through `Invocation`.
-export interface Invocation<TPayload> {
-  readonly sourceApi: LlmSourceApi;
+// The provider-binding decision the planner made for this attempt: which
+// upstream's binding to call and which target protocol to invoke on it.
+// The binding carries the upstream identity, the upstream model record,
+// the per-binding flag set; `provider` is the resolved upstream provider
+// instance the binding came from, retained alongside the binding so the
+// call site can register telemetry, invalidate caches, and dispatch the
+// upstream call without re-resolving the registry.
+export interface ProviderCandidate {
+  readonly provider: ModelProviderInstance;
+  readonly binding: ProviderModelRecord;
   readonly targetApi: LlmTargetApi;
-  readonly model: string;
-  readonly upstream: string;
-  readonly upstreamModel: UpstreamModel;
-  readonly provider: import('./provider.ts').ModelProvider;
-  readonly enabledFlags: ReadonlySet<string>;
-  readonly targetInterceptors?: ProviderTargetInterceptors;
-  payload: TPayload;
-  headers: Record<string, string>;
 }
 
-export interface MessagesInvocation extends Invocation<MessagesPayload> {
+// Per-protocol invocation shape passed to gateway-side interceptors. Carries
+// the source-shape request body (mutable so source-side interceptors can clean
+// it), the planner's binding decision, and the mutable HTTP-header bag the
+// source seeds empty. Gateway-side interceptors that derive trace headers
+// populate `headers`; the provider call passes it through to the wire fetch
+// unchanged, so workarounds that only need to set or drop a header (vision,
+// initiator, anthropic-beta, ...) stay at the owning interceptor boundary
+// instead of widening the provider call signature.
+export interface MessagesInvocation {
+  payload: MessagesPayload;
+  readonly candidate: ProviderCandidate;
+  // `anthropicBeta` is an inbound Messages concept that crosses native
+  // Messages targets; translated targets (Responses, Chat Completions) do not
+  // consume it, so it stays optional and is only populated when the source
+  // protocol is Messages and the target is Messages.
   readonly anthropicBeta?: readonly string[];
+  readonly headers: Record<string, string>;
 }
-export type ResponsesInvocation = Invocation<ResponsesPayload>;
-export type ChatCompletionsInvocation = Invocation<ChatCompletionsPayload>;
-export type GeminiInvocation = Invocation<GeminiPayload>;
 
-// `Provider*Interceptor` aliases are the LOOSE form: typed against
-// `InterceptorRequest = {}`, so an interceptor function declared with these
-// types accepts any request object (per parameter contravariance). Provider
-// packages ship interceptors at this width because they never read fields off
-// `request`. The api side defines its own rich-context `MessagesInterceptor`
-// etc. against `RequestContext`; per contravariance, the loose provider
-// interceptors are assignable to those rich slots, so spread composition
-// (`[...baseInterceptors, ...providerInterceptors]`) just works.
-export type ProviderMessagesInterceptor = Interceptor<MessagesInvocation, InterceptorRequest, ExecuteResult<ProtocolFrame<MessagesStreamEvent>>>;
-export type ProviderResponsesInterceptor = Interceptor<ResponsesInvocation, InterceptorRequest, ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>>;
-export type ProviderChatCompletionsInterceptor = Interceptor<ChatCompletionsInvocation, InterceptorRequest, ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>>;
-export type ProviderGeminiInterceptor = Interceptor<GeminiInvocation, InterceptorRequest, ExecuteResult<ProtocolFrame<GeminiStreamEvent>>>;
+export interface ResponsesInvocation {
+  payload: ResponsesPayload;
+  readonly candidate: ProviderCandidate;
+  readonly headers: Record<string, string>;
+}
 
-// count_tokens is a one-shot, non-streaming HTTP exchange — the terminal
-// returns the raw upstream `Response` directly, with no protocol-frame
-// translation in between. Interceptors registered here MUST be pure
-// header/payload mutators; post-`run()` result inspection is not portable to
-// this result type.
-export type ProviderMessagesCountTokensInterceptor = Interceptor<MessagesInvocation, InterceptorRequest, Response>;
+export interface ChatCompletionsInvocation {
+  payload: ChatCompletionsPayload;
+  readonly candidate: ProviderCandidate;
+  readonly headers: Record<string, string>;
+}
+
+export interface GeminiInvocation {
+  payload: GeminiPayload;
+  readonly candidate: ProviderCandidate;
+  readonly headers: Record<string, string>;
+}

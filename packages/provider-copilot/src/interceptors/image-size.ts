@@ -1,4 +1,4 @@
-import { type ImageSizeCalculator, type SizeCaps, fitWithin } from '@floway-dev/provider';
+import { type ImageSizeCalculator, type SizeCaps, fitWithin } from '@floway-dev/platform';
 
 // Per-model image caps for the Copilot Responses/Chat egress, measured from the
 // model's server-side downscale point (the size beyond which extra pixels are

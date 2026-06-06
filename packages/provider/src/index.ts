@@ -1,16 +1,9 @@
 export type {
   ChatCompletionsInvocation,
   GeminiInvocation,
-  InterceptorRequest,
-  Invocation,
-  LlmSourceApi,
   LlmTargetApi,
   MessagesInvocation,
-  ProviderChatCompletionsInterceptor,
-  ProviderGeminiInterceptor,
-  ProviderMessagesCountTokensInterceptor,
-  ProviderMessagesInterceptor,
-  ProviderResponsesInterceptor,
+  ProviderCandidate,
   ResponsesInvocation,
 } from './invocation.ts';
 
@@ -53,9 +46,7 @@ export type {
   ProviderCallResult,
   ProviderCompactionResult,
   ProviderModelRecord,
-  ProviderSourceInterceptors,
   ProviderStreamResult,
-  ProviderTargetInterceptors,
   ResolvedModel,
 } from './provider.ts';
 export { streamingProviderCall, type ProviderStreamParser } from './streaming.ts';
@@ -106,14 +97,10 @@ export { joinBaseAndPath, validateUpstreamPath } from './join.ts';
 
 export { mergeAnthropicBetaHeader } from './anthropic-beta.ts';
 
-export type { EndpointKey, StreamingEndpointKey, UpstreamFetchOptions } from './upstream.ts';
+export type { UpstreamFetchOptions } from './upstream.ts';
 
-export type { ImageDimensions, ImageProcessor, ImageSizeCalculator, SizeCaps } from './image-processor.ts';
 export {
   compressBase64ImageToWebp,
   compressImageDataUrlToWebp,
-  fitWithin,
-  getImageProcessor,
-  initImageProcessor,
   isBase64ImageDataUrl,
-} from './image-processor.ts';
+} from './image-helpers.ts';

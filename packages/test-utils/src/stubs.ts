@@ -1,18 +1,4 @@
-import type { CacheRepo, ImageProcessor, ImageSizeCalculator, ModelProvider, TelemetryModelIdentity, UpstreamModel } from '@floway-dev/provider';
-
-// In-memory image processor for tests. There is no WebP codec available under
-// the test runtime, so this stub returns the input bytes unchanged; it exists
-// only to satisfy the ImageProcessor contract so the egress interceptors run
-// end-to-end. Interceptor behaviour (which images are rewritten, what size
-// calculator is used) is asserted against a dedicated spy processor in the
-// interceptor tests, not against this stub.
-class InMemoryImageProcessor implements ImageProcessor {
-  compressToWebp(input: Uint8Array, _targetSize: ImageSizeCalculator): Promise<Uint8Array> {
-    return Promise.resolve(input);
-  }
-}
-
-export const createInMemoryImageProcessor = (): ImageProcessor => new InMemoryImageProcessor();
+import type { CacheRepo, LlmTargetApi, ModelProvider, ModelProviderInstance, ProviderCandidate, ProviderModelRecord, TelemetryModelIdentity, UpstreamModel } from '@floway-dev/provider';
 
 export const memoryCacheRepo = (): CacheRepo => {
   const store = new Map<string, string>();
@@ -54,6 +40,7 @@ export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvi
   getPricingForModelKey: () => null,
   callChatCompletions: () => Promise.reject(new Error('stubProvider.callChatCompletions was called')),
   callResponses: () => Promise.reject(new Error('stubProvider.callResponses was called')),
+  callResponsesCompact: () => Promise.reject(new Error('stubProvider.callResponsesCompact was called')),
   callMessages: () => Promise.reject(new Error('stubProvider.callMessages was called')),
   callMessagesCountTokens: () => Promise.reject(new Error('stubProvider.callMessagesCountTokens was called')),
   callEmbeddings: () => Promise.reject(new Error('stubProvider.callEmbeddings was called')),
@@ -61,3 +48,36 @@ export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvi
   callImagesEdits: () => Promise.reject(new Error('stubProvider.callImagesEdits was called')),
   ...overrides,
 });
+
+export const stubProviderInstance = (overrides: Partial<ModelProviderInstance> = {}): ModelProviderInstance => ({
+  upstream: 'test-upstream',
+  providerKind: 'custom',
+  name: 'Test Upstream',
+  disabledPublicModelIds: [],
+  provider: stubProvider(),
+  supportsResponsesItemReference: false,
+  ...overrides,
+});
+
+export const stubProviderModelRecord = (overrides: Partial<ProviderModelRecord> = {}): ProviderModelRecord => {
+  const provider = overrides.provider ?? stubProvider();
+  return {
+    upstream: 'test-upstream',
+    upstreamName: 'Test Upstream',
+    providerKind: 'custom',
+    provider,
+    upstreamModel: stubUpstreamModel(),
+    enabledFlags: new Set<string>(),
+    supportsResponsesItemReference: false,
+    ...overrides,
+  };
+};
+
+export const stubProviderCandidate = (overrides: { targetApi?: LlmTargetApi; binding?: Partial<ProviderModelRecord>; provider?: ModelProviderInstance } = {}): ProviderCandidate => {
+  const provider = overrides.provider ?? stubProviderInstance();
+  return {
+    provider,
+    binding: stubProviderModelRecord({ provider: provider.provider, ...(overrides.binding ?? {}) }),
+    targetApi: overrides.targetApi ?? 'messages',
+  };
+};

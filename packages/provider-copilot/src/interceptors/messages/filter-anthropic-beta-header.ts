@@ -1,4 +1,4 @@
-import type { MessagesInvocation, InterceptorRequest } from '@floway-dev/provider';
+import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './types.ts';
 
 /**
  * Copilot's Messages upstream is strict about the `anthropic-beta` header:
@@ -20,13 +20,14 @@ import type { MessagesInvocation, InterceptorRequest } from '@floway-dev/provide
  * not have interleaved auto-added even with non-adaptive budget thinking —
  * matching VSCode Copilot Chat.
  *
- * The filtered value is written into the invocation header bag; the source's
- * typed `MessagesInvocation.anthropicBeta` field is the read-only input.
+ * The filtered value is written into the boundary ctx header bag; the
+ * provider's typed `MessagesBoundaryCtx.anthropicBeta` field is the
+ * read-only input.
  *
  * Generic in the run-result type because pre-Path A the equivalent filter
  * ran on every Copilot Messages HTTP exchange (chat AND count_tokens).
  * Keeping a single generic interceptor lets both the streaming Messages
- * target chain (`ExecuteResult<...>`) and the count_tokens chain
+ * boundary chain (`ExecuteResult<...>`) and the count_tokens chain
  * (`Response`) share one definition.
  *
  * References:
@@ -42,7 +43,11 @@ const ALLOWED_ANTHROPIC_BETAS = new Set([
 ]);
 const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 
-export const withAnthropicBetaHeaderFiltered = async <TResult>(ctx: MessagesInvocation, _request: InterceptorRequest, run: () => Promise<TResult>): Promise<TResult> => {
+export const withAnthropicBetaHeaderFiltered = async <TResult>(
+  ctx: MessagesBoundaryCtx | MessagesCountTokensBoundaryCtx,
+  _request: object,
+  run: () => Promise<TResult>,
+): Promise<TResult> => {
   const inbound = ctx.anthropicBeta;
   const hasInbound = inbound !== undefined && inbound.length > 0;
 

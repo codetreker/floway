@@ -1,7 +1,7 @@
 import { hc } from 'hono/client';
 
 import { useAuthStore } from '../stores/auth.ts';
-import type { AppType } from '@floway-dev/api/app-type';
+import type { AppType } from '@floway-dev/proxy/app-type';
 
 // Inject the live x-api-key on every outbound request and short-circuit the
 // store on 401 so the router guard can redirect to /login.
@@ -15,7 +15,7 @@ const authFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
 };
 
 // The Hono RPC proxy. Every control-plane route declares its request shape via
-// zValidator in apps/api/src/control-plane/routes.ts, so the proxy types both
+// zValidator in packages/proxy/src/control-plane/routes.ts, so the proxy types both
 // the path/method and the JSON body / query for the SPA — no extra wrapper
 // needed for mutations.
 const client = hc<AppType>('/', { fetch: authFetch });

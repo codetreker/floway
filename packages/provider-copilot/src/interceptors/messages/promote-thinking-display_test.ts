@@ -1,11 +1,12 @@
 import { test } from 'vitest';
 
 import { resolveMessagesDownstreamThinkingDisplay, withThinkingDisplayPromoted } from './promote-thinking-display.ts';
+import type { MessagesBoundaryCtx } from './types.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { InterceptorRequest, MessagesInvocation, ExecuteResult } from '@floway-dev/provider';
+import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   const collected: T[] = [];
@@ -14,29 +15,22 @@ const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
 };
 
 const makeCtx = (
-  thinking: MessagesInvocation['payload']['thinking'],
+  thinking: MessagesBoundaryCtx['payload']['thinking'],
   overrides: {
     model?: string;
-    sourceApi?: MessagesInvocation['sourceApi'];
   } = {},
-): MessagesInvocation => ({
-  sourceApi: overrides.sourceApi ?? 'messages',
-  targetApi: 'messages',
-  model: overrides.model ?? 'claude-opus-4.7-1m-internal',
-  upstream: 'test-upstream',
+): MessagesBoundaryCtx => ({
   payload: {
     model: overrides.model ?? 'claude-opus-4.7-1m-internal',
     messages: [{ role: 'user', content: 'hi' }],
     max_tokens: 128,
     ...(thinking ? { thinking } : {}),
   },
-  provider: stubProvider(),
-  upstreamModel: stubUpstreamModel({ endpoints: { messages: {} } }),
-  enabledFlags: new Set<string>(),
   headers: {},
+  model: stubUpstreamModel({ endpoints: { messages: {} } }),
 });
 
-const stubRequest: InterceptorRequest = {};
+const stubRequest = {};
 
 const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> => Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEvent>> {})(), testTelemetryModelIdentity));
 
@@ -139,7 +133,7 @@ test('withThinkingDisplayPromoted leaves unknown display values for upstream val
 });
 
 test('withThinkingDisplayPromoted simulates omitted display on protocol events', async () => {
-  const ctx = makeCtx({ type: 'adaptive' }, { sourceApi: 'responses' });
+  const ctx = makeCtx({ type: 'adaptive' });
 
   const result = await withThinkingDisplayPromoted(ctx, stubRequest, () =>
     Promise.resolve(

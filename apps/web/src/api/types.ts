@@ -1,5 +1,5 @@
 // Control-plane DTOs the SPA consumes. These mirror the serialized shapes that
-// apps/api emits from the unified /api endpoints — keeping them here (rather
+// the proxy emits from the unified /api endpoints — keeping them here (rather
 // than re-using internal repo types) prevents the bundler from pulling Worker
 // runtime code into the browser bundle.
 
@@ -143,16 +143,6 @@ export interface SearchConfig {
   provider: 'disabled' | 'tavily' | 'microsoft-grounding';
   tavily: { apiKey: string };
   microsoftGrounding: { apiKey: string };
-}
-
-export interface UpstreamTestResult {
-  ok: boolean;
-  status?: number;
-  models?: string[];
-  body?: string;
-  error?: string;
-  model_count?: number;
-  probes?: Array<{ upstreamModelId: string; endpoint: string; ok: boolean; status?: number; error?: string }>;
 }
 
 export interface CopilotQuotaSnapshot {

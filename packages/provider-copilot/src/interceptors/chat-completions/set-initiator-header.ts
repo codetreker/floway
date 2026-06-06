@@ -1,4 +1,4 @@
-import type { ProviderChatCompletionsInterceptor } from '@floway-dev/provider';
+import type { CopilotChatCompletionsBoundaryInterceptor } from './types.ts';
 
 /**
  * Copilot's `x-initiator` header distinguishes user-triggered turns from
@@ -14,7 +14,7 @@ import type { ProviderChatCompletionsInterceptor } from '@floway-dev/provider';
  * References:
  * - https://github.com/caozhiyuan/copilot-api/blob/main/src/services/copilot/create-chat-completions.ts#L32-L44
  */
-export const withInitiatorHeaderSet: ProviderChatCompletionsInterceptor = async (ctx, _request, run) => {
+export const withInitiatorHeaderSet: CopilotChatCompletionsBoundaryInterceptor = async (ctx, _request, run) => {
   const lastMessage = ctx.payload.messages.at(-1);
   const initiator: 'user' | 'agent' = lastMessage?.role === 'assistant' || lastMessage?.role === 'tool' ? 'agent' : 'user';
   ctx.headers['x-initiator'] = initiator;

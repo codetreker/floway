@@ -1,5 +1,5 @@
 import type { CopilotUpstreamConfig } from './config.ts';
-import { copilotFetch } from './fetch.ts';
+import { copilotFetchModels } from './fetch.ts';
 import type { CopilotModelsResponse } from './types.ts';
 import { ProviderModelsUnavailableError } from '@floway-dev/provider';
 
@@ -29,7 +29,7 @@ const MODELS_HEADER_OVERRIDES: Record<string, string> = {
 export const fetchCopilotModels = async (config: Pick<CopilotUpstreamConfig, 'githubToken' | 'accountType'>): Promise<CopilotModelsResponse> => {
   let response: Response;
   try {
-    response = await copilotFetch(config, 'models', { method: 'GET' }, { extraHeaders: MODELS_HEADER_OVERRIDES });
+    response = await copilotFetchModels(config, { method: 'GET' }, { extraHeaders: MODELS_HEADER_OVERRIDES });
   } catch (cause) {
     throw new ProviderModelsUnavailableError(null, cause);
   }

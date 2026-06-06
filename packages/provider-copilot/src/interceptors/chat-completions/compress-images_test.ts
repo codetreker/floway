@@ -1,13 +1,15 @@
 import { test } from 'vitest';
 
 import { withInlineImagesCompressed } from './compress-images.ts';
+import type { ChatCompletionsBoundaryCtx } from './types.ts';
+import { type ImageProcessor, initImageProcessor } from '@floway-dev/platform';
 import type { ChatCompletionsStreamEvent, ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import type { ChatCompletionsInvocation, InterceptorRequest, ImageProcessor, ExecuteResult } from '@floway-dev/provider';
-import { eventResult, initImageProcessor } from '@floway-dev/provider';
-import { assertEquals, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import type { ExecuteResult } from '@floway-dev/provider';
+import { eventResult } from '@floway-dev/provider';
+import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
-const stubRequest: InterceptorRequest = {};
+const stubRequest = {};
 
 const okEvents = (): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> =>
   Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<ChatCompletionsStreamEvent>> {})(), testTelemetryModelIdentity));
@@ -16,16 +18,10 @@ const fixedProcessor: ImageProcessor = {
   compressToWebp: () => Promise.resolve(new Uint8Array([1, 2, 3])),
 };
 
-const invocation = (payload: ChatCompletionsPayload): ChatCompletionsInvocation => ({
-  sourceApi: 'chat-completions',
-  targetApi: 'chat-completions',
-  model: payload.model,
-  upstream: 'test-upstream',
+const invocation = (payload: ChatCompletionsPayload): ChatCompletionsBoundaryCtx => ({
   payload,
-  provider: stubProvider(),
-  upstreamModel: stubUpstreamModel(),
-  enabledFlags: new Set<string>(),
   headers: {},
+  model: stubUpstreamModel({ endpoints: { chatCompletions: {} } }),
 });
 
 const imageUrl = (payload: ChatCompletionsPayload): string => {

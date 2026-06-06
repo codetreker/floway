@@ -1,0 +1,17 @@
+{
+  "name": "@floway-dev/platform-cloudflare",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@floway-dev/platform": "workspace:*",
+    "@floway-dev/proxy": "workspace:*",
+    "hono": "^4"
+  },
+  "devDependencies": {
+    "@floway-dev/test-utils": "workspace:*"
+  }
+}

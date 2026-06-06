@@ -46,6 +46,7 @@ export const useUsagePageData = defineBasicLoader(async () => {
 
 <script setup lang="ts">
 import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
+import { useIntervalFn } from '@vueuse/core';
 import type { TooltipItem } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js/auto';
 import { computed, ref, watch } from 'vue';
@@ -146,6 +147,7 @@ const switchTokenRange = (r: Range) => {
 const switchTokenChartMetric = (m: string) => { tokenChartMetric.value = m as Metric; };
 
 watch(tokenRange, load);
+useIntervalFn(load, 60_000);
 
 const tokenSummary = computed(() => {
   const records = (data.value?.records ?? []).filter(r => !hiddenKeys.value.has(r.keyId) && !hiddenModels.value.has(r.model));

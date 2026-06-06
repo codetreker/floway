@@ -1,26 +1,21 @@
 import { test } from 'vitest';
 
 import { withToolArgumentWhitespaceAborted } from './abort-on-tool-argument-whitespace.ts';
+import type { ChatCompletionsBoundaryCtx } from './types.ts';
 import { MAX_CONSECUTIVE_WHITESPACE } from '../shared/whitespace-overflow.ts';
 import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
-import type { ChatCompletionsInvocation, InterceptorRequest, ExecuteResult } from '@floway-dev/provider';
+import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assert, assertEquals, assertStringIncludes, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assert, assertEquals, assertStringIncludes, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
-const invocation = (): ChatCompletionsInvocation => ({
-  sourceApi: 'chat-completions',
-  targetApi: 'chat-completions',
-  model: 'test-model',
-  upstream: 'test-upstream',
+const invocation = (): ChatCompletionsBoundaryCtx => ({
   payload: { model: 'test-model', messages: [] },
-  provider: stubProvider(),
-  upstreamModel: stubUpstreamModel(),
-  enabledFlags: new Set<string>(),
   headers: {},
+  model: stubUpstreamModel({ endpoints: { chatCompletions: {} } }),
 });
 
-const stubRequest: InterceptorRequest = {};
+const stubRequest = {};
 
 const baseChunk = (overrides: Partial<ChatCompletionsStreamEvent>): ChatCompletionsStreamEvent => ({
   id: 'chatcmpl_1',

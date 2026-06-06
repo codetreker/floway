@@ -1,5 +1,5 @@
 import { parseUserIdMetadata } from './detect-claude-code-metadata.ts';
-import type { ProviderMessagesInterceptor } from '@floway-dev/provider';
+import type { CopilotMessagesBoundaryInterceptor } from './types.ts';
 
 /**
  * Copilot's `x-interaction-id` header threads a conversation through its
@@ -28,7 +28,7 @@ const sessionUuid = async (input: string): Promise<string> => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-export const withInteractionIdHeaderSet: ProviderMessagesInterceptor = async (ctx, _request, run) => {
+export const withInteractionIdHeaderSet: CopilotMessagesBoundaryInterceptor = async (ctx, _request, run) => {
   const { sessionId } = parseUserIdMetadata(ctx.payload.metadata?.user_id);
   if (sessionId) {
     ctx.headers['x-interaction-id'] = await sessionUuid(sessionId);

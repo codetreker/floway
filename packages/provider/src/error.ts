@@ -1,8 +1,8 @@
 // Errors that bubble out of source/target emit or interceptors and need a
 // structured envelope for the api debug response. Provider/source api lanes
 // are typed as a free string here so the package stays decoupled from the
-// api-internal `LlmSourceApi` / `NonLlmServeApiName` unions — the api always
-// passes the narrowed values it owns.
+// api-internal serve-api unions — the api always passes the narrowed values
+// it owns.
 export type DebugSourceApi = string;
 
 export interface InternalDebugError {

@@ -77,10 +77,10 @@ openai-intent: conversation-agent
 x-interaction-type: conversation-agent
 ```
 
-`apps/api/src/shared/copilot.ts` is the source of truth for the version
-constants, the header set, and the account-type→base-URL map. Read the
-current values from there rather than hardcoding them in probe scripts.
-For Messages probes needing Claude beta features, also send
+`packages/provider-copilot/src/auth.ts` is the source of truth for the
+version constants, the per-request header set, and the account-type→base-URL
+map. Read the current values from there rather than hardcoding them in
+probe scripts. For Messages probes needing Claude beta features, also send
 `anthropic-beta: <feature-list>`.
 
 ## Constraints

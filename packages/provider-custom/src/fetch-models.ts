@@ -14,7 +14,7 @@
 // heuristic; the chat default takes the per-upstream `endpoints` config).
 
 import type { CustomUpstreamConfig } from './config.ts';
-import { customFetch } from './fetch.ts';
+import { customFetchModels } from './fetch.ts';
 import type { ModelKind, ModelPricing } from '@floway-dev/protocols/common';
 import { ProviderModelsUnavailableError } from '@floway-dev/provider';
 
@@ -121,7 +121,7 @@ const parseCustomModelsResponse = (value: unknown): CustomModelsResponse | null 
 export const fetchCustomModels = async (config: CustomUpstreamConfig): Promise<CustomModelsResponse> => {
   let response: Response;
   try {
-    response = await customFetch(config, 'models', { method: 'GET' });
+    response = await customFetchModels(config, { method: 'GET' });
   } catch (cause) {
     throw new ProviderModelsUnavailableError(null, cause);
   }

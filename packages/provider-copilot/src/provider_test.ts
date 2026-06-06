@@ -1,14 +1,12 @@
 import { test } from 'vitest';
 
 import { clearCopilotTokenCache } from './auth.ts';
-import { messagesCopilotInterceptors, messagesCopilotSourceInterceptors } from './interceptors/messages/index.ts';
 import { createCopilotProvider } from './provider.ts';
-import { runInterceptors } from '@floway-dev/interceptor';
-import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { ExecuteResult, InterceptorRequest, MessagesInvocation, UpstreamRecord } from '@floway-dev/provider';
-import { clearModelsStore, initImageProcessor, initProviderRepo, ProviderModelsUnavailableError, eventResult } from '@floway-dev/provider';
-import { assertEquals, assertRejects, createInMemoryImageProcessor, jsonResponse, memoryCacheRepo, sseResponse, withMockedFetch } from '@floway-dev/test-utils';
+import { createInMemoryImageProcessor, initImageProcessor } from '@floway-dev/platform';
+import type { MessagesPayload } from '@floway-dev/protocols/messages';
+import type { UpstreamRecord } from '@floway-dev/provider';
+import { clearModelsStore, initProviderRepo, ProviderModelsUnavailableError } from '@floway-dev/provider';
+import { assertEquals, assertRejects, jsonResponse, memoryCacheRepo, sseResponse, withMockedFetch } from '@floway-dev/test-utils';
 
 const buildCopilotUpstream = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord => {
   const { config: overrideConfig, ...rest } = overrides;
@@ -272,6 +270,88 @@ test('Copilot provider selects raw variants that support the target endpoint', a
   assertEquals(responsesBody?.model, 'claude-opus-4.7');
 });
 
+test('Copilot provider runs the Responses boundary chain on the compact path', async () => {
+  // The compact-path boundary registers payload mutators (force-store-false,
+  // strip-service-tier, strip-image-generation, ...) plus header derivers
+  // (set-vision-header, set-initiator-header). Driving callResponsesCompact
+  // through a real upstream stub exercises the integration end-to-end: the
+  // payload mutators reach the wire body, the header derivers reach the wire
+  // request headers, and the compact-shaped envelope still comes back through
+  // `compactionResponse`.
+  const { copilotUpstream } = await setupCopilotTest();
+  const instance = await createCopilotProvider(copilotUpstream);
+  const provider = instance.provider;
+  let responsesBody: Record<string, unknown> | undefined;
+  let visionHeader: string | null = null;
+  let initiatorHeader: string | null = null;
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') {
+        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+      }
+      if (url.pathname === '/models') {
+        return jsonResponse(copilotModels([{ id: 'gpt-resp', supported_endpoints: ['/responses'] }]));
+      }
+      if (url.pathname === '/responses') {
+        responsesBody = (await request.json()) as Record<string, unknown>;
+        visionHeader = request.headers.get('copilot-vision-request');
+        initiatorHeader = request.headers.get('x-initiator');
+        return jsonResponse({
+          id: 'resp_test',
+          object: 'response',
+          model: 'gpt-resp',
+          status: 'completed',
+          output: [{ type: 'compaction', summary: 'compacted state' }],
+          incomplete_details: null,
+          error: null,
+        });
+      }
+
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const [model] = await provider.getProvidedModels();
+      // service_tier is set so withServiceTierStripped has something to strip;
+      // an input_image is included so withVisionHeaderSet fires; the last
+      // input item is a user message so withInitiatorHeaderSet picks 'user'.
+      const result = await provider.callResponsesCompact(model, {
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'compact me' },
+              { type: 'input_image', image_url: 'https://example.com/x.png', detail: 'auto' },
+            ],
+          },
+        ],
+        service_tier: 'priority',
+      });
+
+      if (!result.ok) throw new Error('expected ok compaction result');
+      assertEquals(result.result.object, 'response.compaction');
+    },
+  );
+
+  // withStoreForcedFalse reached the wire body.
+  assertEquals(responsesBody?.store, false);
+  // withServiceTierStripped removed the field from the wire body.
+  assertEquals('service_tier' in (responsesBody ?? {}), false);
+  // The compaction trigger item was still appended to input.
+  const wireInput = responsesBody?.input as Array<{ type: string }>;
+  assertEquals(wireInput.at(-1)?.type, 'compaction_trigger');
+  // withVisionHeaderSet detected the input_image and set the Copilot vision
+  // header on the upstream request.
+  assertEquals(visionHeader, 'true');
+  // withInitiatorHeaderSet classified the last input item (a user message) as
+  // user-initiated.
+  assertEquals(initiatorHeader, 'user');
+});
+
 test('Copilot provider exposes its default flag set via UpstreamModel.enabledFlags', async () => {
   const { copilotUpstream } = await setupCopilotTest();
   const instance = await createCopilotProvider({
@@ -309,13 +389,6 @@ test('Copilot provider exposes its default flag set via UpstreamModel.enabledFla
       assertEquals(model.enabledFlags.has('messages-web-search-shim'), true);
     },
   );
-});
-
-test('Copilot provider enables Copilot-owned Messages source interceptors by default', async () => {
-  const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
-
-  assertEquals(instance.sourceInterceptors?.messages, messagesCopilotSourceInterceptors);
 });
 
 test('Copilot provider rejects malformed account type instead of falling back', async () => {
@@ -412,43 +485,12 @@ test('Copilot provider sets copilot-vision-request when an image is nested insid
   const provider = instance.provider;
   const visionHeaders: string[] = [];
 
-  const stubRequest: InterceptorRequest = {};
-
-  const testTelemetryModelIdentity = {
-    model: 'claude-msg',
-    upstream: 'up_copilot',
-    modelKey: 'claude-msg',
-    cost: null,
-  };
-
-  // Drive a Messages payload through the full Copilot target interceptor list
-  // and on to the provider's callMessages, then observe the header that
-  // actually reached the upstream HTTP request. This exercises the integration
-  // contract — the vision-detection interceptor sets `invocation.headers`, the
-  // emit passes it to `provider.callMessages`, and the upstream sees it.
-  const driveMessages = async (model: typeof instance.provider extends never ? never : Awaited<ReturnType<typeof instance.provider.getProvidedModels>>[number], body: Omit<MessagesPayload, 'model'>): Promise<void> => {
-    const invocation: MessagesInvocation = {
-      sourceApi: 'messages',
-      targetApi: 'messages',
-      model: model.id,
-      upstream: 'up_copilot',
-      upstreamModel: model,
-      provider,
-      enabledFlags: model.enabledFlags,
-      payload: { ...body, model: model.id },
-      headers: {},
-    };
-
-    await runInterceptors<MessagesInvocation, InterceptorRequest, ExecuteResult<ProtocolFrame<MessagesStreamEvent>>>(
-      invocation,
-      stubRequest,
-      messagesCopilotInterceptors,
-      async () => {
-        const { model: _model, ...callBody } = invocation.payload;
-        await provider.callMessages(invocation.upstreamModel, callBody, undefined, invocation.headers);
-        return eventResult((async function* () {})(), testTelemetryModelIdentity);
-      },
-    );
+  // The boundary chain runs inside `provider.callMessages` itself, so this
+  // exercises the integration contract end-to-end: the vision-detection
+  // interceptor reads the payload, sets the header in the boundary header
+  // bag, and the upstream sees it.
+  const driveMessages = async (model: Awaited<ReturnType<typeof instance.provider.getProvidedModels>>[number], body: Omit<MessagesPayload, 'model'>): Promise<void> => {
+    await provider.callMessages(model, body);
   };
 
   await withMockedFetch(
@@ -523,6 +565,54 @@ test('Copilot provider sets copilot-vision-request when an image is nested insid
   );
 
   assertEquals(visionHeaders, ['true', '']);
+});
+
+test('Copilot Messages boundary chain does NOT fire on the Chat Completions wire (translated path)', async () => {
+  // Boundary isolation: each provider call method runs only its own protocol
+  // boundary chain. The Messages-only `withClaudeAgentHeadersSet` interceptor
+  // would set x-interaction-type to 'messages-proxy' for Claude Code SDK
+  // metadata, but it MUST NOT run when the translated path calls Copilot's
+  // chat-completions wire — that path runs `COPILOT_CHATCOMPLETIONS_BOUNDARY`,
+  // which has no Messages-source headers in it.
+  const { copilotUpstream } = await setupCopilotTest();
+  const instance = await createCopilotProvider(copilotUpstream);
+  const provider = instance.provider;
+  const observedInteractionType: (string | null)[] = [];
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') {
+        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+      }
+      if (url.pathname === '/models') {
+        return jsonResponse(copilotModels([{ id: 'gpt-chat', supported_endpoints: ['/chat/completions'] }]));
+      }
+      if (url.pathname === '/chat/completions') {
+        observedInteractionType.push(request.headers.get('x-interaction-type'));
+        await request.text();
+        return sseResponse();
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const [model] = await provider.getProvidedModels();
+      // Even with a Claude-Code-shaped metadata blob, the chat-completions
+      // boundary chain has no Messages-source interceptor, so the
+      // messages-proxy intent must not appear on the wire.
+      await provider.callChatCompletions(model, {
+        messages: [{ role: 'user', content: 'hi' }],
+        metadata: { user_id: JSON.stringify({ device_id: 'dev-1', session_id: 'sess-1' }) },
+      });
+    },
+  );
+
+  // The chat-completions wire defaults to `conversation-agent`
+  // (set by copilotFetch). The Messages-boundary `withClaudeAgentHeadersSet`
+  // would overwrite it to `messages-proxy` if it had run — its absence is the
+  // proof that the Messages boundary chain did NOT fire on this wire.
+  assertEquals(observedInteractionType, ['conversation-agent']);
 });
 
 const withMutableNow = async <T>(initial: number, run: (setNow: (value: number) => void) => Promise<T>): Promise<T> => {

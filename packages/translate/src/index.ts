@@ -8,5 +8,4 @@ export { translateGeminiViaMessages } from './gemini-via-messages/translate.ts';
 export { translateGeminiViaResponses } from './gemini-via-responses/translate.ts';
 export { translateGeminiViaChatCompletions } from './gemini-via-chat-completions/translate.ts';
 
-export { viaTranslation } from './types.ts';
-export type { SourceEmit } from './types.ts';
+export type { TranslationContext } from './types.ts';

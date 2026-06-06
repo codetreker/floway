@@ -1,39 +1,34 @@
 import type { CustomUpstreamConfig } from './config.ts';
-import { type EndpointKey, type UpstreamFetchOptions, joinBaseAndPath } from '@floway-dev/provider';
+import { type UpstreamFetchOptions, joinBaseAndPath } from '@floway-dev/provider';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 
 const trimTrailingSlash = (s: string): string => s.replace(/\/+$/, '');
 
-const CUSTOM_DEFAULT_PATHS: Record<EndpointKey, string> = {
+// Per-endpoint default paths. Admin pathOverrides (see config.ts) replace
+// these one-for-one; messages_count_tokens / responses_compact track the
+// override of their parent endpoint (suffix appended).
+const CUSTOM_DEFAULT_PATHS = {
   chat_completions: '/v1/chat/completions',
   responses: '/v1/responses',
   messages: '/v1/messages',
-  messages_count_tokens: '/v1/messages/count_tokens',
   embeddings: '/v1/embeddings',
   images_generations: '/v1/images/generations',
   images_edits: '/v1/images/edits',
-  models: '/v1/models',
-};
+} as const;
 
-const resolveCustomPath = (config: CustomUpstreamConfig, endpoint: EndpointKey): string => {
-  // count_tokens is intentionally not independently overridable — it tracks
-  // whatever path the admin chose for `messages` so the two stay in sync.
-  if (endpoint === 'messages_count_tokens') {
-    const messagesPath = config.pathOverrides?.messages ?? CUSTOM_DEFAULT_PATHS.messages;
-    return `${messagesPath}/count_tokens`;
-  }
-  // The /models path lives on the fetch toggle, not in pathOverrides.
-  if (endpoint === 'models') {
-    return config.modelsFetch.endpoint ?? CUSTOM_DEFAULT_PATHS.models;
-  }
-  return config.pathOverrides?.[endpoint] ?? CUSTOM_DEFAULT_PATHS[endpoint];
-};
+// Internal: parent path for a logical endpoint, honouring admin overrides.
+const resolveOverridable = (config: CustomUpstreamConfig, key: keyof typeof CUSTOM_DEFAULT_PATHS): string =>
+  config.pathOverrides?.[key] ?? CUSTOM_DEFAULT_PATHS[key];
 
-// Issue an HTTP call against the custom upstream described by `config`. Applies
-// the configured auth header, default Content-Type for JSON bodies, and any
-// extra headers, then dispatches to the resolved per-endpoint URL.
-export const customFetch = async (config: CustomUpstreamConfig, endpoint: EndpointKey, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> => {
+// Private base dispatcher: applies the configured auth header per authStyle,
+// JSON Content-Type when carrying a body, plus any extra headers.
+const customFetchInternal = async (
+  config: CustomUpstreamConfig,
+  path: string,
+  init: RequestInit,
+  options?: UpstreamFetchOptions,
+): Promise<Response> => {
   const headers = new Headers(init.headers);
   if (config.authStyle === 'anthropic') {
     headers.set('x-api-key', config.bearerToken);
@@ -47,6 +42,30 @@ export const customFetch = async (config: CustomUpstreamConfig, endpoint: Endpoi
   if (options?.extraHeaders) {
     for (const [k, v] of Object.entries(options.extraHeaders)) headers.set(k, v);
   }
-  const url = joinBaseAndPath(trimTrailingSlash(config.baseUrl), resolveCustomPath(config, endpoint));
-  return await fetch(url, { ...init, headers });
+  return await fetch(joinBaseAndPath(trimTrailingSlash(config.baseUrl), path), { ...init, headers });
 };
+
+// Typed transports — one per logical endpoint Custom serves. count_tokens /
+// responses_compact derive their path by suffixing the (possibly admin-
+// overridden) parent endpoint, so renaming `messages` to `/custom/messages`
+// implicitly moves `messages/count_tokens` to `/custom/messages/count_tokens`.
+export const customFetchChatCompletions = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, resolveOverridable(config, 'chat_completions'), init, options);
+export const customFetchResponses = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, resolveOverridable(config, 'responses'), init, options);
+export const customFetchResponsesCompact = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, `${resolveOverridable(config, 'responses')}/compact`, init, options);
+export const customFetchMessages = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, resolveOverridable(config, 'messages'), init, options);
+export const customFetchMessagesCountTokens = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, `${resolveOverridable(config, 'messages')}/count_tokens`, init, options);
+export const customFetchEmbeddings = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, resolveOverridable(config, 'embeddings'), init, options);
+export const customFetchImagesGenerations = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, resolveOverridable(config, 'images_generations'), init, options);
+export const customFetchImagesEdits = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, resolveOverridable(config, 'images_edits'), init, options);
+// /models lives on its own fetch toggle (see config.modelsFetch.endpoint),
+// not in pathOverrides.
+export const customFetchModels = (config: CustomUpstreamConfig, init: RequestInit, options?: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, config.modelsFetch.endpoint ?? '/v1/models', init, options);

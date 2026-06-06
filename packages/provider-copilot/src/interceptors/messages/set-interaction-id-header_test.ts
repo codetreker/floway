@@ -1,27 +1,22 @@
 import { test } from 'vitest';
 
 import { withInteractionIdHeaderSet } from './set-interaction-id-header.ts';
+import type { MessagesBoundaryCtx } from './types.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { InterceptorRequest, MessagesInvocation, ExecuteResult } from '@floway-dev/provider';
+import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assert, assertEquals, stubProvider, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assert, assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
-const stubRequest: InterceptorRequest = {};
+const stubRequest = {};
 
 const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> =>
   Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEvent>> {})(), testTelemetryModelIdentity));
 
-const invocation = (payload: MessagesPayload): MessagesInvocation => ({
-  sourceApi: 'messages',
-  targetApi: 'messages',
-  model: payload.model,
-  upstream: 'test-upstream',
+const invocation = (payload: MessagesPayload): MessagesBoundaryCtx => ({
   payload,
-  provider: stubProvider(),
-  upstreamModel: stubUpstreamModel(),
-  enabledFlags: new Set<string>(),
   headers: {},
+  model: stubUpstreamModel({ endpoints: { messages: {} } }),
 });
 
 const payloadWith = (userId: string | undefined): MessagesPayload => ({

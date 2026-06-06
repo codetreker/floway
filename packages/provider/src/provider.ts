@@ -1,11 +1,10 @@
-import type { ProviderChatCompletionsInterceptor, ProviderGeminiInterceptor, ProviderMessagesCountTokensInterceptor, ProviderMessagesInterceptor, ProviderResponsesInterceptor } from './invocation.ts';
 import type { InternalModel, UpstreamModel, UpstreamProviderKind } from './model.ts';
 import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import type { ModelEndpoints, ModelPricing, ProtocolFrame } from '@floway-dev/protocols/common';
 import type { EmbeddingsPayload } from '@floway-dev/protocols/embeddings';
 import type { ImagesGenerationsPayload } from '@floway-dev/protocols/images';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
+import type { ResponsesCompactPayload, ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 
 export interface ProviderModelRecord {
   upstream: string;
@@ -15,8 +14,6 @@ export interface ProviderModelRecord {
   upstreamModel: UpstreamModel;
   enabledFlags: ReadonlySet<string>;
   supportsResponsesItemReference: boolean;
-  sourceInterceptors?: ProviderSourceInterceptors;
-  targetInterceptors?: ProviderTargetInterceptors;
 }
 
 // endpoints describes which endpoints this model is served by on its
@@ -29,26 +26,6 @@ export interface ResolvedModel extends InternalModel {
   providers: readonly ProviderModelRecord[];
 }
 
-export interface ProviderSourceInterceptors {
-  messages?: readonly ProviderMessagesInterceptor[];
-  responses?: readonly ProviderResponsesInterceptor[];
-  chatCompletions?: readonly ProviderChatCompletionsInterceptor[];
-  gemini?: readonly ProviderGeminiInterceptor[];
-}
-
-export interface ProviderTargetInterceptors {
-  messages?: readonly ProviderMessagesInterceptor[];
-  // Separate from `messages` because count_tokens returns a raw upstream
-  // Response (no protocol-frame translation), and only the header/payload
-  // mutators that pre-Path A applied to count_tokens (vision, initiator,
-  // anthropic-beta) belong here. Chat-only mutators like thinking-display
-  // promotion and cache_control.scope stripping never ran on count_tokens
-  // and stay on `messages`.
-  messagesCountTokens?: readonly ProviderMessagesCountTokensInterceptor[];
-  responses?: readonly ProviderResponsesInterceptor[];
-  chatCompletions?: readonly ProviderChatCompletionsInterceptor[];
-}
-
 export interface ModelProviderInstance {
   upstream: string;
   providerKind: UpstreamProviderKind;
@@ -59,8 +36,6 @@ export interface ModelProviderInstance {
   disabledPublicModelIds: readonly string[];
   provider: ModelProvider;
   supportsResponsesItemReference: boolean;
-  sourceInterceptors?: ProviderSourceInterceptors;
-  targetInterceptors?: ProviderTargetInterceptors;
   resolveRequestedModelId?(modelId: string): string | undefined;
 }
 
@@ -96,19 +71,26 @@ export interface ModelProvider {
   // id). Used by aggregation-time cost computation. Public-model-name lookups
   // happen elsewhere by reading `UpstreamModel.cost` directly.
   getPricingForModelKey(modelKey: string): ModelPricing | null;
-  // `headers` is the mutable header bag attached to the invocation; target
-  // interceptors populate it (vision, initiator, anthropic-beta, ...) and the
-  // provider passes it straight through to the upstream fetch unchanged. The
-  // shape is uniform across protocols so provider implementations never branch
-  // on which protocol they are serving. Image endpoints have no target
-  // interceptor stack today, but the parameter stays for interface uniformity.
+  // `headers` is the mutable header bag the caller seeds. A provider may run
+  // its own boundary interceptor chain that populates headers (vision,
+  // initiator, anthropic-beta, ...) before reaching the wire; the provider
+  // passes the bag straight through to the upstream fetch unchanged. The
+  // shape is uniform across protocols so provider implementations never
+  // branch on which protocol they are serving. Image endpoints have no
+  // boundary chain today, but the parameter stays for interface uniformity.
   callChatCompletions(model: UpstreamModel, body: Omit<ChatCompletionsPayload, 'model'>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderStreamResult<ChatCompletionsStreamEvent>>;
   callResponses(model: UpstreamModel, body: Omit<ResponsesPayload, 'model'>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderStreamResult<ResponsesStreamEvent>>;
+  // `/responses/compact` is non-streaming: the upstream returns a single
+  // `response.compaction` envelope rather than a token stream. Azure/custom
+  // pass the native sub-path straight through; Copilot has no native endpoint
+  // and replicates codex's RemoteCompactionV2 inside the provider, returning
+  // the synthesized envelope as the result value.
+  callResponsesCompact(model: UpstreamModel, body: Omit<ResponsesCompactPayload, 'model' | 'store'>, signal?: AbortSignal, headers?: Record<string, string>): Promise<ProviderCompactionResult>;
   // Messages and count_tokens additionally receive the source-derived
   // `anthropicBeta` slice as a typed read-only input separate from the wire
   // headers. Copilot uses it to pick a raw upstream model variant
   // (claude-*-1m-internal vs the standard variant) BEFORE the
-  // anthropic-beta target interceptor filters the wire header down to the
+  // anthropic-beta boundary interceptor filters the wire header down to the
   // Copilot allow-list. Variant selection must see the caller's full intent
   // even when the beta value itself is dropped before hitting the wire.
   callMessages(model: UpstreamModel, body: Omit<MessagesPayload, 'model'>, signal?: AbortSignal, headers?: Record<string, string>, anthropicBeta?: readonly string[]): Promise<ProviderStreamResult<MessagesStreamEvent>>;

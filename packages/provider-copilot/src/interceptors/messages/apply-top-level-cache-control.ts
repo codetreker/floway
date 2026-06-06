@@ -1,9 +1,9 @@
+import type { CopilotMessagesBoundaryInterceptor } from './types.ts';
 import type {
   MessagesAssistantContentBlock,
   MessagesTextBlock,
   MessagesUserContentBlock,
 } from '@floway-dev/protocols/messages';
-import type { ProviderMessagesInterceptor } from '@floway-dev/provider';
 
 /**
  * Anthropic's Messages API defines a top-level `cache_control` field that
@@ -35,7 +35,7 @@ type CacheableBlock = Extract<
 const isCacheableBlock = (block: MessagesUserContentBlock | MessagesAssistantContentBlock): block is CacheableBlock =>
   block.type === 'text' || block.type === 'image' || block.type === 'tool_use' || block.type === 'tool_result';
 
-export const withTopLevelCacheControlApplied: ProviderMessagesInterceptor = async (ctx, _request, run) => {
+export const withTopLevelCacheControlApplied: CopilotMessagesBoundaryInterceptor = async (ctx, _request, run) => {
   const payload = ctx.payload as typeof ctx.payload & { cache_control?: { type: 'ephemeral' } };
   const topLevel = payload.cache_control;
   if (topLevel === undefined) return await run();

@@ -1,6 +1,16 @@
 import { test } from 'vitest';
 
-import { azureFetch, assertAzureUpstreamRecord } from './index.ts';
+import { assertAzureUpstreamRecord } from './config.ts';
+import {
+  azureFetchChatCompletions,
+  azureFetchEmbeddings,
+  azureFetchImagesGenerations,
+  azureFetchMessages,
+  azureFetchMessagesCountTokens,
+  azureFetchModels,
+  azureFetchResponses,
+  azureFetchResponsesCompact,
+} from './fetch.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
 
@@ -26,9 +36,9 @@ const baseRecord: UpstreamRecord = {
   disabledPublicModelIds: [],
 };
 
-test('azureFetch uses Azure OpenAI v1 paths with api-key auth', async () => {
+test('OpenAI v1 transports apply api-key auth and the canonical paths', async () => {
   const { config } = assertAzureUpstreamRecord(baseRecord);
-  const seen: Array<{ url: string; apiKey: string | null; contentType: string | null; beta: string | null; body: unknown }> = [];
+  const seen: Array<{ url: string; apiKey: string | null; contentType: string | null; body: unknown }> = [];
 
   await withMockedFetch(
     async request => {
@@ -36,16 +46,16 @@ test('azureFetch uses Azure OpenAI v1 paths with api-key auth', async () => {
         url: request.url,
         apiKey: request.headers.get('api-key'),
         contentType: request.headers.get('content-type'),
-        beta: request.headers.get('anthropic-beta'),
         body: request.method === 'GET' ? null : await request.json(),
       });
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'chat_completions', { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetch(config, 'responses', { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetch(config, 'embeddings', { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetch(config, 'models', { method: 'GET' });
+      await azureFetchChatCompletions(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
+      await azureFetchResponses(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
+      await azureFetchResponsesCompact(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
+      await azureFetchEmbeddings(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
+      await azureFetchModels(config, { method: 'GET' });
     },
   );
 
@@ -54,22 +64,40 @@ test('azureFetch uses Azure OpenAI v1 paths with api-key auth', async () => {
     [
       'https://example.openai.azure.com/openai/v1/chat/completions',
       'https://example.openai.azure.com/openai/v1/responses',
+      'https://example.openai.azure.com/openai/v1/responses/compact',
       'https://example.openai.azure.com/openai/v1/embeddings',
       'https://example.openai.azure.com/openai/v1/models',
     ],
   );
   assertEquals(
     seen.map(item => item.apiKey),
-    ['az-key', 'az-key', 'az-key', 'az-key'],
+    ['az-key', 'az-key', 'az-key', 'az-key', 'az-key'],
   );
   assertEquals(
     seen.map(item => item.contentType),
-    ['application/json', 'application/json', 'application/json', null],
+    ['application/json', 'application/json', 'application/json', 'application/json', null],
   );
   assertEquals(seen[0].body, { model: 'set-by-provider' });
 });
 
-test('azureFetch accepts an endpoint that already includes /openai/v1', async () => {
+test('image transports append the Azure preview api-version', async () => {
+  const { config } = assertAzureUpstreamRecord(baseRecord);
+  let seenUrl = '';
+
+  await withMockedFetch(
+    request => {
+      seenUrl = request.url;
+      return new Response('{}', { status: 200 });
+    },
+    async () => {
+      await azureFetchImagesGenerations(config, { method: 'POST', body: '{}' });
+    },
+  );
+
+  assertEquals(seenUrl, 'https://example.openai.azure.com/openai/v1/images/generations?api-version=preview');
+});
+
+test('endpoint that already includes /openai/v1 routes through unchanged', async () => {
   const { config } = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
@@ -85,14 +113,14 @@ test('azureFetch accepts an endpoint that already includes /openai/v1', async ()
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'responses', { method: 'POST', body: '{}' });
+      await azureFetchResponses(config, { method: 'POST', body: '{}' });
     },
   );
 
   assertEquals(seenUrl, 'https://example.openai.azure.com/openai/v1/responses');
 });
 
-test('azureFetch accepts Foundry project endpoints for OpenAI v1 calls', async () => {
+test('Foundry project endpoints route OpenAI v1 calls under the project base', async () => {
   const { config } = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
@@ -114,14 +142,14 @@ test('azureFetch accepts Foundry project endpoints for OpenAI v1 calls', async (
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'responses', { method: 'POST', body: '{}' });
+      await azureFetchResponses(config, { method: 'POST', body: '{}' });
     },
   );
 
   assertEquals(seenUrl, 'https://example.services.ai.azure.com/api/projects/prod/openai/v1/responses');
 });
 
-test('azureFetch accepts Foundry project OpenAI v1 base URLs', async () => {
+test('Foundry project endpoints split OpenAI v1 vs Anthropic surfaces', async () => {
   const { config } = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
@@ -143,8 +171,8 @@ test('azureFetch accepts Foundry project OpenAI v1 base URLs', async () => {
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'responses', { method: 'POST', body: '{}' });
-      await azureFetch(config, 'messages', { method: 'POST', body: '{}' });
+      await azureFetchResponses(config, { method: 'POST', body: '{}' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' });
     },
   );
 
@@ -154,7 +182,7 @@ test('azureFetch accepts Foundry project OpenAI v1 base URLs', async () => {
   ]);
 });
 
-test('azureFetch keeps native Anthropic calls on the resource Anthropic base when a project endpoint is entered', async () => {
+test('native Anthropic calls land on the resource Anthropic base when a project endpoint is entered', async () => {
   const { config } = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
@@ -176,14 +204,14 @@ test('azureFetch keeps native Anthropic calls on the resource Anthropic base whe
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'messages', { method: 'POST', body: '{}' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' });
     },
   );
 
   assertEquals(seenUrl, 'https://example.services.ai.azure.com/anthropic/v1/messages');
 });
 
-test('azureFetch supports Azure Foundry Anthropic Messages with x-api-key auth', async () => {
+test('Azure Foundry Anthropic surface uses x-api-key + anthropic-version', async () => {
   const { config } = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
@@ -211,8 +239,8 @@ test('azureFetch supports Azure Foundry Anthropic Messages with x-api-key auth',
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'messages', { method: 'POST', body: '{}' }, { extraHeaders: { 'anthropic-beta': 'context-1m' } });
-      await azureFetch(config, 'messages_count_tokens', { method: 'POST', body: '{}' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { extraHeaders: { 'anthropic-beta': 'context-1m' } });
+      await azureFetchMessagesCountTokens(config, { method: 'POST', body: '{}' });
     },
   );
 
@@ -234,7 +262,7 @@ test('azureFetch supports Azure Foundry Anthropic Messages with x-api-key auth',
   ]);
 });
 
-test('azureFetch accepts an Azure Foundry Anthropic messages target URI', async () => {
+test('Foundry Anthropic messages target URI is accepted and splits per surface', async () => {
   const { config } = assertAzureUpstreamRecord({
     ...baseRecord,
     config: {
@@ -256,8 +284,8 @@ test('azureFetch accepts an Azure Foundry Anthropic messages target URI', async 
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetch(config, 'messages', { method: 'POST', body: '{}' });
-      await azureFetch(config, 'models', { method: 'GET' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' });
+      await azureFetchModels(config, { method: 'GET' });
     },
   );
 

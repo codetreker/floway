@@ -46,8 +46,8 @@ flat `.ts` files at the top level of `shared/`.
 - Helpers that do not fit any of the five categories must be inlined into
   every consumer. Do not invent new folder patterns without explicit
   confirmation. If a helper feels like it does not belong to translation at
-  all (defending against degenerate upstream streams, etc.), it belongs to an
-  `apps/api` interceptor instead.
+  all (defending against degenerate upstream streams, etc.), it belongs to a
+  `packages/proxy` interceptor instead.
 
 See the project root `AGENTS.md` for package boundary rules
-(`packages/protocols` vs `packages/translate` vs `apps/api`).
+(`packages/protocols` vs `packages/translate` vs `packages/proxy`).

@@ -5,4 +5,3 @@ export {
   isCopilotAccountType,
   type CopilotAccountType,
 } from './auth.ts';
-export { copilotFetch } from './fetch.ts';

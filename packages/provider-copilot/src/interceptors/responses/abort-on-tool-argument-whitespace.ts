@@ -1,7 +1,7 @@
+import type { CopilotResponsesBoundaryInterceptor } from './types.ts';
 import { checkWhitespaceOverflow } from '../shared/whitespace-overflow.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderResponsesInterceptor } from '@floway-dev/provider';
 
 /**
  * Copilot has been observed to emit only whitespace (`\r`, `\n`, `\t`) inside
@@ -33,7 +33,7 @@ const errorEvent = (): ResponsesStreamEvent =>
     code: 'api_error',
   }) as ResponsesStreamEvent;
 
-export const withToolArgumentWhitespaceAborted: ProviderResponsesInterceptor = async (_invocation, _request, run) => {
+export const withToolArgumentWhitespaceAborted: CopilotResponsesBoundaryInterceptor = async (_invocation, _request, run) => {
   const result = await run();
   if (result.type !== 'events') return result;
 

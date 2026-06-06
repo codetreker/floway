@@ -1,0 +1,55 @@
+import type { LlmServeFailure } from '../shared/errors.ts';
+import type { ProtocolFrame } from '@floway-dev/protocols/common';
+import type { GeminiStreamEvent } from '@floway-dev/protocols/gemini';
+import type { ExecuteResult } from '@floway-dev/provider';
+
+// Google RPC Status envelope, used by Gemini's `error` channel everywhere
+// (HTTP body, SSE-tunnelled error event).
+export const geminiStatusForHttpStatus = (status: number): string => {
+  switch (status) {
+  case 400:
+    return 'INVALID_ARGUMENT';
+  case 401:
+    return 'UNAUTHENTICATED';
+  case 403:
+    return 'PERMISSION_DENIED';
+  case 404:
+    return 'NOT_FOUND';
+  case 429:
+    return 'RESOURCE_EXHAUSTED';
+  case 500:
+    return 'INTERNAL';
+  case 502:
+  case 503:
+    return 'UNAVAILABLE';
+  default:
+    return 'INTERNAL';
+  }
+};
+
+const geminiRpcErrorResult = (status: number, message: string): ExecuteResult<ProtocolFrame<GeminiStreamEvent>> => ({
+  type: 'upstream-error',
+  status,
+  headers: new Headers({ 'content-type': 'application/json' }),
+  body: new TextEncoder().encode(JSON.stringify({
+    error: { code: status, message, status: geminiStatusForHttpStatus(status) },
+  })),
+});
+
+// `endpoint` selects between `:generateContent` and `:countTokens` only in
+// the `model-unsupported` message string.
+export const renderGeminiFailure = (
+  failure: LlmServeFailure,
+  endpoint: 'generate' | 'countTokens',
+): ExecuteResult<ProtocolFrame<GeminiStreamEvent>> => {
+  switch (failure.kind) {
+  case 'item-not-found':
+    return geminiRpcErrorResult(404, `Item with id '${failure.itemId}' not found.`);
+  case 'routing-unavailable':
+    return geminiRpcErrorResult(400, failure.message);
+  case 'model-missing':
+    return geminiRpcErrorResult(404, `Model ${failure.model} is not available on any configured upstream.`);
+  case 'model-unsupported':
+    return geminiRpcErrorResult(400, `Model ${failure.model} does not support ${endpoint === 'countTokens' ? 'countTokens' : 'the Gemini generateContent endpoint'}.`);
+  }
+};

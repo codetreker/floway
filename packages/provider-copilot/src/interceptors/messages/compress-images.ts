@@ -1,5 +1,6 @@
+import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './types.ts';
+import { type ImageSizeCalculator, type SizeCaps, fitWithin } from '@floway-dev/platform';
 import type { MessagesImageBlock, MessagesMessage } from '@floway-dev/protocols/messages';
-import { type ImageSizeCalculator, type MessagesInvocation, type InterceptorRequest, fitWithin, type SizeCaps } from '@floway-dev/provider';
 import { compressBase64ImageToWebp } from '@floway-dev/provider';
 
 // Per-model image caps for the Claude (Messages) egress, measured from the real
@@ -14,7 +15,7 @@ import { compressBase64ImageToWebp } from '@floway-dev/provider';
 // tier; every non-Opus Claude model uses the standard cap.
 const STANDARD_CLAUDE_CAPS: SizeCaps = { maxLongEdge: 1568, maxArea: 1_176_000 };
 
-const claudeImageCaps = (upstreamModelId: string): SizeCaps => {
+export const claudeImageCaps = (upstreamModelId: string): SizeCaps => {
   const opus = /opus-(\d+)(?:\.(\d+))?/.exec(upstreamModelId);
   if (!opus) return STANDARD_CLAUDE_CAPS;
   const major = Number(opus[1]);
@@ -43,13 +44,17 @@ const collectImageBlocks = (messages: MessagesMessage[]): MessagesImageBlock[] =
 
 // Recompresses every inline base64 image in the outgoing Messages payload to
 // WebP before the Copilot upstream call. Generic in the run-result type so the
-// same definition serves both the streaming Messages target chain and the
-// count_tokens chain, so count_tokens sizes the same recompressed payload the
-// chat path sends.
-export const withInlineImagesCompressed = async <TResult>(ctx: MessagesInvocation, _request: InterceptorRequest, run: () => Promise<TResult>): Promise<TResult> => {
+// same definition serves both the streaming Messages boundary chain and the
+// count_tokens boundary chain, so count_tokens sizes the same recompressed
+// payload the chat path sends.
+export const withInlineImagesCompressed = async <TResult>(
+  ctx: MessagesBoundaryCtx | MessagesCountTokensBoundaryCtx,
+  _request: object,
+  run: () => Promise<TResult>,
+): Promise<TResult> => {
   const blocks = collectImageBlocks(ctx.payload.messages);
   if (blocks.length > 0) {
-    const caps = claudeImageCaps(ctx.upstreamModel.id);
+    const caps = claudeImageCaps(ctx.model.id);
     const targetSize: ImageSizeCalculator = source => fitWithin(source, caps);
     await Promise.all(
       blocks.map(async block => {

@@ -1,4 +1,4 @@
-import type { ProviderMessagesInterceptor } from '@floway-dev/provider';
+import type { CopilotMessagesBoundaryInterceptor } from './types.ts';
 
 const isContextWindowError = (text: string): boolean => text.includes('Request body is too large for model context window') || text.includes('context_length_exceeded');
 
@@ -11,7 +11,7 @@ const isContextWindowError = (text: string): boolean => text.includes('Request b
  * References:
  * - https://docs.claude.com/en/docs/claude-code/common-workflows#prompt-too-long
  */
-export const rewriteContextWindowError: ProviderMessagesInterceptor = async (_ctx, _request, run) => {
+export const rewriteContextWindowError: CopilotMessagesBoundaryInterceptor = async (_ctx, _request, run) => {
   const result = await run();
   if (result.type !== 'upstream-error') return result;
 

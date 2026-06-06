@@ -24,10 +24,10 @@
 
 ## Project
 
-`floway` is a Cloudflare Workers API proxy. It exposes Anthropic Messages,
-OpenAI Responses, OpenAI Chat Completions, Embeddings, OpenAI Images, and
-Google Gemini-compatible APIs over a unified upstream model. Provider kinds
-are `copilot`, `custom`, and `azure`.
+`floway` is an LLM API gateway. It exposes Anthropic Messages, OpenAI
+Responses, OpenAI Chat Completions, Embeddings, OpenAI Images, and Google
+Gemini-compatible APIs over a unified upstream model. Provider kinds are
+`copilot`, `custom`, and `azure`.
 
 As a proxy, preserve upstream status, headers, and body as directly as
 possible; surface internal failures with stack traces rather than masking
@@ -35,32 +35,54 @@ them. Code-level rules about error handling, comments, and style live in the
 global agent instructions and in ESLint config — read those, not a copy
 here.
 
-Stack: Hono on Workers Web APIs, D1 for persistence (in-memory repos in
-tests), TypeScript, pnpm, Vitest. The dashboard is a Vue + Vite SPA served
-from the same Worker via Static Assets.
-
-The production runtime contract is Workers-compatible (fetch entrypoint,
-Workers bindings, D1). The narrow `apps/api/src/runtime/` layer exists to
-keep future runtime targets possible if they can satisfy the same Web-API +
-D1 semantics.
+Stack: Hono on Web APIs, TypeScript, pnpm, Vitest. The dashboard is a
+Vue + Vite SPA. Cloudflare Workers is the production deployment target;
+Node.js (`node:sqlite` + `sharp` + filesystem) is a parallel deployment
+target with the same Hono app and the same `packages/proxy/migrations` SQL.
+The `@floway-dev/platform` package owns the abstract runtime contracts
+(`FileProvider`, `ImageProcessor`, `SqlDatabase`, `BackgroundScheduler`,
+`EnvGetter`); each `apps/platform-*` app supplies the concrete impls and
+its own entry. `packages/proxy` (the gateway core) imports only platform
+contracts and is ESLint-prohibited from reaching into any `apps/platform-*`.
 
 ## Workspace Layout
 
 ```text
 floway/
 ├── packages/
-│   ├── protocols/   # @floway-dev/protocols — protocol type defs
-│   ├── translate/   # @floway-dev/translate — cross-protocol translation pairs
-│   └── ui/          # @floway-dev/ui — internal Vue component library
+│   ├── interceptor/         # @floway-dev/interceptor — generic interceptor framework
+│   ├── platform/            # @floway-dev/platform — runtime contracts + portable helpers
+│   ├── protocols/           # @floway-dev/protocols — protocol type defs
+│   ├── provider/            # @floway-dev/provider — upstream provider contracts
+│   ├── provider-azure/      # @floway-dev/provider-azure — Azure OpenAI provider
+│   ├── provider-copilot/    # @floway-dev/provider-copilot — GitHub Copilot provider
+│   ├── provider-custom/     # @floway-dev/provider-custom — generic OpenAI-compatible
+│   ├── proxy/               # @floway-dev/proxy — Hono app, control/data planes, repo, migrations
+│   ├── translate/           # @floway-dev/translate — cross-protocol translation pairs
+│   └── ui/                  # @floway-dev/ui — internal Vue component library
 └── apps/
-    ├── api/         # @floway-dev/api — Worker entry + control/data planes
-    └── web/         # @floway-dev/web — Vue + Vite SPA dashboard
+    ├── platform-cloudflare/ # @floway-dev/platform-cloudflare — CF impls + Worker entry
+    ├── platform-node/       # @floway-dev/platform-node — Node impls + node-server entry
+    └── web/                 # @floway-dev/web — Vue + Vite SPA dashboard
 ```
 
-Dependency direction is strict: `protocols` depends on nothing; `translate`
-depends only on `protocols`; `api` depends on `protocols` + `translate`;
-`ui` depends only on `vue` + `reka-ui`; `web` depends on `ui` and
-type-imports `@floway-dev/api/app-type` for Hono RPC client typing.
+Dependency direction is strict. The leaf-most packages are `protocols` and
+`interceptor`. `translate` depends on `protocols`. `provider` depends on
+`platform` + `protocols` + `interceptor`; the per-vendor `provider-*` packages
+depend on `provider`. `proxy` depends on `platform` + `protocols` + `translate`
++ all `provider-*`, and is the runtime-agnostic gateway core. `apps/platform-*`
+depend on `platform` + `proxy` plus their target's runtime libraries
+(`@cloudflare/workers-types`; `sharp` + `@hono/node-server`); they are the only
+places runtime-specific symbols (D1, R2, Images, KV, ExecutionContext, sharp,
+node:sqlite, fs) appear. `apps/web` depends on `ui` and type-imports
+`@floway-dev/proxy/app-type` for Hono RPC client typing.
+
+ESLint forbids any workspace file from importing `@floway-dev/platform-*`
+by package name, plus a `no-restricted-paths` zone forbidding the
+platform-target apps from reaching into each other via relative paths.
+Each `apps/platform-*` ships with no `exports`/`main` field, so deep
+imports also fail at module resolution. Each platform-target app's
+`entry.ts` reaches its impls only via local relative imports.
 
 Each package's public surface is its `exports` map. Deep imports
 (`@floway-dev/<pkg>/src/...`) are banned by ESLint; cross-package code must
@@ -82,7 +104,8 @@ pnpm run test                # vitest across all packages
 pnpm run lint                # eslint across the workspace
 pnpm run typecheck           # tsc --noEmit per package
 pnpm run dev                 # parallel wrangler dev (8788) + Vite dev (5174)
-pnpm run deploy              # builds apps/web, then wrangler deploy on apps/api
+pnpm run dev:node            # Node.js entry (tsx apps/platform-node/entry.ts)
+pnpm run deploy              # builds apps/web, then wrangler deploys apps/platform-cloudflare
 pnpm run db:migrate          # local D1
 pnpm run db:migrate:remote   # production D1
 ```
@@ -99,6 +122,14 @@ backend-only `assets.run_worker_first` route list in the gitignored
 `wrangler.jsonc` (see `wrangler.example.jsonc`). To work on a single
 package, use pnpm filters (e.g.
 `pnpm --filter @floway-dev/translate run typecheck`).
+
+`dev:node` boots the Node deployment target. Configure via
+`FLOWAY_DB_PATH` (sqlite file path), `FLOWAY_FILES_DIR` (filesystem store
+root), `ADMIN_KEY` (admin secret), and `PORT`. Default ports/paths in
+`apps/platform-node/entry.ts`. The Node entry runs `applyMigrations` against
+`packages/proxy/migrations/*.sql` at boot, then serves the same Hono app
+through `@hono/node-server`. Static-asset serving is Workers-only; the Node
+target serves no SPA.
 
 Wrangler commands go through the local dependency with `pnpm wrangler` or
 package scripts. When deploying, do not pass `--dry-run`.

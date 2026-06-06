@@ -2,19 +2,18 @@
 // per-upstream behavior flag exposed by the dashboard, validated by the
 // /api/upstreams endpoint, and stored in upstreams.flag_overrides.
 //
-// The catalog only describes flags. Source/target interceptor code
-// references a flag by id; the dependency goes interceptor → flag, never
-// the other way. This makes "one flag drives multiple interceptors" trivial
-// and keeps the catalog free of runtime closures.
+// The catalog only describes flags. Interceptor code references a flag by
+// id; the dependency goes interceptor → flag, never the other way. This
+// makes "one flag drives multiple interceptors" trivial and keeps the
+// catalog free of runtime closures.
 //
 // Vendor-style flags (`vendor-deepseek`, `vendor-qwen`, `vendor-kimi`) each
-// own a dedicated last-running interceptor under the api's targets/<api>/
-// interceptors/ directory. That interceptor translates the gateway's
-// OpenAI-canonical request and response shape into the vendor's wire
-// dialect. With no vendor flag set, behavior defaults to the OpenAI standard
-// and no vendor rewrite runs. Vendor flags are mutually exclusive per
-// binding — the dashboard surfaces them as a single radio rather than three
-// independent toggles.
+// own a dedicated last-running interceptor on the api side. That
+// interceptor translates the gateway's OpenAI-canonical request and
+// response shape into the vendor's wire dialect. With no vendor flag set,
+// behavior defaults to the OpenAI standard and no vendor rewrite runs.
+// Vendor flags are mutually exclusive per binding — the dashboard surfaces
+// them as a single radio rather than three independent toggles.
 
 import type { UpstreamProviderKind } from './model.ts';
 
@@ -69,7 +68,7 @@ export const OPTIONAL_FLAGS = [
     id: 'responses-image-generation-shim',
     label: 'Responses image generation shim',
     description: "Execute the Responses `image_generation` hosted tool through the gateway's image-capable upstream (gpt-image-*) instead of forwarding it to a Responses upstream. The orchestrator model calls a generated function tool; the shim drives the standalone /images/{generations,edits} backend and synthesizes the native image_generation_call lifecycle. (When a Responses request is routed to a non-Responses backend, the shim always runs regardless of this flag, because those targets cannot carry the hosted image_generation tool.)",
-    defaultFor: [],
+    defaultFor: ['copilot', 'azure'],
   },
   {
     id: 'disable-reasoning-on-forced-tool-choice',

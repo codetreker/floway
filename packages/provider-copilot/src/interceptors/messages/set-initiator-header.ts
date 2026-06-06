@@ -1,4 +1,4 @@
-import type { MessagesInvocation, InterceptorRequest } from '@floway-dev/provider';
+import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './types.ts';
 
 /**
  * Copilot's `x-initiator` header distinguishes turns that the human user just
@@ -13,15 +13,19 @@ import type { MessagesInvocation, InterceptorRequest } from '@floway-dev/provide
  * The header name is lowercase `x-initiator`; HTTP header names are
  * case-insensitive on the wire, so the casing is cosmetic.
  *
- * Generic in the run-result type so the count_tokens target chain
- * (`Response`) and the streaming Messages target chain (`ExecuteResult<...>`)
+ * Generic in the run-result type so the count_tokens boundary chain
+ * (`Response`) and the streaming Messages boundary chain (`ExecuteResult<...>`)
  * can share one definition, matching the pre-Path A behavior where
  * x-initiator was set on every Copilot Messages HTTP call.
  *
  * References:
  * - https://github.com/caozhiyuan/copilot-api/blob/master/src/services/copilot/create-chat-completions.ts
  */
-export const withInitiatorHeaderSet = async <TResult>(ctx: MessagesInvocation, _request: InterceptorRequest, run: () => Promise<TResult>): Promise<TResult> => {
+export const withInitiatorHeaderSet = async <TResult>(
+  ctx: MessagesBoundaryCtx | MessagesCountTokensBoundaryCtx,
+  _request: object,
+  run: () => Promise<TResult>,
+): Promise<TResult> => {
   const lastMessage = ctx.payload.messages[ctx.payload.messages.length - 1];
   let initiator: 'user' | 'agent';
   if (lastMessage?.role !== 'user') {

@@ -35,6 +35,28 @@ export interface ResponsesPayload {
   service_tier?: string | null;
 }
 
+// Narrower payload for `/responses/compact`. The official endpoint accepts a
+// strict subset of `/responses` fields — model/input/instructions/
+// previous_response_id/prompt_cache_*/service_tier — plus we honour `store`
+// as a gateway-policy hint for snapshot persistence. Anything from
+// `ResponsesPayload` not listed here (tools, temperature, max_output_tokens,
+// reasoning, stream, etc.) is create-only and would be rejected or silently
+// ignored by the upstream compact endpoint.
+// Reference: https://developers.openai.com/api/reference/resources/responses/methods/compact
+export interface ResponsesCompactPayload {
+  model: string;
+  input: string | ResponsesInputItem[];
+  instructions?: string | null;
+  previous_response_id?: string | null;
+  prompt_cache_key?: string | null;
+  prompt_cache_retention?: 'in_memory' | '24h' | null;
+  service_tier?: string | null;
+  // Gateway-only: controls whether the compact response's output items + the
+  // committed snapshot persist. Forwarded NEITHER to upstream nor to the
+  // provider call body.
+  store?: boolean | null;
+}
+
 export type ResponsesInputItem =
   | ResponsesInputMessage
   | ResponsesFunctionToolCallItem
@@ -50,6 +72,7 @@ export type ResponsesInputItem =
   | ResponsesToolSearchCallItem
   | ResponsesToolSearchOutputItem
   | ResponsesCompactionItem
+  | ResponsesCompactionTriggerItem
   | ResponsesInputImageGenerationCall
   | ResponsesCodeInterpreterCallItem
   | ResponsesLocalShellCallItem
@@ -191,6 +214,12 @@ export interface ResponsesToolSearchOutputItem extends ResponsesPermissiveItem<'
 }
 
 export type ResponsesCompactionItem = ResponsesPermissiveItem<'compaction'>;
+
+// Trailing input item recognised by codex's RemoteCompactionV2: the upstream
+// turns a normal `/responses` call into a compaction round-trip and replies
+// with a single `compaction` output item. Payload-free on the wire (any extra
+// keys are tolerated by the permissive base).
+export type ResponsesCompactionTriggerItem = ResponsesPermissiveItem<'compaction_trigger'>;
 
 export interface ResponsesCodeInterpreterCallItem extends ResponsesPermissiveItem<'code_interpreter_call'> {
   call_id?: string;
@@ -679,6 +708,13 @@ export type ResponsesReasoningItem = ResponsesInputReasoning | ResponsesOutputRe
 
 export const isResponsesTerminalEvent = (event: Pick<ResponsesStreamEvent, 'type'>): boolean =>
   event.type === 'response.completed' || event.type === 'response.incomplete' || event.type === 'response.failed' || event.type === 'error';
+
+// Typed accessor for the `response` payload carried on lifecycle envelopes
+// (`response.created`, `response.in_progress`, `response.completed`,
+// `response.incomplete`, `response.failed`). Returns null on every other
+// event type so callers don't have to reproduce the variant check.
+export const responsesResultFromStreamEvent = (event: ResponsesStreamEvent): ResponsesResult | null =>
+  'response' in event ? event.response : null;
 
 export { responsesResultToEvents } from './from-result.ts';
 export { imageGenerationCallLifecycleEvents } from './image-generation-lifecycle.ts';

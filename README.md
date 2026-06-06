@@ -1,16 +1,18 @@
 # Floway
 
-Floway is a Cloudflare Workers API proxy that fronts multiple model upstreams
-behind one set of standard APIs. Point a coding agent at Floway and it can use
-a GitHub Copilot account, a custom OpenAI- or Anthropic-compatible provider, or
-an Azure deployment through whichever API shape the agent already speaks.
+Floway is an LLM API gateway that fronts multiple model upstreams behind one
+set of standard APIs. Point a coding agent at Floway and it can use a
+GitHub Copilot account, a custom OpenAI- or Anthropic-compatible provider,
+or an Azure deployment through whichever API shape the agent already speaks.
+Cloudflare Workers is the production deployment target; a Node.js deployment
+target ships in the same repo for self-hosting on a long-lived process.
 
 ## Client APIs
 
 | Source API                              | Path                          |
 | --------------------------------------- | ----------------------------- |
-| Anthropic Messages                      | `POST /v1/messages`           |
-| OpenAI Responses                        | `POST /v1/responses`, `GET /v1/responses` WebSocket |
+| Anthropic Messages                      | `POST /v1/messages`, `POST /v1/messages/count_tokens` |
+| OpenAI Responses                        | `POST /v1/responses`, `POST /v1/responses/compact`, `GET /v1/responses` WebSocket |
 | OpenAI Chat Completions                 | `POST /v1/chat/completions`   |
 | OpenAI Embeddings                       | `POST /v1/embeddings`         |
 | OpenAI Images                           | `POST /v1/images/generations` |
@@ -24,9 +26,13 @@ speaks a different shape.
 
 ## Quick Start
 
-Prereqs: a Cloudflare account, Node.js 20.3+, pnpm 10.x, and at least one
-upstream credential: Copilot subscription, OpenAI-compatible bearer token, or
-Azure endpoint plus API key.
+Prereqs: Node.js 22.5+ (for `node:sqlite` if you want the Node target),
+pnpm 10.x, and at least one upstream credential — Copilot subscription,
+OpenAI-compatible bearer token, or Azure endpoint plus API key.
+
+### Cloudflare Workers (production)
+
+A Cloudflare account is required.
 
 ```bash
 pnpm install
@@ -45,7 +51,28 @@ pnpm run dev
 pnpm run deploy
 ```
 
-Open the deployed URL, log in with `ADMIN_KEY`, and:
+### Node.js (self-hosted)
+
+```bash
+pnpm install
+
+# All config is environment variables; sqlite + filesystem dirs are created
+# on first boot, migrations apply automatically.
+ADMIN_KEY=<admin-secret> \
+FLOWAY_DB_PATH=./data/floway.db \
+FLOWAY_FILES_DIR=./data/files \
+PORT=8788 \
+pnpm run dev:node
+```
+
+The Node target serves no SPA — point the dashboard at the same admin host
+through your own static-file server, or use the Cloudflare deploy for the
+dashboard while running data-plane traffic on Node.
+
+### After the first boot
+
+Open the deployed URL (or `http://localhost:8788` for Node), log in with
+`ADMIN_KEY`, and:
 
 1. **Settings -> Upstreams -> Add Upstream**. Upstreams are *Custom*
    (OpenAI/Anthropic-shaped, static credential), *Azure* (one endpoint, API key,
@@ -94,15 +121,36 @@ pnpm run lint          # eslint --cache across the workspace
 pnpm run test          # vitest run over the root test.projects
 pnpm run typecheck     # pnpm -r run typecheck
 pnpm run dev           # parallel wrangler dev (8788) + Vite SPA dev server (5174)
+pnpm run dev:node      # Node.js entry (tsx apps/platform-node/entry.ts)
 ```
 
-The repo is a pnpm workspace. `packages/protocols` and `packages/translate` are
-pure libraries; `apps/api` is the Worker; `apps/web` is a Vue/Vite SPA served by
-Vite in dev and by Workers Static Assets from `apps/web/dist` after build.
+The repo is a pnpm workspace.
+
+- `packages/protocols` and `packages/translate` are pure libraries for
+  protocol type defs and cross-protocol translation.
+- `packages/interceptor` is the generic interceptor framework.
+- `packages/provider` plus per-vendor `packages/provider-{azure,copilot,custom}`
+  hold the upstream-side adapters.
+- `packages/platform` exposes the runtime contracts (`FileProvider`,
+  `ImageProcessor`, `SqlDatabase`, etc.) and a few portable helpers.
+- `packages/proxy` is the runtime-agnostic gateway core: Hono app, all
+  control- and data-plane routes, the Repo interface and impls, middleware,
+  and the migrations SQL.
+- `apps/platform-cloudflare` ships the Cloudflare implementations
+  (R2, Images + KV, D1) and the Worker entry; `apps/platform-node` ships
+  the Node implementations (sharp, node:sqlite, fs) and the
+  `@hono/node-server` entry. Each platform-target app is the only place
+  its runtime's symbols appear; ESLint forbids importing them from
+  anywhere else in the workspace.
+- `apps/web` is the Vue/Vite SPA dashboard, served by Vite in dev and by
+  Workers Static Assets from `apps/web/dist` after build (Cloudflare
+  deployment only).
+
 `wrangler.example.jsonc` keeps API/data-plane routes Worker-first and lets
 other direct browser routes fall through to the SPA's `index.html`. It also
 includes an hourly cron trigger used by the Worker to age out retained Responses
-snapshots, payloads, and metadata. Cross-package imports go through each package's
+snapshots, payloads, and metadata. The Node entry runs the same maintenance
+sweep on a wall-clock interval. Cross-package imports go through each package's
 `exports` map; deep imports are blocked by ESLint.
 
 See [AGENTS.md](./AGENTS.md) for architecture, provider routing, deployment,

@@ -59,22 +59,29 @@ gateway returns a Gemini-shaped unsupported-model error.
 - Translators do not synthesize defaults merely to satisfy a target shape.
   Examples: no translated-only `temperature: 1`, `store: false`,
   `parallel_tool_calls: true`, or `reasoning.summary: "detailed"`.
-- Fields with no natural target-side meaning are omitted instead of encoded into
-  private bridges.
-- Copilot target quirks such as unsupported Responses `service_tier`,
-  connection-bound IDs, policy retry failures, Messages thinking-display idle
-  gaps, unsupported Messages `eager_input_streaming`, and malformed upstream
-  stream shapes are handled at the target boundary.
-- Interceptors are protocol-scoped. A Messages interceptor sees a Messages
-  request and Messages result/events whether Messages is the source protocol or
-  target protocol; Responses and Chat Completions follow the same rule.
-- Raw upstream frames are converted inside target emitters before target
-  interceptors see results. Source responders decide final HTTP/SSE shaping
-  after target protocol events are translated back to source protocol events.
+- Fields with no natural target-side meaning are omitted instead of encoded
+  into private bridges.
+- Each protocol has one gateway-side interceptor list that runs once when the
+  request enters the gateway in that protocol's shape. A Messages interceptor
+  sees a Messages request and Messages result/events whether Messages is the
+  source the client sent or the target the upstream serves; Responses, Chat
+  Completions, and Gemini follow the same rule.
+- Each provider runs its own boundary interceptor chain inside its `call*`
+  method, after the gateway-side chain and immediately before the wire. The
+  boundary chain owns provider-specific quirks: image compression, header
+  shaping (`x-vision-request`, `x-initiator`, anthropic-beta filtering),
+  field stripping (Copilot Responses `service_tier`, `image_generation`,
+  `store: false` forcing), Copilot Messages `cache_control.scope` scrubbing,
+  and similar.
+- The provider parses raw upstream frames into typed protocol events before
+  returning to the gateway, so every interceptor sees decoded events, not
+  SSE bytes. The HTTP / WebSocket adapter at the gateway boundary owns the
+  final wire shaping after the protocol events have been translated back to
+  the source-protocol shape.
 
 ## Boundary Workarounds
 
-Messages source boundary:
+### Messages — gateway interceptors
 
 - rejects body-level `anthropic_beta` and `betas`; Anthropic beta flags are
   accepted only from the `anthropic-beta` HTTP header and passed to Messages
@@ -83,80 +90,79 @@ Messages source boundary:
   gateway-executed client-tool shim when the selected provider/target requires
   it, decodes shim-owned replay history back into upstream `search_result`
   blocks, and rewrites shim-owned search results/citations back to native
-  Messages shape
+  Messages shape. The shim is enabled by default for Copilot Messages targets
+  too, because Copilot search is executed by the gateway.
+- strips reserved `x-anthropic-billing-header` prompt-attribution lines and
+  `cch=<hash>` cache markers that some clients inline into the `system`
+  prompt; these are opaque to every upstream and poison prompt-cache prefix
+  hashes
+- strips stray `[DONE]` sentinels from Anthropic-shaped streams
 
-Copilot Messages provider source boundary:
-
-- strips reserved `x-anthropic-billing-header` prompt attribution before Copilot
-  prompt submission
-- rewrites Copilot context-window errors into the compact Messages error shape
-- enables the Messages web-search shim by default even for native Messages
-  targets, because Copilot search is executed by the gateway
-
-Copilot Messages provider target boundary:
-
-- strips unsupported `cache_control.scope` before calling Copilot native
-  Messages. Custom Messages providers receive the caller's `cache_control`
-  object unchanged.
-
-Responses source boundary:
-
-- removes unsupported `image_generation` Responses tool entries and forced tool
-  choices that targeted them before target request construction/emission.
-  Other hosted/deferred Responses tools, including `web_search`, `tool_search`,
-  and `namespace`, remain visible to native Responses targets. Translated
-  Messages/Chat targets currently narrow tool conversion to `function` and
-  Freeform `custom` tools; the hosted/deferred translated semantics are tracked
-  separately.
-- preserves Freeform `custom` tools: native Responses targets receive them
-  directly; translated targets wrap them as single-string function tools (see
-  "Responses Custom Tool Wrapping").
-
-Gemini source boundary:
-
-- removes unsupported `fileData`, `executableCode`, and `codeExecutionResult`
-  part fields before target request construction/emission
-- removes unsupported Gemini tool capabilities such as `googleSearch`,
-  `codeExecution`, URL context, file search, MCP servers, and maps, keeping only
-  function declarations
-- drops `safetySettings`, which has no upstream target control
-- hides `thought: true` summary parts by default; they are only returned when
-  `generationConfig.thinkingConfig.includeThoughts === true`. Opaque
-  `thoughtSignature` values remain a Gemini source concern for Messages and
-  Chat targets, but are not translated into Responses reasoning state.
-- shapes errors as Google RPC Status payloads while preserving internal debug
-  fields for gateway failures
-
-Copilot Messages provider target boundary:
+### Messages — Copilot provider boundary chain
 
 - promotes upstream `thinking.display` during active thinking to avoid Copilot
   Messages idle gaps, then preserves downstream omitted-thinking semantics
-- whitelists supported `anthropic-beta` values
+- whitelists supported `anthropic-beta` values on the wire
 - auto-adds `interleaved-thinking-2025-05-14` when budget thinking requires it
 - strips unsupported per-tool `eager_input_streaming`
+- strips unsupported `cache_control.scope` before calling Copilot native
+  Messages. Custom Messages providers receive the caller's `cache_control`
+  object unchanged.
+- rewrites Copilot context-window errors into the compact Messages error shape
 
-Native Messages target:
+### Responses — gateway interceptors
 
-- strips stray `[DONE]` sentinels from Anthropic-shaped streams
+- removes unsupported `image_generation` Responses tool entries and forced
+  tool choices that targeted them before target request construction. Other
+  hosted/deferred Responses tools, including `web_search`, `tool_search`, and
+  `namespace`, remain visible to native Responses targets. Translated
+  Messages/Chat targets currently narrow tool conversion to `function` and
+  Freeform `custom` tools; the hosted/deferred translated semantics are
+  tracked separately.
+- preserves Freeform `custom` tools: native Responses targets receive them
+  directly; translated targets wrap them as single-string function tools (see
+  "Responses Custom Tool Wrapping").
+- retries intermittent upstream `cyber_policy` failures before the failed
+  attempt reaches the source-shaped response
 
-Copilot Responses provider target boundary:
+### Responses — Copilot provider boundary chain
+
+The same boundary runs for both `/v1/responses` (streaming) and
+`/v1/responses/compact` (non-streaming).
 
 - strips unsupported `service_tier`
-- retries expired connection-bound input IDs once with deterministic rewrites
-- synchronizes mismatched stream output item IDs
+- removes the `image_generation` tool entry (Copilot does not host it)
+- forces `store: false` on the wire — the gateway always owns Responses
+  persistence; the original `store` is captured by the entry adapter before
+  the chain runs, so durable storage is unaffected
+- compresses inline base64 image data URLs to WebP
+- injects `x-vision-request` and `x-initiator` headers
+- on `/v1/responses` only: retries expired connection-bound input IDs once
+  with deterministic rewrites, and synchronizes mismatched stream output
+  item IDs
 
-Native Responses target:
+### Chat Completions — gateway interceptors
 
-- retries intermittent upstream `cyber_policy` failures before the failed
-  attempt reaches the source pipeline
+- forces upstream streaming usage when needed for gateway usage telemetry.
+  The Chat source still only exposes final usage-only SSE chunks to clients
+  when the caller requested `stream_options.include_usage: true`. Hidden
+  upstream usage is preserved separately for gateway telemetry.
 
-Native Chat Completions target:
+### Gemini — gateway interceptors
 
-- forces upstream streaming usage when needed for gateway usage telemetry
-
-The Chat source still only exposes final usage-only SSE chunks to clients when
-the caller requested `stream_options.include_usage: true`. Hidden upstream usage
-is preserved separately for gateway usage telemetry.
+- removes unsupported `fileData`, `executableCode`, and `codeExecutionResult`
+  part fields before target request construction
+- removes unsupported Gemini tool capabilities such as `googleSearch`,
+  `codeExecution`, URL context, file search, MCP servers, and maps, keeping
+  only function declarations
+- drops `safetySettings`, which has no upstream target control
+- hides `thought: true` summary parts by default; they are only returned
+  when `generationConfig.thinkingConfig.includeThoughts === true`. Opaque
+  `thoughtSignature` values are preserved when the target is Messages or
+  Chat (which carry them through `signature` / `reasoning_opaque`), but are
+  not translated into Responses reasoning state.
+- shapes errors as Google RPC Status payloads while preserving internal
+  debug fields for gateway failures
 
 ## Gemini Source
 
@@ -197,8 +203,8 @@ Response mapping shared by the Gemini source translation pairs:
 
 - Target text output becomes Gemini model content text parts.
 - Target reasoning summaries or thinking deltas become Gemini thought-summary
-  parts internally, then the Gemini source boundary removes them unless the
-  client explicitly requested `includeThoughts: true`.
+  parts internally, then the Gemini gateway interceptors remove them unless
+  the client explicitly requested `includeThoughts: true`.
 - Target opaque reasoning signatures from Messages or Chat become Gemini
   `thoughtSignature` attached to the next visible text or function-call action
   part. Responses targets do not emit opaque Gemini signatures; only readable
@@ -225,8 +231,8 @@ Known losses:
   Gemini Files API URIs, native code execution, grounding/citation metadata, URL
   context, file search, maps, computer use, and MCP server tools have no current
   upstream target equivalent and are omitted.
-- `googleSearch` is currently dropped at the Gemini source boundary; future work
-  should route it through the existing web-search shim.
+- `googleSearch` is currently dropped by the Gemini gateway interceptors;
+  future work should route it through the existing web-search shim.
 - `safetySettings` are omitted because the Copilot targets do not expose
   equivalent safety controls.
 - `candidateCount > 1` is not supported by the Copilot targets; the gateway

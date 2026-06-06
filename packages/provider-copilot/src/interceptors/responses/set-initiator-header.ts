@@ -1,5 +1,5 @@
+import type { ResponsesBoundaryCtx } from './types.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
-import type { ProviderResponsesInterceptor } from '@floway-dev/provider';
 
 /**
  * Copilot's `x-initiator` header distinguishes user-triggered turns from
@@ -31,7 +31,11 @@ const isAgentInitiated = (lastItem: ResponsesInputItem | undefined): boolean => 
   return typeof record.role === 'string' && record.role.toLowerCase() === 'assistant';
 };
 
-export const withInitiatorHeaderSet: ProviderResponsesInterceptor = async (ctx, _request, run) => {
+export const withInitiatorHeaderSet = async <TResult>(
+  ctx: ResponsesBoundaryCtx,
+  _request: object,
+  run: () => Promise<TResult>,
+): Promise<TResult> => {
   const input = ctx.payload.input;
   const initiator: 'user' | 'agent' = Array.isArray(input) && isAgentInitiated(input.at(-1)) ? 'agent' : 'user';
   ctx.headers['x-initiator'] = initiator;

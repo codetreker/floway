@@ -31,8 +31,7 @@ export interface InternalErrorResult {
 
 // A fully-shaped non-streaming success body — the output of a source endpoint
 // that measures rather than generates (count_tokens). It is NOT an
-// `ExecuteResult`: the target emit/interceptor layer never produces one. It is
-// combined into the source-level `Result` (see sources/traits.ts), so the
+// `ExecuteResult`: the target emit/interceptor layer never produces one. The
 // orchestrator passes it straight to `respond` without persistence, and
 // `respond` emits it verbatim.
 export interface PlainResult {

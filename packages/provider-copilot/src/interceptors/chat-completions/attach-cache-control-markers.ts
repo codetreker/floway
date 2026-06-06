@@ -1,5 +1,5 @@
+import type { CopilotChatCompletionsBoundaryInterceptor } from './types.ts';
 import type { ChatCompletionsMessage } from '@floway-dev/protocols/chat-completions';
-import type { ProviderChatCompletionsInterceptor } from '@floway-dev/provider';
 
 /**
  * Prime Copilot's content-addressed prompt cache by tagging a small set of
@@ -63,7 +63,7 @@ const selectCacheMarkerIndexes = (messages: readonly ChatCompletionsMessage[]): 
   return [...new Set([...systemIndexes, ...nonSystemIndexes])].sort((a, b) => a - b);
 };
 
-export const withCacheControlMarkersAttached: ProviderChatCompletionsInterceptor = async (ctx, _request, run) => {
+export const withCacheControlMarkersAttached: CopilotChatCompletionsBoundaryInterceptor = async (ctx, _request, run) => {
   const indexes = selectCacheMarkerIndexes(ctx.payload.messages);
   for (const index of indexes) {
     // Fresh object per message so downstream mutations (none today, but

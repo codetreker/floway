@@ -1,6 +1,15 @@
 import { test } from 'vitest';
 
-import { customFetch, assertCustomUpstreamRecord } from './index.ts';
+import { assertCustomUpstreamRecord } from './config.ts';
+import {
+  customFetchChatCompletions,
+  customFetchEmbeddings,
+  customFetchMessages,
+  customFetchMessagesCountTokens,
+  customFetchModels,
+  customFetchResponses,
+  customFetchResponsesCompact,
+} from './fetch.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
 
@@ -21,7 +30,7 @@ const baseRecord: UpstreamRecord = {
   disabledPublicModelIds: [],
 };
 
-test('customFetch uses default /v1/* paths', async () => {
+test('typed transports use default /v1/* paths', async () => {
   const { config } = assertCustomUpstreamRecord(baseRecord);
 
   const seen: string[] = [];
@@ -31,18 +40,20 @@ test('customFetch uses default /v1/* paths', async () => {
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(config, 'chat_completions', { method: 'POST', body: '{}' });
-      await customFetch(config, 'responses', { method: 'POST', body: '{}' });
-      await customFetch(config, 'messages', { method: 'POST', body: '{}' });
-      await customFetch(config, 'messages_count_tokens', { method: 'POST', body: '{}' });
-      await customFetch(config, 'embeddings', { method: 'POST', body: '{}' });
-      await customFetch(config, 'models', { method: 'GET' });
+      await customFetchChatCompletions(config, { method: 'POST', body: '{}' });
+      await customFetchResponses(config, { method: 'POST', body: '{}' });
+      await customFetchResponsesCompact(config, { method: 'POST', body: '{}' });
+      await customFetchMessages(config, { method: 'POST', body: '{}' });
+      await customFetchMessagesCountTokens(config, { method: 'POST', body: '{}' });
+      await customFetchEmbeddings(config, { method: 'POST', body: '{}' });
+      await customFetchModels(config, { method: 'GET' });
     },
   );
 
   assertEquals(seen, [
     'https://custom.example.com/v1/chat/completions',
     'https://custom.example.com/v1/responses',
+    'https://custom.example.com/v1/responses/compact',
     'https://custom.example.com/v1/messages',
     'https://custom.example.com/v1/messages/count_tokens',
     'https://custom.example.com/v1/embeddings',
@@ -50,13 +61,14 @@ test('customFetch uses default /v1/* paths', async () => {
   ]);
 });
 
-test('customFetch applies path overrides without an automatic /v1 prefix', async () => {
+test('admin pathOverrides replace defaults and propagate to derived sub-paths', async () => {
   const { config } = assertCustomUpstreamRecord({
     ...baseRecord,
     config: {
       ...(baseRecord.config as Record<string, unknown>),
       pathOverrides: {
         messages: '/api/v1/messages',
+        responses: '/api/v1/responses',
       },
     },
   });
@@ -67,22 +79,24 @@ test('customFetch applies path overrides without an automatic /v1 prefix', async
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(config, 'messages', { method: 'POST', body: '{}' });
-      await customFetch(config, 'messages_count_tokens', { method: 'POST', body: '{}' });
-      await customFetch(config, 'chat_completions', { method: 'POST', body: '{}' });
+      await customFetchMessages(config, { method: 'POST', body: '{}' });
+      // count_tokens / compact follow their parent override.
+      await customFetchMessagesCountTokens(config, { method: 'POST', body: '{}' });
+      await customFetchResponsesCompact(config, { method: 'POST', body: '{}' });
+      // Endpoints without an override fall back to the OpenAI default.
+      await customFetchChatCompletions(config, { method: 'POST', body: '{}' });
     },
   );
 
   assertEquals(seen, [
     'https://custom.example.com/api/v1/messages',
-    // count_tokens follows the messages override path.
     'https://custom.example.com/api/v1/messages/count_tokens',
-    // Endpoints without an override fall back to the OpenAI default.
+    'https://custom.example.com/api/v1/responses/compact',
     'https://custom.example.com/v1/chat/completions',
   ]);
 });
 
-test('customFetch resolves the /models path from modelsFetch.endpoint', async () => {
+test('customFetchModels resolves the path from modelsFetch.endpoint', async () => {
   const { config } = assertCustomUpstreamRecord({
     ...baseRecord,
     config: {
@@ -97,14 +111,14 @@ test('customFetch resolves the /models path from modelsFetch.endpoint', async ()
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(config, 'models', { method: 'GET' });
+      await customFetchModels(config, { method: 'GET' });
     },
   );
 
   assertEquals(seen, 'https://custom.example.com/models');
 });
 
-test('customFetch falls back to the default /models path when modelsFetch.endpoint is absent', async () => {
+test('customFetchModels falls back to the default /v1/models path when modelsFetch.endpoint is absent', async () => {
   const { config } = assertCustomUpstreamRecord({
     ...baseRecord,
     config: {
@@ -119,30 +133,14 @@ test('customFetch falls back to the default /models path when modelsFetch.endpoi
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(config, 'models', { method: 'GET' });
+      await customFetchModels(config, { method: 'GET' });
     },
   );
 
   assertEquals(seen, 'https://custom.example.com/v1/models');
 });
 
-test('customFetch sends the configured bearer token', async () => {
-  const { config } = assertCustomUpstreamRecord(baseRecord);
-  let authHeader: string | null = null;
-  await withMockedFetch(
-    request => {
-      authHeader = request.headers.get('authorization');
-      return new Response('{}', { status: 200 });
-    },
-    async () => {
-      await customFetch(config, 'models', { method: 'GET' });
-    },
-  );
-
-  assertEquals(authHeader, 'Bearer sk-test');
-});
-
-test('customFetch defaults authStyle to bearer when omitted', async () => {
+test('bearer authStyle sends the configured token via Authorization', async () => {
   const { config } = assertCustomUpstreamRecord(baseRecord);
   let authHeader: string | null = null;
   let xApiKey: string | null = null;
@@ -153,7 +151,7 @@ test('customFetch defaults authStyle to bearer when omitted', async () => {
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(config, 'models', { method: 'GET' });
+      await customFetchModels(config, { method: 'GET' });
     },
   );
 
@@ -161,7 +159,7 @@ test('customFetch defaults authStyle to bearer when omitted', async () => {
   assertEquals(xApiKey, null);
 });
 
-test('customFetch with authStyle "anthropic" sends x-api-key + anthropic-version', async () => {
+test('authStyle "anthropic" sends x-api-key + anthropic-version', async () => {
   const { config } = assertCustomUpstreamRecord({
     ...baseRecord,
     config: {
@@ -180,7 +178,7 @@ test('customFetch with authStyle "anthropic" sends x-api-key + anthropic-version
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(config, 'messages', { method: 'POST', body: '{}' });
+      await customFetchMessages(config, { method: 'POST', body: '{}' });
     },
   );
 
@@ -189,7 +187,7 @@ test('customFetch with authStyle "anthropic" sends x-api-key + anthropic-version
   assertEquals(anthropicVersion, '2023-06-01');
 });
 
-test('customFetch with authStyle "anthropic" preserves a caller-supplied anthropic-version', async () => {
+test('authStyle "anthropic" preserves a caller-supplied anthropic-version', async () => {
   const { config } = assertCustomUpstreamRecord({
     ...baseRecord,
     config: {
@@ -204,9 +202,8 @@ test('customFetch with authStyle "anthropic" preserves a caller-supplied anthrop
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await customFetch(
+      await customFetchMessages(
         config,
-        'messages',
         { method: 'POST', body: '{}', headers: { 'anthropic-version': '2024-01-01' } },
       );
     },

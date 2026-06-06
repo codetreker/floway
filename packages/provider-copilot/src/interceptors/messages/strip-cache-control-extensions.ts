@@ -1,4 +1,4 @@
-import type { ProviderMessagesInterceptor } from '@floway-dev/provider';
+import type { CopilotMessagesBoundaryInterceptor } from './types.ts';
 
 /**
  * Two `cache_control` sub-fields are beta extensions to the base
@@ -42,7 +42,7 @@ const stripExtensions = (block: Record<string, unknown>): void => {
   else delete block.cache_control;
 };
 
-export const withCacheControlExtensionsStripped: ProviderMessagesInterceptor = async (ctx, _request, run) => {
+export const withCacheControlExtensionsStripped: CopilotMessagesBoundaryInterceptor = async (ctx, _request, run) => {
   if (Array.isArray(ctx.payload.system)) {
     for (const block of ctx.payload.system as unknown as Record<string, unknown>[]) {
       stripExtensions(block);
