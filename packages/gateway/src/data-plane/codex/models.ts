@@ -9,8 +9,9 @@
 // Pipeline: codex publishes a bundled catalog per release (see catalog.ts);
 // we filter that catalog down to the slugs the registry actually advertises
 // (so the codex client never sees a model the gateway can't serve), then
-// apply per-slug overrides (patches.ts) gated on what the registry says
-// about each slug's real context window.
+// rewrite each entry's `context_window` / `max_context_window` from the
+// registry (see context-window.ts) so the codex client sees the same
+// limits the data plane will actually enforce.
 //
 // Latency: codex aborts the catalog fetch after 5 s
 // (`MODELS_REFRESH_TIMEOUT` in codex-rs/model-provider/src/models_endpoint.rs)
@@ -26,7 +27,7 @@ import type { Context } from 'hono';
 
 import { CODEX_AUTO_REVIEW_ALIAS, CODEX_AUTO_REVIEW_TARGET } from './auto-review-alias.ts';
 import { parseCodexVersion, resolveCodexCatalog, type CodexCatalog } from './catalog.ts';
-import { applyCodexOverrides, type ContextWindowResolver } from './patches.ts';
+import { applyContextWindowFromRegistry, type ContextWindowResolver } from './context-window.ts';
 import { apiKeyUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getInternalModels } from '../providers/registry.ts';
@@ -63,8 +64,12 @@ const computeCatalog = async (userAgent: string | undefined, upstreamIds: readon
       return false;
     }),
   };
-  const actualContextWindowOf: ContextWindowResolver = slug => slugContextWindow.get(slug) ?? null;
-  return applyCodexOverrides(filtered, actualContextWindowOf);
+  // codex-auto-review has no upstream of its own and gets rewritten to
+  // CODEX_AUTO_REVIEW_TARGET (gpt-5.4) at request time, so its catalog
+  // entry should advertise the target's actual window — bundled's value
+  // would otherwise leak the OpenAI 1p limits through the alias.
+  const contextWindowOf: ContextWindowResolver = slug => slugContextWindow.get(slug === CODEX_AUTO_REVIEW_ALIAS ? CODEX_AUTO_REVIEW_TARGET : slug) ?? null;
+  return applyContextWindowFromRegistry(filtered, contextWindowOf);
 };
 
 export const codexModels = async (c: Context): Promise<Response> => {

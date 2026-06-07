@@ -176,7 +176,7 @@ describe('codex 1p namespace', () => {
   });
 
   describe('/models', () => {
-    it('advertises gpt-5.5 at 1M when the registry confirms the upstream serves a 1M-context tier', async () => {
+    it('writes both context_window and max_context_window from the registry value, leaving auto_compact null so codex picks 90% itself', async () => {
       const { apiKey } = await setupAppTest();
       const app = buildCodexApp();
       const body = await withMockedFetch(
@@ -193,15 +193,15 @@ describe('codex 1p namespace', () => {
       expect(gpt55).toMatchObject({
         context_window: 1050000,
         max_context_window: 1050000,
-        auto_compact_token_limit: 945000,
+        auto_compact_token_limit: null,
       });
     });
 
-    it('passes through codex bundled values when the registry does not advertise 1M for the slug', async () => {
+    it('downgrades the bundled max_context_window when the registry advertises less than the bundled tier', async () => {
       const { apiKey } = await setupAppTest();
       const app = buildCodexApp();
       const body = await withMockedFetch(
-        copilotFetch([{ id: 'gpt-5.5', maxContextWindowTokens: 272000 }]),
+        copilotFetch([{ id: 'gpt-5.4', maxContextWindowTokens: 272000 }]),
         async () => {
           const response = await app.request('/azure-api.codex/models', {
             headers: { authorization: `Bearer ${apiKey.key}` },
@@ -210,11 +210,13 @@ describe('codex 1p namespace', () => {
           return await response.json() as CodexModelsResponse;
         },
       );
-      // codex's bundled rust-v0.136.0 catalog pins gpt-5.5 at 272k; with no
-      // override applied, that's exactly what reaches the client.
-      const gpt55 = body.models.find(m => m.slug === 'gpt-5.5');
-      expect(gpt55?.context_window).toBe(272000);
-      expect(gpt55?.max_context_window).toBe(272000);
+      // Bundled rust-v0.136.0 catalog has gpt-5.4 at context_window=272000
+      // and max_context_window=1000000. Registry says the gateway can only
+      // serve 272000, so both fields collapse to that — codex must not
+      // believe a 1M ceiling we cannot honour.
+      const gpt54 = body.models.find(m => m.slug === 'gpt-5.4');
+      expect(gpt54?.context_window).toBe(272000);
+      expect(gpt54?.max_context_window).toBe(272000);
     });
 
     it('drops slugs the registry does not advertise; only registry-known catalog entries reach the client', async () => {
@@ -238,7 +240,7 @@ describe('codex 1p namespace', () => {
       expect(slugs).toEqual(['gpt-5.5']);
     });
 
-    it('keeps codex-auto-review when its alias target is in the registry, drops it otherwise', async () => {
+    it('keeps codex-auto-review when its alias target is in the registry, drops it otherwise, and reports the target window', async () => {
       const { apiKey } = await setupAppTest();
       const app = buildCodexApp();
       const body = await withMockedFetch(
@@ -255,6 +257,13 @@ describe('codex 1p namespace', () => {
       expect(slugs.has('gpt-5.4')).toBe(true);
       expect(slugs.has('codex-auto-review')).toBe(true);
       expect(slugs.has('gpt-5.5')).toBe(false);
+      // codex-auto-review has no registry entry of its own, but it gets
+      // rewritten to gpt-5.4 at request time, so its catalog row reports
+      // gpt-5.4's window — not the bundled 1000000 max that would advertise
+      // a tier the gateway cannot serve.
+      const autoReview = body.models.find(m => m.slug === 'codex-auto-review');
+      expect(autoReview?.context_window).toBe(272000);
+      expect(autoReview?.max_context_window).toBe(272000);
     });
 
     it('returns an empty catalog when the registry has no overlapping slugs', async () => {
