@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import type { AzureUpstreamConfig, CopilotUpstreamConfig, CustomUpstreamConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import type { AzureUpstreamConfig, CodexUpstreamConfig, CopilotUpstreamConfig, CustomUpstreamConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
 
 const props = defineProps<{
   upstream: UpstreamRecord;
@@ -20,11 +20,12 @@ defineEmits<{
   delete: [];
 }>();
 
-const providerLabel = (kind: UpstreamProviderKind) => ({ custom: 'Custom', azure: 'Azure', copilot: 'Copilot' }[kind]);
+const providerLabel = (kind: UpstreamProviderKind) => ({ custom: 'Custom', azure: 'Azure', copilot: 'Copilot', codex: 'Codex' }[kind]);
 const providerBadgeClass = (kind: UpstreamProviderKind) => {
   switch (kind) {
   case 'azure': return 'border-accent-emerald/30 bg-accent-emerald/10 text-accent-emerald';
   case 'copilot': return 'border-accent-cyan/30 bg-accent-cyan/10 text-accent-cyan';
+  case 'codex': return 'border-accent-violet/30 bg-accent-violet/10 text-accent-violet';
   case 'custom':
   default: return 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber';
   }
@@ -45,6 +46,11 @@ const subtitle = computed(() => {
     const copilot = cfg as CopilotUpstreamConfig;
     const user = copilot.user;
     return user?.login ? `@${user.login} · ${copilot.accountType || 'copilot'}` : 'GitHub Copilot account';
+  }
+  case 'codex': {
+    const codex = cfg as CodexUpstreamConfig;
+    const account = codex.accounts?.[0];
+    return account ? [account.email, account.planType].filter(Boolean).join(' · ') : 'ChatGPT Codex account';
   }
   }
 });

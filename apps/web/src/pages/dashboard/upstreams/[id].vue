@@ -18,27 +18,31 @@ export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]'
   const id = route.params.id;
   const record = list.find(u => u.id === id) ?? null;
 
-  let copilotModels: UpstreamModelConfig[] = [];
-  let copilotModelsError: string | null = null;
+  let upstreamModels: UpstreamModelConfig[] = [];
+  let upstreamModelsError: string | null = null;
   let copilotQuota: CopilotQuotaSnapshot | null = null;
   let copilotQuotaError: string | null = null;
   let customRawModels: CustomRawModel[] = [];
   let customRawModelsError: string | null = null;
   let customFetchedAt: number | null = null;
 
-  if (record?.provider === 'copilot') {
-    const [modelsRes, quotaRes] = await Promise.all([
-      callApi<{ data: UpstreamModelConfig[] }>(
-        () => api.api.upstreams[':id'].models.$get({ param: { id: record.id } }),
-      ),
-      callApi<CopilotQuotaSnapshot>(
-        () => api.api.upstreams[':id'].copilot.quota.$get({ param: { id: record.id } }),
-      ),
-    ]);
-    if (modelsRes.error) copilotModelsError = modelsRes.error.message;
-    else copilotModels = modelsRes.data?.data ?? [];
-    if (quotaRes.error) copilotQuotaError = quotaRes.error.message;
-    else copilotQuota = quotaRes.data ?? null;
+  // Copilot and Codex both expose an upstream-decided read-only catalog via
+  // /upstreams/:id/models. Copilot additionally surfaces a premium-quota
+  // snapshot we want pre-fetched alongside the catalog.
+  if (record?.provider === 'copilot' || record?.provider === 'codex') {
+    const modelsPromise = callApi<{ data: UpstreamModelConfig[] }>(
+      () => api.api.upstreams[':id'].models.$get({ param: { id: record.id } }),
+    );
+    const quotaPromise = record.provider === 'copilot'
+      ? callApi<CopilotQuotaSnapshot>(() => api.api.upstreams[':id'].copilot.quota.$get({ param: { id: record.id } }))
+      : null;
+    const [modelsRes, quotaRes] = await Promise.all([modelsPromise, quotaPromise ?? Promise.resolve(null)]);
+    if (modelsRes.error) upstreamModelsError = modelsRes.error.message;
+    else upstreamModels = modelsRes.data?.data ?? [];
+    if (quotaRes) {
+      if (quotaRes.error) copilotQuotaError = quotaRes.error.message;
+      else copilotQuota = quotaRes.data ?? null;
+    }
   } else if (record?.provider === 'custom') {
     const cfg = record.config as CustomUpstreamConfig;
     if (cfg.modelsFetch?.enabled) {
@@ -72,8 +76,8 @@ export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]'
     record,
     flags: store.flagCatalog.value ?? [],
     nextSortOrder: list.reduce((acc, u) => Math.max(acc, u.sort_order), -1) + 1,
-    copilotModels,
-    copilotModelsError,
+    upstreamModels,
+    upstreamModelsError,
     copilotQuota,
     copilotQuotaError,
     customRawModels,
@@ -109,8 +113,8 @@ if (data.data.value.record === null) {
     :record="data.data.value.record"
     :next-sort-order="data.data.value.nextSortOrder"
     :flags="data.data.value.flags"
-    :initial-copilot-models="data.data.value.copilotModels"
-    :initial-copilot-models-error="data.data.value.copilotModelsError"
+    :initial-upstream-models="data.data.value.upstreamModels"
+    :initial-upstream-models-error="data.data.value.upstreamModelsError"
     :initial-copilot-quota="data.data.value.copilotQuota"
     :initial-copilot-quota-error="data.data.value.copilotQuotaError"
     :initial-custom-raw-models="data.data.value.customRawModels"

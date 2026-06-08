@@ -22,6 +22,7 @@ const baseRecord: UpstreamRecord = {
       },
     ],
   },
+  state: null,
   flagOverrides: {},
   disabledPublicModelIds: [],
 };

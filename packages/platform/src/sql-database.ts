@@ -1,4 +1,4 @@
-// Minimal SQL database contract used by the proxy's repo layer. Cloudflare's
+// Minimal SQL database contract used by the gateway's repo layer. Cloudflare's
 // D1 satisfies the shape directly. `meta.changes` is the only metadata field
 // the contract requires; runtime-specific fields (D1's duration, rows_read,
 // rows_written) intentionally stay out of the platform surface.

@@ -37,6 +37,7 @@ export default defineConfig({
         emerald: '#00e676',
         amber: '#ffd740',
         rose: '#ff5252',
+        violet: '#a78bfa',
       },
     },
     fontFamily: {

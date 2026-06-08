@@ -141,6 +141,27 @@ The same boundary runs for both `/v1/responses` (streaming) and
   with deterministic rewrites, and synchronizes mismatched stream output
   item IDs
 
+### Responses — Codex provider boundary chain
+
+Codex (ChatGPT subscription) only serves Responses; Messages, Chat
+Completions, and Gemini reach Codex through translation. The same boundary
+runs for both `/v1/responses` and the synthesized `/v1/responses/compact`
+path (Codex has no native compact endpoint; the provider drives `compaction_trigger`
+inline and rebuilds the envelope client-side).
+
+- hoists `role: "system"` items out of `input` into top-level `instructions`
+  (the upstream rejects system messages inside `input`)
+- injects a default `instructions` string when none is supplied (the upstream
+  rejects empty / missing `instructions`)
+- strips fields the upstream rejects with `Unsupported parameter`:
+  `max_output_tokens`, `temperature`, `top_p`, `frequency_penalty`,
+  `presence_penalty`, `user`, `metadata`, `prompt_cache_retention`,
+  `safety_identifier`, `stream_options`
+- injects a stable `session-id` header derived from
+  `(instructions + first user-message text)` so the upstream prompt cache
+  hits across turns of the same conversation (~88% input-token cache hit
+  measured against gpt-5.4)
+
 ### Chat Completions — gateway interceptors
 
 - forces upstream streaming usage when needed for gateway usage telemetry.

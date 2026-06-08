@@ -7,8 +7,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@floway-dev/gateway": "workspace:*",
     "@floway-dev/platform": "workspace:*",
-    "@floway-dev/proxy": "workspace:*",
     "hono": "^4"
   },
   "devDependencies": {

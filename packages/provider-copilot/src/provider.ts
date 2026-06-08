@@ -1,4 +1,3 @@
-import { COMPACTION_TRIGGER, compactionResponse } from './compaction.ts';
 import { assertCopilotUpstreamRecord } from './config.ts';
 import { fetchCopilotModels } from './fetch-models.ts';
 import { copilotFetchChatCompletions, copilotFetchEmbeddings, copilotFetchMessages, copilotFetchMessagesCountTokens, copilotFetchResponses } from './fetch.ts';
@@ -19,7 +18,7 @@ import { parseChatCompletionsStream, type ChatCompletionsPayload, type ChatCompl
 import { type ModelEndpointKey, type ModelEndpoints, type ProtocolFrame, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream, type MessagesPayload, type MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesInputItem, type ResponsesPayload, type ResponsesResult, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { eventResult, inProcessMemo, readModelsStore, readUpstreamError, streamingProviderCall, upstreamErrorToResponse, writeModelsStore, defaultsForProvider, resolveEffectiveFlags, type ExecuteResult, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderCompactionResult, type ProviderStreamResult, type TelemetryModelIdentity, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
+import { COMPACTION_TRIGGER, compactionResponse, eventResult, inProcessMemo, readModelsStore, readUpstreamError, streamingProviderCall, upstreamErrorToResponse, writeModelsStore, defaultsForProvider, resolveEffectiveFlags, type ExecuteResult, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderCompactionResult, type ProviderStreamResult, type TelemetryModelIdentity, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
 
 interface CopilotProviderData {
   rawModels: CopilotRawModel[];
@@ -386,7 +385,7 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Mod
     callEmbeddings: (model, body, signal, headers) => call(copilotFetchEmbeddings, copilotEmbeddingsBody(body), signal, rawModelFor(model, 'embeddings'), headers),
     // Copilot has no /images/... upstream. getProvidedModels never emits a
     // kind='image' model for Copilot bindings, so the source-side dispatcher
-    // in packages/proxy/src/data-plane/images/serve.ts never selects this provider
+    // in packages/gateway/src/data-plane/images/serve.ts never selects this provider
     // for image requests. These stubs satisfy the ModelProvider interface
     // only; they are unreachable in normal operation. The `headers` parameter
     // is present for signature parity with the other call methods even

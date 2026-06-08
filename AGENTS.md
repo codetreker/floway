@@ -27,9 +27,10 @@
 `floway` is an LLM API gateway. It exposes Anthropic Messages, OpenAI
 Responses, OpenAI Chat Completions, Embeddings, OpenAI Images, and Google
 Gemini-compatible APIs over a unified upstream model. Provider kinds are
-`copilot`, `custom`, and `azure`.
+`copilot`, `custom`, `azure`, and `codex` (ChatGPT subscription via the
+Codex CLI's OAuth client).
 
-As a proxy, preserve upstream status, headers, and body as directly as
+As a gateway, preserve upstream status, headers, and body as directly as
 possible; surface internal failures with stack traces rather than masking
 them. Code-level rules about error handling, comments, and style live in the
 global agent instructions and in ESLint config — read those, not a copy
@@ -38,11 +39,11 @@ here.
 Stack: Hono on Web APIs, TypeScript, pnpm, Vitest. The dashboard is a
 Vue + Vite SPA. Cloudflare Workers is the production deployment target;
 Node.js (`node:sqlite` + `sharp` + filesystem) is a parallel deployment
-target with the same Hono app and the same `packages/proxy/migrations` SQL.
+target with the same Hono app and the same `packages/gateway/migrations` SQL.
 The `@floway-dev/platform` package owns the abstract runtime contracts
 (`FileProvider`, `ImageProcessor`, `SqlDatabase`, `BackgroundScheduler`,
 `EnvGetter`); each `apps/platform-*` app supplies the concrete impls and
-its own entry. `packages/proxy` (the gateway core) imports only platform
+its own entry. `packages/gateway` (the gateway core) imports only platform
 contracts and is ESLint-prohibited from reaching into any `apps/platform-*`.
 
 ## Workspace Layout
@@ -50,14 +51,15 @@ contracts and is ESLint-prohibited from reaching into any `apps/platform-*`.
 ```text
 floway/
 ├── packages/
+│   ├── gateway/             # @floway-dev/gateway — Hono app, control/data planes, repo, migrations
 │   ├── interceptor/         # @floway-dev/interceptor — generic interceptor framework
 │   ├── platform/            # @floway-dev/platform — runtime contracts + portable helpers
 │   ├── protocols/           # @floway-dev/protocols — protocol type defs
 │   ├── provider/            # @floway-dev/provider — upstream provider contracts
 │   ├── provider-azure/      # @floway-dev/provider-azure — Azure OpenAI provider
+│   ├── provider-codex/      # @floway-dev/provider-codex — ChatGPT Codex (subscription) provider
 │   ├── provider-copilot/    # @floway-dev/provider-copilot — GitHub Copilot provider
 │   ├── provider-custom/     # @floway-dev/provider-custom — generic OpenAI-compatible
-│   ├── proxy/               # @floway-dev/proxy — Hono app, control/data planes, repo, migrations
 │   ├── translate/           # @floway-dev/translate — cross-protocol translation pairs
 │   └── ui/                  # @floway-dev/ui — internal Vue component library
 └── apps/
@@ -69,13 +71,13 @@ floway/
 Dependency direction is strict. The leaf-most packages are `protocols` and
 `interceptor`. `translate` depends on `protocols`. `provider` depends on
 `platform` + `protocols` + `interceptor`; the per-vendor `provider-*` packages
-depend on `provider`. `proxy` depends on `platform` + `protocols` + `translate`
+depend on `provider`. `gateway` depends on `platform` + `protocols` + `translate`
 + all `provider-*`, and is the runtime-agnostic gateway core. `apps/platform-*`
-depend on `platform` + `proxy` plus their target's runtime libraries
+depend on `platform` + `gateway` plus their target's runtime libraries
 (`@cloudflare/workers-types`; `sharp` + `@hono/node-server`); they are the only
 places runtime-specific symbols (D1, R2, Images, KV, ExecutionContext, sharp,
 node:sqlite, fs) appear. `apps/web` depends on `ui` and type-imports
-`@floway-dev/proxy/app-type` for Hono RPC client typing.
+`@floway-dev/gateway/app-type` for Hono RPC client typing.
 
 ESLint forbids any workspace file from importing `@floway-dev/platform-*`
 by package name, plus a `no-restricted-paths` zone forbidding the
@@ -127,7 +129,7 @@ package, use pnpm filters (e.g.
 `FLOWAY_DB_PATH` (sqlite file path), `FLOWAY_FILES_DIR` (filesystem store
 root), `ADMIN_KEY` (admin secret), and `PORT`. Default ports/paths in
 `apps/platform-node/entry.ts`. The Node entry runs `applyMigrations` against
-`packages/proxy/migrations/*.sql` at boot, then serves the same Hono app
+`packages/gateway/migrations/*.sql` at boot, then serves the same Hono app
 through `@hono/node-server`. Static-asset serving is Workers-only; the Node
 target serves no SPA.
 

@@ -10,12 +10,6 @@ export const newUiId = () => `m${++nextUiId}`;
 export const configOf = (row: Row): UpstreamModelConfig =>
   row.kind === 'manual' ? row.config : row.auto;
 
-export const kindFromEndpoints = (endpoints: ModelEndpoints | undefined): ModelKind => {
-  if (endpoints?.embeddings) return 'embedding';
-  if (endpoints?.imagesGenerations || endpoints?.imagesEdits) return 'image';
-  return 'chat';
-};
-
 const CHAT_ENDPOINT_KEYS: ModelEndpointKey[] = ['chatCompletions', 'responses', 'messages'];
 const IMAGE_ENDPOINT_KEYS: ModelEndpointKey[] = ['imagesGenerations', 'imagesEdits'];
 
@@ -32,11 +26,11 @@ export const defaultEndpointsForKind = (kind: ModelKind, current: ModelEndpoints
 };
 
 export const seedFromAuto = (auto: UpstreamModelConfig): UpstreamModelConfig => {
-  const kind = auto.kind ?? kindFromEndpoints(auto.endpoints);
+  const kind = auto.kind;
   return {
     upstreamModelId: auto.upstreamModelId,
     kind,
-    endpoints: auto.endpoints && Object.keys(auto.endpoints).length > 0
+    endpoints: Object.keys(auto.endpoints).length > 0
       ? { ...auto.endpoints }
       : defaultEndpointsForKind(kind, undefined),
     ...(auto.publicModelId ? { publicModelId: auto.publicModelId } : {}),

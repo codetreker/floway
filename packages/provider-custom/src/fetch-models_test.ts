@@ -19,6 +19,7 @@ const upstreamRecord = () => ({
     bearerToken: 'token',
     endpoints: { chatCompletions: {} },
   },
+  state: null,
 });
 
 test('fetchCustomModels returns the parsed response on 2xx', async () => {

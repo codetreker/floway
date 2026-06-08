@@ -31,12 +31,12 @@ const props = defineProps<{
   initialProvider?: UpstreamProviderKind;
   nextSortOrder: number;
   flags: FlagDef[];
-  // Provider-specific model lists pre-fetched by the route loader so the
-  // editor mounts with its right pane already populated. Empty arrays mean
-  // "nothing to show" (wrong provider, fetch disabled, or fetch failed —
-  // see the matching error fields).
-  initialCopilotModels?: UpstreamModelConfig[];
-  initialCopilotModelsError?: string | null;
+  // Read-only model list pre-fetched by the route loader from
+  // /upstreams/:id/models for providers whose catalog is upstream-decided
+  // (copilot, codex). Empty array means "wrong provider, no record yet, or
+  // the fetch failed" — the matching error field carries the reason.
+  initialUpstreamModels?: UpstreamModelConfig[];
+  initialUpstreamModelsError?: string | null;
   initialCopilotQuota?: CopilotQuotaSnapshot | null;
   initialCopilotQuotaError?: string | null;
   initialCustomRawModels?: CustomRawModel[];
@@ -63,11 +63,11 @@ const disabledPublicModelIds = ref<string[]>([]);
 const customDraft = ref<CustomDraft>(blankCustomDraft());
 const azureDraft = ref<AzureDraft>(blankAzureDraft());
 
-const copilotModels = ref<UpstreamModelConfig[]>(props.initialCopilotModels ?? []);
-const copilotModelsError = ref<string | null>(props.initialCopilotModelsError ?? null);
+const upstreamModels = ref<UpstreamModelConfig[]>(props.initialUpstreamModels ?? []);
+const upstreamModelsError = ref<string | null>(props.initialUpstreamModelsError ?? null);
 
 const defaultName = (p: UpstreamProviderKind) =>
-  p === 'azure' ? 'Azure AI' : p === 'copilot' ? 'GitHub Copilot' : 'Custom upstream';
+  p === 'azure' ? 'Azure AI' : p === 'copilot' ? 'GitHub Copilot' : p === 'codex' ? 'ChatGPT Codex' : 'Custom upstream';
 
 const seedFromRecord = (r: UpstreamRecord) => {
   activeProvider.value = r.provider;
@@ -254,9 +254,10 @@ const save = async () => {
       } else if (activeProvider.value === 'azure') {
         body = { provider: 'azure', ...baseFields(), config: buildAzureConfig() };
       } else {
-        // Copilot upstreams are born from the device flow on the panel — we
-        // never POST here. The Save button is hidden in that mode.
-        saveError.value = 'Copilot upstreams are created through the GitHub device flow.';
+        // Copilot creates flow through the device-flow panel; codex creates
+        // flow through the codex-import panel. Both hide the Save button in
+        // create mode (see showSaveButton) so this branch is unreachable.
+        saveError.value = `${activeProvider.value} upstreams are created through their dedicated panel.`;
         return;
       }
       const { data, error } = await callApi<UpstreamRecord>(() => api.api.upstreams.$post({ json: body }));
@@ -287,9 +288,21 @@ const onCopilotCompleted = async (newRecord: UpstreamRecord | undefined) => {
   if (newRecord) await router.replace(`/dashboard/upstreams/${newRecord.id}`);
 };
 
-// Copilot's catalog is read-only — `ModelsPanel` runs in `read-only` mode
-// for that provider, so the v-model setter is never invoked. The getter
-// just hands back an empty list to keep the type contract honest.
+// Codex import / re-import / refresh-now all run inside CodexConfigPanel and
+// emit the updated record back to the page. Route to that record's id so the
+// loader re-runs and the page mounts with the freshly-rotated state.
+const onCodexImported = async (newRecord: UpstreamRecord) => {
+  emit('saved', newRecord);
+  await router.replace(`/dashboard/upstreams/${newRecord.id}`);
+};
+
+const onCodexError = (message: string) => {
+  saveError.value = message;
+};
+
+// Copilot's and codex's catalogs are read-only — `ModelsPanel` runs in
+// `read-only` mode for both, so the v-model setter is never invoked. The
+// getter just hands back an empty list to keep the type contract honest.
 const modelsManualForActive = computed<UpstreamModelConfig[]>({
   get: () => {
     if (activeProvider.value === 'custom') return customDraft.value.models;
@@ -304,12 +317,16 @@ const modelsManualForActive = computed<UpstreamModelConfig[]>({
 
 const autoForActive = computed<UpstreamModelConfig[]>(() => {
   if (activeProvider.value === 'custom') return customDraft.value.modelsFetch.enabled ? customAutoModels.value : [];
-  if (activeProvider.value === 'copilot') return copilotModels.value;
+  if (activeProvider.value === 'copilot' || activeProvider.value === 'codex') return upstreamModels.value;
   return [];
 });
 
 const upstreamIdLabelForActive = computed(() => activeProvider.value === 'azure' ? 'Deployment' : 'Upstream Model ID');
-const showSaveButton = computed(() => props.mode === 'edit' || activeProvider.value !== 'copilot');
+// Copilot's create flow lands the row from the device-flow panel; codex's
+// create flow lands the row from the codex-import panel. In both cases the
+// page-level Save button is the wrong trigger, so it stays hidden until
+// the panel emits the new record.
+const showSaveButton = computed(() => props.mode === 'edit' || (activeProvider.value !== 'copilot' && activeProvider.value !== 'codex'));
 
 // Public-id catalogue feeding the disabled-models combobox: every model
 // currently surfaced for this provider, deduped by public id. A model's
@@ -331,8 +348,8 @@ const availableModelItems = computed<{ value: string; label: string }[]>(() => {
     if (customDraft.value.modelsFetch.enabled) collect(customAutoModels.value);
   } else if (activeProvider.value === 'azure') {
     collect(azureDraft.value.models);
-  } else if (activeProvider.value === 'copilot') {
-    collect(copilotModels.value);
+  } else if (activeProvider.value === 'copilot' || activeProvider.value === 'codex') {
+    collect(upstreamModels.value);
   }
   return items;
 });
@@ -386,7 +403,7 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
     </header>
 
     <p v-if="saveError" class="mb-4 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">{{ saveError }}</p>
-    <p v-if="copilotModelsError" class="mb-4 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">Failed to fetch Copilot model list: {{ copilotModelsError }}</p>
+    <p v-if="upstreamModelsError" class="mb-4 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">Failed to fetch upstream model list: {{ upstreamModelsError }}</p>
 
     <!-- Two-column workbench. Default grid stretch makes both columns reach
          the same y at the row's bottom. The aside's max-h is the larger of
@@ -420,6 +437,8 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         @update:provider="setActiveProvider"
         @fetch-models="fetchModels"
         @copilot-completed="onCopilotCompleted"
+        @codex-imported="onCodexImported"
+        @codex-error="onCodexError"
       />
       <ModelsPanel
         ref="modelsPanelRef"
@@ -430,7 +449,7 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :upstream-flag-overrides="flagOverrides"
         :flag-provider-kind="activeProvider"
         :upstream-id-label="upstreamIdLabelForActive"
-        :read-only="activeProvider === 'copilot'"
+        :read-only="activeProvider === 'copilot' || activeProvider === 'codex'"
         :all-manual="activeProvider === 'azure'"
       />
     </div>

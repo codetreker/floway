@@ -17,6 +17,7 @@ const baseRecord: UpstreamRecord = {
     bearerToken: 'sk-test',
     endpoints: { chatCompletions: {} },
   },
+  state: null,
   flagOverrides: {},
   disabledPublicModelIds: [],
 };

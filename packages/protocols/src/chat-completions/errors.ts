@@ -1,7 +1,7 @@
 type JsonObject = Record<string, unknown>;
 
 // Inlined permissive object-like guard. Self-contained so this protocols
-// package has no runtime dependency on the proxy package's shared helpers.
+// package has no runtime dependency on the gateway package's shared helpers.
 const isObjectLike = (value: unknown): value is JsonObject => typeof value === 'object' && value !== null;
 
 export const chatCompletionsErrorPayloadMessage = (value: unknown): string | null => {

@@ -136,7 +136,7 @@ const commonConfig: Linter.Config = {
     'import/internal-regex': '^@floway-dev/',
     'import/resolver': {
       typescript: {
-        project: ['./apps/platform-cloudflare/tsconfig.json', './apps/platform-node/tsconfig.json', './apps/web/tsconfig.json', './packages/interceptor/tsconfig.json', './packages/platform/tsconfig.json', './packages/protocols/tsconfig.json', './packages/provider/tsconfig.json', './packages/provider-azure/tsconfig.json', './packages/provider-copilot/tsconfig.json', './packages/provider-custom/tsconfig.json', './packages/proxy/tsconfig.json', './packages/test-utils/tsconfig.json', './packages/translate/tsconfig.json', './packages/ui/tsconfig.json'],
+        project: ['./apps/platform-cloudflare/tsconfig.json', './apps/platform-node/tsconfig.json', './apps/web/tsconfig.json', './packages/gateway/tsconfig.json', './packages/interceptor/tsconfig.json', './packages/platform/tsconfig.json', './packages/protocols/tsconfig.json', './packages/provider/tsconfig.json', './packages/provider-azure/tsconfig.json', './packages/provider-codex/tsconfig.json', './packages/provider-copilot/tsconfig.json', './packages/provider-custom/tsconfig.json', './packages/test-utils/tsconfig.json', './packages/translate/tsconfig.json', './packages/ui/tsconfig.json'],
         noWarnOnMultipleProjects: true,
       },
     },
@@ -147,7 +147,7 @@ const parserOptions: Linter.ParserOptions = {
   parser: tsParser,
   ecmaVersion: 'latest',
   sourceType: 'module',
-  project: ['./apps/platform-cloudflare/tsconfig.json', './apps/platform-node/tsconfig.json', './apps/web/tsconfig.json', './packages/interceptor/tsconfig.json', './packages/platform/tsconfig.json', './packages/protocols/tsconfig.json', './packages/provider/tsconfig.json', './packages/provider-azure/tsconfig.json', './packages/provider-copilot/tsconfig.json', './packages/provider-custom/tsconfig.json', './packages/proxy/tsconfig.json', './packages/test-utils/tsconfig.json', './packages/translate/tsconfig.json', './packages/ui/tsconfig.json'],
+  project: ['./apps/platform-cloudflare/tsconfig.json', './apps/platform-node/tsconfig.json', './apps/web/tsconfig.json', './packages/gateway/tsconfig.json', './packages/interceptor/tsconfig.json', './packages/platform/tsconfig.json', './packages/protocols/tsconfig.json', './packages/provider/tsconfig.json', './packages/provider-azure/tsconfig.json', './packages/provider-codex/tsconfig.json', './packages/provider-copilot/tsconfig.json', './packages/provider-custom/tsconfig.json', './packages/test-utils/tsconfig.json', './packages/translate/tsconfig.json', './packages/ui/tsconfig.json'],
   noWarnOnMultipleProjects: true,
 };
 

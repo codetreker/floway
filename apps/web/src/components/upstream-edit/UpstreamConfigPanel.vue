@@ -4,6 +4,7 @@ import { Input, Switch, TagCombobox } from '@floway-dev/ui';
 import type { CopilotQuotaSnapshot, FlagDef, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
 
 import AzureConfigPanel from './AzureConfigPanel.vue';
+import CodexConfigPanel from './CodexConfigPanel.vue';
 import CopilotConfigPanel from './CopilotConfigPanel.vue';
 import CustomConfigPanel from './CustomConfigPanel.vue';
 import type { AzureDraft, CustomDraft } from './customConfig.ts';
@@ -40,12 +41,15 @@ defineProps<{
 defineEmits<{
   'fetch-models': [];
   'copilot-completed': [upstream: UpstreamRecord | undefined];
+  'codex-imported': [upstream: UpstreamRecord];
+  'codex-error': [message: string];
 }>();
 
 const providerBadgeClass = (kind: UpstreamProviderKind) => {
   switch (kind) {
   case 'azure': return 'border-accent-emerald/30 bg-accent-emerald/10 text-accent-emerald';
   case 'copilot': return 'border-accent-cyan/30 bg-accent-cyan/10 text-accent-cyan';
+  case 'codex': return 'border-accent-violet/30 bg-accent-violet/10 text-accent-violet';
   case 'custom':
   default: return 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber';
   }
@@ -72,7 +76,7 @@ const providerBadgeClass = (kind: UpstreamProviderKind) => {
         <ProviderPicker v-model="activeProvider" />
       </section>
 
-      <section v-if="!(mode === 'create' && activeProvider === 'copilot')" class="shrink-0">
+      <section v-if="!(mode === 'create' && (activeProvider === 'copilot' || activeProvider === 'codex'))" class="shrink-0">
         <label class="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
         <Input v-model="name" placeholder="e.g. OpenAI Production" />
       </section>
@@ -103,6 +107,15 @@ const providerBadgeClass = (kind: UpstreamProviderKind) => {
           :initial-quota="initialCopilotQuota"
           :initial-quota-error="initialCopilotQuotaError"
           @completed="u => $emit('copilot-completed', u)"
+        />
+      </section>
+
+      <section v-else-if="activeProvider === 'codex'" class="shrink-0">
+        <CodexConfigPanel
+          :mode="mode"
+          :record="record"
+          @imported="u => $emit('codex-imported', u)"
+          @error="m => $emit('codex-error', m)"
         />
       </section>
 

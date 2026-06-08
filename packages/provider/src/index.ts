@@ -51,7 +51,7 @@ export type {
 } from './provider.ts';
 export { streamingProviderCall, type ProviderStreamParser } from './streaming.ts';
 
-export type { CacheRepo, ProviderRepo } from './repo.ts';
+export type { CacheRepo, ProviderRepo, UpstreamsRepoSlim } from './repo.ts';
 export { getProviderRepo, initProviderRepo } from './repo.ts';
 
 export {
@@ -104,3 +104,5 @@ export {
   compressImageDataUrlToWebp,
   isBase64ImageDataUrl,
 } from './image-helpers.ts';
+
+export { COMPACTION_TRIGGER, compactionResponse } from './compaction.ts';

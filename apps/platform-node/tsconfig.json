@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["entry.ts", "vitest.config.ts", "src/**/*.ts"]
+  "include": ["entry.ts", "dev-proxy-loader.ts", "vitest.config.ts", "src/**/*.ts"]
 }

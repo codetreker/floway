@@ -23,30 +23,6 @@ const stopPolling = () => {
   polling.value = false;
 };
 
-const start = async () => {
-  flow.value = null;
-  error.value = null;
-  stopPolling();
-  starting.value = true;
-  const { data, error: err } = await callApi<DeviceFlowStart>(
-    () => api.api.upstreams.copilot.auth.start.$post(),
-  );
-  starting.value = false;
-  if (err) {
-    error.value = err.message;
-    return;
-  }
-  if (!data) return;
-  flow.value = data;
-  scheduleNextPoll(data.interval);
-};
-
-const scheduleNextPoll = (intervalSec: number) => {
-  stopPolling();
-  polling.value = true;
-  pollTimer = window.setInterval(() => { void pollOnce(intervalSec); }, intervalSec * 1000);
-};
-
 const pollOnce = async (currentInterval: number) => {
   if (!flow.value) return;
   const { data, error: err } = await callApi<DeviceFlowPoll>(
@@ -67,6 +43,30 @@ const pollOnce = async (currentInterval: number) => {
     error.value = data.error ?? 'Authorization failed';
     stopPolling();
   }
+};
+
+const scheduleNextPoll = (intervalSec: number) => {
+  stopPolling();
+  polling.value = true;
+  pollTimer = window.setInterval(() => { void pollOnce(intervalSec); }, intervalSec * 1000);
+};
+
+const start = async () => {
+  flow.value = null;
+  error.value = null;
+  stopPolling();
+  starting.value = true;
+  const { data, error: err } = await callApi<DeviceFlowStart>(
+    () => api.api.upstreams.copilot.auth.start.$post(),
+  );
+  starting.value = false;
+  if (err) {
+    error.value = err.message;
+    return;
+  }
+  if (!data) return;
+  flow.value = data;
+  scheduleNextPoll(data.interval);
 };
 
 onUnmounted(stopPolling);

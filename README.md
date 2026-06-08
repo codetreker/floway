@@ -2,8 +2,9 @@
 
 Floway is an LLM API gateway that fronts multiple model upstreams behind one
 set of standard APIs. Point a coding agent at Floway and it can use a
-GitHub Copilot account, a custom OpenAI- or Anthropic-compatible provider,
-or an Azure deployment through whichever API shape the agent already speaks.
+GitHub Copilot account, a ChatGPT subscription via Codex CLI, a custom
+OpenAI- or Anthropic-compatible provider, or an Azure deployment through
+whichever API shape the agent already speaks.
 Cloudflare Workers is the production deployment target; a Node.js deployment
 target ships in the same repo for self-hosting on a long-lived process.
 
@@ -28,6 +29,7 @@ speaks a different shape.
 
 Prereqs: Node.js 22.5+ (for `node:sqlite` if you want the Node target),
 pnpm 10.x, and at least one upstream credential — Copilot subscription,
+ChatGPT Plus / Pro / Team subscription (via Codex CLI auth), an
 OpenAI-compatible bearer token, or Azure endpoint plus API key.
 
 ### Cloudflare Workers (production)
@@ -76,8 +78,10 @@ Open the deployed URL (or `http://localhost:8788` for Node), log in with
 
 1. **Settings -> Upstreams -> Add Upstream**. Upstreams are *Custom*
    (OpenAI/Anthropic-shaped, static credential), *Azure* (one endpoint, API key,
-   deployment list), or *Copilot* (GitHub device OAuth). List order is routing
-   order; earlier providers win for a shared public model id.
+   deployment list), *Copilot* (GitHub device OAuth), or *Codex* (ChatGPT
+   subscription via the Codex CLI's OAuth client; paste `~/.codex/auth.json`
+   or run the OAuth flow from the dashboard). List order is routing order;
+   earlier providers win for a shared public model id.
 2. **API Keys -> New Key**. Give the generated key to your client.
 3. Copy the Claude Code or Codex CLI snippet from the API Keys panel into the
    agent config.
@@ -129,11 +133,11 @@ The repo is a pnpm workspace.
 - `packages/protocols` and `packages/translate` are pure libraries for
   protocol type defs and cross-protocol translation.
 - `packages/interceptor` is the generic interceptor framework.
-- `packages/provider` plus per-vendor `packages/provider-{azure,copilot,custom}`
+- `packages/provider` plus per-vendor `packages/provider-{azure,codex,copilot,custom}`
   hold the upstream-side adapters.
 - `packages/platform` exposes the runtime contracts (`FileProvider`,
   `ImageProcessor`, `SqlDatabase`, etc.) and a few portable helpers.
-- `packages/proxy` is the runtime-agnostic gateway core: Hono app, all
+- `packages/gateway` is the runtime-agnostic gateway core: Hono app, all
   control- and data-plane routes, the Repo interface and impls, middleware,
   and the migrations SQL.
 - `apps/platform-cloudflare` ships the Cloudflare implementations

@@ -7,7 +7,7 @@ import {
   initRepo,
   runScheduledMaintenance,
   SqlRepo,
-} from '@floway-dev/proxy';
+} from '@floway-dev/gateway';
 
 initBackgroundSchedulerResolver(c => promise => c.executionCtx.waitUntil(promise));
 

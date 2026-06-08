@@ -9,7 +9,7 @@ import type { FlagDef, ModelKind, ModelPricing, UpstreamModelConfig, UpstreamPro
 
 import EndpointsField from './EndpointsField.vue';
 import FlagOverridesEditor from './FlagOverridesEditor.vue';
-import { configOf, defaultEndpointsForKind, kindFromEndpoints, publicIdOf, titleFor, type Row } from './modelRows.ts';
+import { configOf, defaultEndpointsForKind, publicIdOf, titleFor, type Row } from './modelRows.ts';
 
 const props = defineProps<{
   row: Row | null;
@@ -56,7 +56,7 @@ const PRICING_BY_KIND: Record<ModelKind, (keyof ModelPricing)[]> = {
 
 const config = computed<UpstreamModelConfig | null>(() => props.row ? configOf(props.row) : null);
 const editable = computed(() => props.row?.kind === 'manual');
-const rowKind = computed<ModelKind>(() => config.value ? (config.value.kind ?? kindFromEndpoints(config.value.endpoints)) : 'chat');
+const rowKind = computed<ModelKind>(() => config.value?.kind ?? 'chat');
 
 const patch = (next: Partial<UpstreamModelConfig>) => {
   if (!editable.value) return;

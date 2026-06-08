@@ -83,6 +83,7 @@ const providerTone = (provider: UpstreamProviderKind | null): 'amber' | 'emerald
   if (provider === 'custom') return 'amber';
   if (provider === 'azure') return 'emerald';
   if (provider === 'copilot') return 'cyan';
+  if (provider === 'codex') return 'cyan';
   return 'zinc';
 };
 
@@ -90,6 +91,7 @@ const providerLabel = (provider: UpstreamProviderKind | null) => {
   if (provider === 'custom') return 'Custom';
   if (provider === 'azure') return 'Azure';
   if (provider === 'copilot') return 'Copilot';
+  if (provider === 'codex') return 'Codex';
   return 'Unknown';
 };
 </script>

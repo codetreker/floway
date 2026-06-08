@@ -18,6 +18,7 @@ const workerFirstRoutes = [
   '/embeddings',
   '/images/*',
   '/models',
+  '/azure-api.codex/*',
   '/favicon.ico',
 ];
 

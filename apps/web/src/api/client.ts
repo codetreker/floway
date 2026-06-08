@@ -1,7 +1,7 @@
 import { hc } from 'hono/client';
 
 import { useAuthStore } from '../stores/auth.ts';
-import type { AppType } from '@floway-dev/proxy/app-type';
+import type { AppType } from '@floway-dev/gateway/app-type';
 
 // Inject the live x-api-key on every outbound request and short-circuit the
 // store on 401 so the router guard can redirect to /login.
@@ -14,8 +14,8 @@ const authFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   return response;
 };
 
-// The Hono RPC proxy. Every control-plane route declares its request shape via
-// zValidator in packages/proxy/src/control-plane/routes.ts, so the proxy types both
+// The Hono RPC client. Every control-plane route declares its request shape via
+// zValidator in packages/gateway/src/control-plane/routes.ts, so the client types both
 // the path/method and the JSON body / query for the SPA — no extra wrapper
 // needed for mutations.
 const client = hc<AppType>('/', { fetch: authFetch });
@@ -31,7 +31,7 @@ export interface GlobalError {
 }
 
 // Unwrap a Hono RPC response into a Marina-shaped `{ data?, error? }`. The
-// generic is supplied by the caller because the Hono RPC proxy types
+// generic is supplied by the caller because the Hono RPC client types
 // `.json()` per-handler but we lose that narrowing when wrapping in a helper.
 export const callApi = async <T>(
   fn: () => Promise<Response>,

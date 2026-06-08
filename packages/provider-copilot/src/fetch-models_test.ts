@@ -7,7 +7,13 @@ import { assertEquals, jsonResponse, memoryCacheRepo, withMockedFetch } from '@f
 
 const installRepoAndConfig = async () => {
   const cache = memoryCacheRepo();
-  initProviderRepo(() => ({ cache }));
+  initProviderRepo(() => ({
+    cache,
+    upstreams: {
+      getById: async () => null,
+      saveState: async () => ({ updated: false }),
+    },
+  }));
   await clearCopilotTokenCache();
   return { githubToken: `ghu_${crypto.randomUUID().replace(/-/g, '')}`, accountType: 'individual' as const };
 };

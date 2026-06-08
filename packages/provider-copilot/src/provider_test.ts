@@ -18,6 +18,7 @@ const buildCopilotUpstream = (overrides: Partial<UpstreamRecord> = {}): Upstream
     sortOrder: 0,
     createdAt: '2026-03-15T00:00:00.000Z',
     updatedAt: '2026-03-15T00:00:00.000Z',
+    state: null,
     flagOverrides: {},
     disabledPublicModelIds: [],
     ...rest,
@@ -31,7 +32,13 @@ const buildCopilotUpstream = (overrides: Partial<UpstreamRecord> = {}): Upstream
 
 const setupCopilotTest = async (): Promise<{ copilotUpstream: UpstreamRecord }> => {
   const cache = memoryCacheRepo();
-  initProviderRepo(() => ({ cache }));
+  initProviderRepo(() => ({
+    cache,
+    upstreams: {
+      getById: async () => null,
+      saveState: async () => ({ updated: false }),
+    },
+  }));
   initImageProcessor(createInMemoryImageProcessor());
   await clearCopilotTokenCache();
   clearModelsStore();

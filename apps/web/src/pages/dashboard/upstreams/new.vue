@@ -30,16 +30,17 @@ const store = useUpstreamsStore();
 
 const initialProvider: UpstreamProviderKind = (() => {
   const q = route.query.provider;
-  if (q === 'azure' || q === 'copilot' || q === 'custom') return q;
+  if (q === 'azure' || q === 'copilot' || q === 'codex' || q === 'custom') return q;
   return 'custom';
 })();
 
 const onSaved = async () => {
   // Refetch the list so the settings page sees the new upstream when the
-  // editor navigates back. The Copilot device-flow path is the one
-  // exception that ends on the new upstream's edit page (see
-  // UpstreamEditPage.onCopilotCompleted), so the just-authorised account
-  // can be configured straight away without a round-trip through settings.
+  // editor navigates back. The Copilot device-flow and Codex import paths
+  // both end on the new upstream's edit page (see
+  // UpstreamEditPage.onCopilotCompleted / onCodexImported), so the
+  // just-authorised account can be configured straight away without a
+  // round-trip through settings.
   await store.load();
 };
 </script>

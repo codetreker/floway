@@ -2,7 +2,7 @@ import type { ModelKind, ModelEndpoints, ModelPricing } from '@floway-dev/protoc
 
 // A provider's data instance — one row in the upstreams table. Pure data; the
 // per-kind provider package validates `config` against its own schema.
-export type UpstreamProviderKind = 'copilot' | 'custom' | 'azure';
+export type UpstreamProviderKind = 'copilot' | 'custom' | 'azure' | 'codex';
 
 export interface UpstreamRecord {
   id: string;
@@ -13,6 +13,13 @@ export interface UpstreamRecord {
   createdAt: string;
   updatedAt: string;
   config: unknown;
+  // Gateway-managed runtime state, persisted in upstreams.state_json. Null for
+  // providers that have no autonomous persistent state; populated by the
+  // per-kind provider package's state type when present (e.g. Codex's rotated
+  // refresh-token + health). Operator HTTP edits never write this column;
+  // only the gateway's autonomous flows do, via UpstreamRepo.saveState with
+  // optimistic concurrency.
+  state: unknown;
   flagOverrides: Record<string, boolean>;
   // Public model ids the operator switched off for this upstream. Orthogonal to
   // every per-model metadata field and uniform across provider kinds: a disabled
@@ -22,7 +29,7 @@ export interface UpstreamRecord {
 }
 
 // API names the telemetry pipeline records dimensions against. Used by
-// PerformanceTelemetryContext below; the api-side recorder narrows further
+// PerformanceTelemetryContext below; the proxy-side recorder narrows further
 // per source/target lane.
 export type PerformanceApiName = 'messages' | 'responses' | 'chat-completions' | 'gemini' | 'embeddings' | 'images_generations' | 'images_edits';
 
@@ -35,7 +42,7 @@ export interface TelemetryModelIdentity {
   cost: ModelPricing | null;
 }
 
-// Context that the api-side recorder reads when writing latency/error metrics.
+// Context that the proxy-side recorder reads when writing latency/error metrics.
 // Provider-layer code only constructs and forwards it; never reads fields.
 export interface PerformanceTelemetryContext {
   keyId: string;

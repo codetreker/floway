@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "strict": true,

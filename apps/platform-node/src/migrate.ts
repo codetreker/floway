@@ -4,13 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 import type { SqlDatabase } from '@floway-dev/platform';
 
-// Resolve packages/proxy/migrations/ relative to this file's location in the
+// Resolve packages/gateway/migrations/ relative to this file's location in the
 // workspace. The Node deployment target runs under tsx against the source
 // tree, so the workspace layout is the source of truth — we walk three
 // directories up from apps/platform-node/src/ to the workspace root, then
-// down into packages/proxy/migrations/.
+// down into packages/gateway/migrations/.
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_MIGRATIONS_DIR = join(HERE, '..', '..', '..', 'packages', 'proxy', 'migrations');
+const DEFAULT_MIGRATIONS_DIR = join(HERE, '..', '..', '..', 'packages', 'gateway', 'migrations');
 
 // Applies every pending migration, recording each one's name in a
 // `_migrations` table so reruns are no-ops. Each file's full contents go

@@ -1,9 +1,9 @@
 // Control-plane DTOs the SPA consumes. These mirror the serialized shapes that
-// the proxy emits from the unified /api endpoints — keeping them here (rather
+// the gateway emits from the unified /api endpoints — keeping them here (rather
 // than re-using internal repo types) prevents the bundler from pulling Worker
 // runtime code into the browser bundle.
 
-export type UpstreamProviderKind = 'custom' | 'azure' | 'copilot';
+export type UpstreamProviderKind = 'custom' | 'azure' | 'copilot' | 'codex';
 
 export type ModelKind = 'chat' | 'embedding' | 'image';
 
@@ -83,6 +83,49 @@ export interface CopilotUpstreamConfig {
   githubTokenSet?: boolean;
 }
 
+// Account-pool identities derived from the id_token at codex import. v1
+// always carries exactly one account; the array shape lets a future fan-out
+// land without a wire-format change. refresh_token lives in state and is
+// exposed only as a `refresh_token_set` boolean per account (see
+// CodexUpstreamState below).
+export interface CodexAccountIdentity {
+  email: string;
+  chatgptAccountId: string;
+  chatgptUserId: string;
+  planType: string;
+}
+
+export interface CodexUpstreamConfig {
+  accounts: CodexAccountIdentity[];
+}
+
+export interface CodexAccountCredentialState {
+  chatgptAccountId: string;
+  state: 'active' | 'session_terminated' | 'refresh_failed';
+  state_message?: string;
+  state_updated_at: string;
+  refresh_token_set: boolean;
+}
+
+export interface CodexUpstreamState {
+  accounts: CodexAccountCredentialState[];
+}
+
+export interface CodexQuotaSnapshot {
+  observed_at: string;
+  active_limit?: string;
+  plan_type?: string;
+  primary_used_percent?: number;
+  primary_window_minutes?: number;
+  primary_reset_after_at?: string;
+  secondary_used_percent?: number;
+  secondary_window_minutes?: number;
+  secondary_reset_after_at?: string;
+  credits_has_credits?: boolean;
+  credits_balance?: number;
+  ratelimited_until?: string;
+}
+
 export interface UpstreamRecord {
   id: string;
   provider: UpstreamProviderKind;
@@ -96,7 +139,13 @@ export interface UpstreamRecord {
   // unroutable, but their per-model metadata stays editable. May include ids no
   // longer present in the live model list.
   disabled_public_model_ids: string[];
-  config: CustomUpstreamConfig | AzureUpstreamConfig | CopilotUpstreamConfig;
+  config: CustomUpstreamConfig | AzureUpstreamConfig | CopilotUpstreamConfig | CodexUpstreamConfig;
+  // Codex is the only provider that ships gateway-managed state on the row
+  // today; the other providers serialize this as null.
+  state: CodexUpstreamState | null;
+  // Present only for provider === 'codex'; serialized inline so the dashboard
+  // renders the quota panel without a follow-up fetch.
+  codex_quota?: CodexQuotaSnapshot | null;
 }
 
 export interface FlagDef {

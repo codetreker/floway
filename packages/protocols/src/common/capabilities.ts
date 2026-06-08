@@ -1,7 +1,7 @@
 // Protocol-level model capability types, plus the kind-derivation that is
 // intrinsic to them. Runtime computation that consumes these (registry
 // projection, request routing, image-endpoint dispatch) lives in
-// packages/proxy/src/data-plane/.
+// packages/gateway/src/data-plane/.
 
 import type { ModelKind } from './models.ts';
 

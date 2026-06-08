@@ -4,15 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.19"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "start": "tsx entry.ts"
   },
   "dependencies": {
+    "@floway-dev/gateway": "workspace:*",
     "@floway-dev/platform": "workspace:*",
-    "@floway-dev/proxy": "workspace:*",
     "@hono/node-server": "^2.0.4",
     "hono": "^4",
     "sharp": "^0.33.5"
@@ -20,6 +20,7 @@
   "devDependencies": {
     "@floway-dev/test-utils": "workspace:*",
     "@types/node": "^22",
-    "tsx": "^4"
+    "tsx": "^4",
+    "undici": "^8.3.0"
   }
 }

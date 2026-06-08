@@ -9,7 +9,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import type { FlagDef, UpstreamModelConfig, UpstreamProviderKind } from '../../api/types.ts';
 import ModelEditor from './ModelEditor.vue';
 import ModelsGrid from './ModelsGrid.vue';
-import { kindFromEndpoints, newUiId, type Row, seedFromAuto } from './modelRows.ts';
+import { newUiId, type Row, seedFromAuto } from './modelRows.ts';
 
 const manualModels = defineModel<UpstreamModelConfig[]>({ required: true });
 const disabledIds = defineModel<string[]>('disabledIds', { required: true });
@@ -20,9 +20,9 @@ const props = withDefaults(defineProps<{
   upstreamFlagOverrides: Record<string, boolean>;
   flagProviderKind: UpstreamProviderKind;
   upstreamIdLabel: string;
-  // Fully read-only (Copilot): no add, no mode switch, no editing.
+  // Fully read-only: no add, no mode switch, no editing.
   readOnly?: boolean;
-  // All rows are persisted (Azure deployments): no auto rows, no mode pills.
+  // All rows are persisted: no auto rows, no mode pills.
   allManual?: boolean;
 }>(), {
   autoModels: () => [],
@@ -42,11 +42,8 @@ const lockedUpstreamId = reactive(new Set<string>());
 // external prop churn (e.g. a re-fetch) does not reorder or collapse rows.
 const reconcile = () => {
   const manual = manualModels.value;
-  // Normalize kind on every manual entry that omits it so the form, the JSON
-  // view, and the next save all carry an explicit kind.
-  for (const c of manual) if (!c.kind) c.kind = kindFromEndpoints(c.endpoints);
   const manualIds = new Set(manual.map(m => m.upstreamModelId));
-  const auto = (props.autoModels ?? []).filter(a => !manualIds.has(a.upstreamModelId));
+  const auto = props.autoModels.filter(a => !manualIds.has(a.upstreamModelId));
 
   const prev = rows.value;
   const next: Row[] = [];
@@ -141,7 +138,7 @@ const setMode = (uiId: string, mode: 'auto' | 'manual') => {
     // Drop the manual override and restore its auto twin in place, reusing
     // the same uiId so the row keeps its position.
     lockedUpstreamId.delete(uiId);
-    const twin = (props.autoModels ?? []).find(a => a.upstreamModelId === row.config.upstreamModelId);
+    const twin = props.autoModels.find(a => a.upstreamModelId === row.config.upstreamModelId);
     if (twin) rows.value.splice(index, 1, { uiId, kind: 'auto', auto: twin });
     else rows.value.splice(index, 1);
     emitManual();
@@ -158,7 +155,7 @@ const patchConfig = (patch: Partial<UpstreamModelConfig>) => {
   emitManual();
 };
 
-const autoIds = computed(() => new Set((props.autoModels ?? []).map(a => a.upstreamModelId)));
+const autoIds = computed(() => new Set(props.autoModels.map(a => a.upstreamModelId)));
 
 const hasAutoCounterpart = (row: Row) => {
   if (props.allManual) return false;

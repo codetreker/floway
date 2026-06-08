@@ -1,8 +1,7 @@
 import type { ModelEndpoints, UpstreamModelConfig } from '../../api/types.ts';
 
-export type PathKey = 'chat_completions' | 'responses' | 'messages' | 'embeddings' | 'images_generations' | 'images_edits';
-
-export const PATH_KEYS: PathKey[] = ['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits'];
+export const PATH_KEYS = ['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits'] as const;
+export type PathKey = typeof PATH_KEYS[number];
 
 export const emptyPathOverrides = (): Record<PathKey, string> => ({
   chat_completions: '',

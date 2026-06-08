@@ -38,7 +38,7 @@
       "binding": "DB",
       "database_name": "copilot-db",
       "database_id": "0f5eeb05-be0b-49b2-814a-3712767da571",
-      "migrations_dir": "packages/proxy/migrations"
+      "migrations_dir": "packages/gateway/migrations"
     }
   ],
   "r2_buckets": [
@@ -66,7 +66,7 @@
           "binding": "DB",
           "database_name": "copilot-db-staging",
           "database_id": "fd6eef68-ddee-402d-adbf-3b525418fa64",
-          "migrations_dir": "packages/proxy/migrations"
+          "migrations_dir": "packages/gateway/migrations"
         }
       ]
     }
