@@ -1,9 +1,13 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { computed, ref, useTemplateRef } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
-import type { ApiKey } from '../../api/types.ts';
+import type { ApiKey, ControlPlaneModel } from '../../api/types.ts';
+import ChatPanel from '../../components/models/ChatPanel.vue';
+import ModelInfoBar from '../../components/models/ModelInfoBar.vue';
 import { useModelsStore } from '../../composables/useModels.ts';
+import { Input, OverlayScrollbars } from '@floway-dev/ui';
 
 export const useModelsPageData = defineBasicLoader(async () => {
   const api = useApi();
@@ -16,13 +20,6 @@ export const useModelsPageData = defineBasicLoader(async () => {
 </script>
 
 <script setup lang="ts">
-import { Input, OverlayScrollbars } from '@floway-dev/ui';
-import { computed, ref, useTemplateRef } from 'vue';
-
-import type { ControlPlaneModel } from '../../api/types.ts';
-import ChatPanel from '../../components/models/ChatPanel.vue';
-import ModelInfoBar from '../../components/models/ModelInfoBar.vue';
-
 const initialData = useModelsPageData();
 const { models, error: modelsError } = useModelsStore();
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { OverlayScrollbars, Switch } from '@floway-dev/ui';
 import dayjs from 'dayjs';
 
 import type { WireUser } from './types.ts';
+import { OverlayScrollbars, Switch } from '@floway-dev/ui';
 
 const props = defineProps<{
   users: WireUser[];

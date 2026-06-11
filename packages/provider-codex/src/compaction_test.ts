@@ -50,7 +50,7 @@ describe('callCodexResponsesCompact', () => {
     const result = await callCodexResponsesCompact({
       upstreamId: 'up', account: activeAccount, model,
       body: { input: [{ type: 'message', role: 'user', content: 'hello' }] },
-      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, opts: noopUpstreamCallOptions,
+      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -83,7 +83,7 @@ describe('callCodexResponsesCompact', () => {
     await expect(callCodexResponsesCompact({
       upstreamId: 'up', account: activeAccount, model,
       body: { input: [{ type: 'message', role: 'user', content: 'hi' }] },
-      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, opts: noopUpstreamCallOptions,
+      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, call: noopUpstreamCallOptions,
     })).rejects.toThrow(/compaction/);
   });
 
@@ -95,7 +95,7 @@ describe('callCodexResponsesCompact', () => {
     const result = await callCodexResponsesCompact({
       upstreamId: 'up', account: activeAccount, model,
       body: { input: [{ type: 'message', role: 'user', content: 'hi' }] },
-      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, opts: noopUpstreamCallOptions,
+      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(500);

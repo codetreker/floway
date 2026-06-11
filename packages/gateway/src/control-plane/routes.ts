@@ -6,7 +6,8 @@ import { copilotQuota } from './copilot-quota/routes.ts';
 import { exportData, importData } from './data-transfer/routes.ts';
 import { controlPlaneModels } from './models/routes.ts';
 import { performanceOverview, performanceTelemetry } from './performance/routes.ts';
-import { authLoginBody, changeOwnPasswordBody, codexImportBody, codexPkceStartBody, codexRefreshNowBody, codexReimportBody, copilotAuthPollBody, createKeyBody, createUpstreamBody, createUserBody, exportQuery, fetchModelsBody, importBody, performanceQuery, searchConfigSchema, searchUsageQuery, tokenUsageQuery, updateKeyBody, updateUpstreamBody, updateUserBody } from './schemas.ts';
+import { createProxy, deleteProxy, listAllBackoffs, listProxies, listProxyBackoffs, resetProxyBackoffs, testProxy, updateProxy } from './proxies/routes.ts';
+import { authLoginBody, changeOwnPasswordBody, codexImportBody, codexPkceStartBody, codexRefreshNowBody, codexReimportBody, copilotAuthPollBody, createKeyBody, createProxyBody, createUpstreamBody, createUserBody, exportQuery, fetchModelsBody, importBody, performanceQuery, resetBackoffBody, searchConfigSchema, searchUsageQuery, testProxyBody, tokenUsageQuery, updateKeyBody, updateProxyBody, updateUpstreamBody, updateUserBody } from './schemas.ts';
 import { getSearchConfigRoute, putSearchConfigRoute, testSearchConfigRoute } from './search-config/routes.ts';
 import { searchUsage } from './search-usage/routes.ts';
 import { tokenUsage } from './token-usage/routes.ts';
@@ -21,22 +22,17 @@ const adminOnlyMiddleware = async (c: Context, next: Next) => {
   await next();
 };
 
-// Chained route registration is required for Hono RPC to flow the per-path
-// types into `typeof controlPlaneRoutes`, which apps/web consumes as the
-// AppType generic parameter of `hc<AppType>()` to get path/method autocomplete
-// and request/response inference. Each route that takes a body or query string
-// declares its shape via zValidator(target, schema); the schemas live in
-// ./schemas.ts and double as the RPC client's input contract.
+// Chained route registration is required so Hono flows per-path types into
+// the exported `controlPlaneRoutes` type; RPC clients consume it for path/
+// method autocomplete and request/response inference.
 export const controlPlaneRoutes = new Hono()
   .get('/api/health', c => c.json({ status: 'ok', service: 'floway' }))
-  // Fallback 204 until a static favicon is committed and shadows this route.
+  // Quiet 204 to suppress 404 noise from favicon probes; the path is
+  // already in PUBLIC_PATHS so auth lets it through.
   .get('/favicon.ico', () => new Response(null, { status: 204 }))
   .post('/auth/login', zValidator('json', authLoginBody), authLogin)
   .post('/auth/logout', authLogout)
   .get('/auth/me', authMe)
-  // Defensive admin guard: any future /auth/* path not registered above
-  // returns 403 instead of leaking through as a control-plane endpoint.
-  .route('/auth', new Hono().use('*', adminOnlyMiddleware))
   .get('/api/keys', listKeys)
   .post('/api/keys', zValidator('json', createKeyBody), createKey)
   .post('/api/keys/:id/rotate', rotateKey)
@@ -77,6 +73,16 @@ export const controlPlaneRoutes = new Hono()
     .get('/upstreams/:id/models', listUpstreamModels)
     .patch('/upstreams/:id', zValidator('json', updateUpstreamBody), updateUpstream)
     .delete('/upstreams/:id', deleteUpstream)
+    // Proxies. Literal `/proxies/backoffs` is registered before any `/:id`
+    // route so Hono matches the literal segment first.
+    .get('/proxies', listProxies)
+    .get('/proxies/backoffs', listAllBackoffs)
+    .post('/proxies', zValidator('json', createProxyBody), createProxy)
+    .post('/proxies/test', zValidator('json', testProxyBody), testProxy)
+    .post('/proxies/:id/backoffs/reset', zValidator('json', resetBackoffBody), resetProxyBackoffs)
+    .get('/proxies/:id/backoffs', listProxyBackoffs)
+    .patch('/proxies/:id', zValidator('json', updateProxyBody), updateProxy)
+    .delete('/proxies/:id', deleteProxy)
     .get('/search-config', getSearchConfigRoute)
     .put('/search-config', zValidator('json', searchConfigSchema), putSearchConfigRoute)
     .post('/search-config/test', zValidator('json', searchConfigSchema), testSearchConfigRoute)

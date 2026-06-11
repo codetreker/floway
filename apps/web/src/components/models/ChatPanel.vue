@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Input, OverlayScrollbars, Textarea, type OverlayScrollbarsInitializedEvent } from '@floway-dev/ui';
 import { nextTick, ref, watch } from 'vue';
+
+import { Input, OverlayScrollbars, Textarea, type OverlayScrollbarsInitializedEvent } from '@floway-dev/ui';
 
 interface Message {
   role: 'user' | 'assistant';

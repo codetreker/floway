@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Input } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
+
+import { Input } from '@floway-dev/ui';
 
 defineOptions({ inheritAttrs: false });
 

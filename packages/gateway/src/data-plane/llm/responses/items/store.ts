@@ -1,5 +1,11 @@
 import { createStoredResponsesItemId, hashResponsesItemContent, hashResponsesItemEncryptedContent, isStoredResponsesItemId, responsesItemEncryptedContent, responsesItemId } from './format.ts';
 import { getRepo } from '../../../../repo/index.ts';
+import {
+  cloneStoredResponsesItem,
+  cloneStoredResponsesSnapshot,
+  compareResponsesItemsByFreshness as compareItemsByFreshness,
+  responsesItemStoreKey as scopedKey,
+} from '../../../../repo/responses-clone.ts';
 import type { Repo, StoredResponsesItem, StoredResponsesSnapshot } from '../../../../repo/types.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
 import type { ResponsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
@@ -620,18 +626,3 @@ const pushByHash = (target: Map<string, StoredResponsesItem[]>, hash: string, ro
 
 const isReplayableSnapshotRow = (row: StoredResponsesItem): boolean =>
   row.payload !== null || (row.upstreamId !== null && row.upstreamItemId !== null);
-
-const cloneStoredResponsesItem = (item: StoredResponsesItem): StoredResponsesItem => ({
-  ...item,
-  payload: item.payload === null ? null : structuredClone(item.payload),
-});
-
-const cloneStoredResponsesSnapshot = (snapshot: StoredResponsesSnapshot): StoredResponsesSnapshot => ({
-  ...snapshot,
-  itemIds: [...snapshot.itemIds],
-});
-
-const scopedKey = (apiKeyId: string | null, id: string): string => `${apiKeyId ?? ''}\0${id}`;
-
-const compareItemsByFreshness = (a: StoredResponsesItem, b: StoredResponsesItem): number =>
-  b.refreshedAt - a.refreshedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id);

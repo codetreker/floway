@@ -11,7 +11,7 @@ import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-comp
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 // `enumerateProviderCandidates` is the only seam between serve and the
@@ -118,6 +118,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 
@@ -450,6 +451,8 @@ test('generate falls through translate-out to messages target', async () => {
       supportsResponsesItemReference: true,
     },
     targetApi: 'messages',
+
+    fetcher: directFetcher,
   };
   queueCandidates([candidate]);
 
@@ -508,6 +511,8 @@ test('generate falls through translate-out to chat-completions target', async ()
       supportsResponsesItemReference: true,
     },
     targetApi: 'chat-completions',
+
+    fetcher: directFetcher,
   };
   queueCandidates([candidate]);
 

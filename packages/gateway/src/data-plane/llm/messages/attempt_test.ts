@@ -10,7 +10,7 @@ import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-comp
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderCallResult, ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderCallResult, type ProviderStreamResult } from '@floway-dev/provider';
 import { assertEquals, assertExists, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_messages_attempt_test';
@@ -93,6 +93,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

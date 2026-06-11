@@ -8,7 +8,7 @@ import type { GatewayCtx } from '../shared/gateway-ctx.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderCallResult, ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderCallResult, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 // Mock the candidates seam so each test hands the serve exactly the
@@ -148,6 +148,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

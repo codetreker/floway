@@ -41,7 +41,7 @@ import type {
   ResponsesStreamEvent,
   ResponsesWebSearchAction,
 } from '@floway-dev/protocols/responses';
-import type { EventResult, ExecuteResult } from '@floway-dev/provider';
+import { directFetcher, type EventResult, type ExecuteResult } from '@floway-dev/provider';
 import { assert, assertEquals, assertFalse } from '@floway-dev/test-utils';
 
 const withResponsesWebSearchShim = withResponsesServerToolShim([webSearchServerTool]);
@@ -323,6 +323,7 @@ const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocatio
     binding: {
       enabledFlags: overrides.enabledFlags ?? new Set<string>(),
     } as never,
+    fetcher: directFetcher,
   },
   store: makeStore(),
   payload: {

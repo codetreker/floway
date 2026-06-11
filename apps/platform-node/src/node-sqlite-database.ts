@@ -6,10 +6,8 @@ import type { SqlDatabase, SqlPreparedStatement, SqlResult } from '@floway-dev/p
 
 // node:sqlite's prepared statement is synchronous and returns plain rows.
 // We adapt it to the platform's async, enveloped contract. bind() returns a
-// fresh statement object so repeated bind calls on the same prepared statement
-// each produce an independent bound view — matching D1's immutable bind shape
-// (mutating self would cause two awaited binds on the same statement to
-// share state under load).
+// fresh statement object so two awaited binds on the same prepared statement
+// never share state.
 class NodeSqlitePreparedStatement implements SqlPreparedStatement {
   constructor(
     private readonly stmt: StatementSync,
@@ -35,7 +33,7 @@ class NodeSqlitePreparedStatement implements SqlPreparedStatement {
     return Promise.resolve({
       results: [],
       success: true,
-      meta: { changes: Number(result.changes ?? 0) },
+      meta: { changes: Number(result.changes) },
     });
   }
 }
@@ -47,9 +45,8 @@ class NodeSqliteDatabase implements SqlDatabase {
     return new NodeSqlitePreparedStatement(this.db.prepare(query));
   }
 
-  // batch() runs the supplied statements inside one transaction so the
-  // multi-statement repo writes are atomic on this backend, matching D1's
-  // batch semantics.
+  // Wraps the supplied statements in a single transaction so the batch is
+  // atomic.
   async batch(statements: SqlPreparedStatement[]): Promise<SqlResult[]> {
     const results: SqlResult[] = [];
     this.db.exec('BEGIN');
@@ -57,7 +54,14 @@ class NodeSqliteDatabase implements SqlDatabase {
       for (const stmt of statements) results.push(await stmt.run());
       this.db.exec('COMMIT');
     } catch (e) {
-      this.db.exec('ROLLBACK');
+      // SQLite auto-rolls-back on a hard error class (SQLITE_FULL,
+      // SQLITE_IOERR, SQLITE_BUSY, SQLITE_NOMEM, SQLITE_INTERRUPT — see
+      // https://www.sqlite.org/lang_transaction.html "Response To Errors
+      // Within A Transaction"); the explicit ROLLBACK then throws
+      // "cannot rollback - no transaction is active" and would replace
+      // the original failure on the way out. Swallow that recovery throw
+      // so `throw e` always wins and the operator sees the real cause.
+      try { this.db.exec('ROLLBACK'); } catch { /* txn already auto-rolled-back */ }
       throw e;
     }
     return results;
@@ -75,9 +79,8 @@ export const createNodeSqliteDatabase = (path: string): SqlDatabase => {
   // component owns its own root.
   mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  // Match the schema's relational expectations; node:sqlite leaves foreign
-  // key enforcement off by default while D1 keeps it on, so without this the
-  // two backends drift.
+  // node:sqlite leaves foreign keys off by default; the schema relies on FK
+  // enforcement, so turn it on at open.
   db.exec('PRAGMA foreign_keys = ON');
   return new NodeSqliteDatabase(db);
 };

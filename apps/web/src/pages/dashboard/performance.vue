@@ -1,9 +1,15 @@
 <script lang="ts">
+import { useIntervalFn } from '@vueuse/core';
+import type { TooltipItem } from 'chart.js';
+import type { ChartConfiguration } from 'chart.js/auto';
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { computed, ref, watch, watchEffect } from 'vue';
 
-import { callApi as callApiForLoader, useApi as useApiForLoader } from '../../api/client.ts';
-import { dashboardRangeQuery as dashboardRangeQueryForLoader } from '../../components/charts/dashboard-chart.ts';
-import { useAuthStore as useAuthStoreForLoader } from '../../stores/auth.ts';
+import { callApi, useApi } from '../../api/client.ts';
+import ChartCanvas from '../../components/charts/ChartCanvas.vue';
+import { chartColor, chartFont, chartXAxisTick, dashboardBuckets, dashboardRangeQuery, type DashboardRange } from '../../components/charts/dashboard-chart.ts';
+import { useAuthStore } from '../../stores/auth.ts';
+import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
 
 type PerformanceView = 'all-by-user' | 'self-by-key';
 
@@ -27,11 +33,11 @@ interface PerformanceOverviewResponse {
 }
 
 export const usePerformancePageData = defineBasicLoader(async () => {
-  const api = useApiForLoader();
-  const auth = useAuthStoreForLoader();
+  const api = useApi();
+  const auth = useAuthStore();
   const view: PerformanceView = auth.canViewGlobalTelemetry ? 'all-by-user' : 'self-by-key';
-  const { start, end, bucket } = dashboardRangeQueryForLoader('today');
-  const overviewRes = await callApiForLoader<PerformanceOverviewResponse>(() => api.api.performance.overview.$get({
+  const { start, end, bucket } = dashboardRangeQuery('today');
+  const overviewRes = await callApi<PerformanceOverviewResponse>(() => api.api.performance.overview.$get({
     query: { start, end, bucket, metric_scope: 'request_total', timezone_offset_minutes: String(new Date().getTimezoneOffset()), view },
   }));
   return {
@@ -43,18 +49,6 @@ export const usePerformancePageData = defineBasicLoader(async () => {
 </script>
 
 <script setup lang="ts">
-import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
-import { useIntervalFn } from '@vueuse/core';
-import type { TooltipItem } from 'chart.js';
-import type { ChartConfiguration } from 'chart.js/auto';
-import { computed, ref, watch, watchEffect } from 'vue';
-
-import { callApi, useApi } from '../../api/client.ts';
-import { chartColor, chartFont, chartXAxisTick, dashboardBuckets, dashboardRangeQuery, type DashboardRange } from '../../components/charts/dashboard-chart.ts';
-import ChartCanvas from '../../components/charts/ChartCanvas.vue';
-import { useAuthStore } from '../../stores/auth.ts';
-
-type Range = DashboardRange;
 type Scope = 'request_total' | 'upstream_success';
 type ChartView = 'model' | 'percentile';
 type PercentileKey = 'p50Ms' | 'p95Ms' | 'p99Ms';
@@ -63,8 +57,8 @@ const api = useApi();
 const auth = useAuthStore();
 const initialOverview = usePerformancePageData();
 
-const performanceRange = ref<Range>('today');
-const loadedPerformanceRange = ref<Range>('today');
+const performanceRange = ref<DashboardRange>('today');
+const loadedPerformanceRange = ref<DashboardRange>('today');
 const performanceMetricScope = ref<Scope>('request_total');
 const performanceChartView = ref<ChartView>('model');
 const performancePercentile = ref<PercentileKey>('p95Ms');
@@ -95,7 +89,7 @@ const load = async () => {
 };
 
 watch([performanceRange, performanceMetricScope, performanceView], load);
-useIntervalFn(load, 60_000);
+useIntervalFn(() => { void load(); }, 60_000);
 
 const performancePercentileLabel = computed(() => performancePercentile.value.replace('Ms', ''));
 
@@ -126,16 +120,33 @@ const chartConfig = computed<ChartConfiguration<'line'>>(() => {
 
   const datasets = performanceChartView.value === 'model'
     ? (() => {
-      const groups = new Map<string, Map<string, number | null>>();
-      for (const r of overview.value.series) {
-        const inner = groups.get(r.group) ?? new Map<string, number | null>();
-        inner.set(r.bucket, r[performancePercentile.value]);
-        groups.set(r.group, inner);
-      }
-      return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([group, byBucket], i) => {
+        const groups = new Map<string, Map<string, number | null>>();
+        for (const r of overview.value.series) {
+          const inner = groups.get(r.group) ?? new Map<string, number | null>();
+          inner.set(r.bucket, r[performancePercentile.value]);
+          groups.set(r.group, inner);
+        }
+        return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([group, byBucket], i) => {
+          const color = chartColor(i);
+          return {
+            label: group,
+            data: bucketKeys.map(k => byBucket.get(k) ?? null),
+            borderColor: color,
+            backgroundColor: `${color}25`,
+            borderWidth: 2,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.25,
+            fill: false,
+            spanGaps: true,
+          };
+        });
+      })()
+    : (['p50Ms', 'p95Ms', 'p99Ms'] as PercentileKey[]).map((p, i) => {
+        const byBucket = new Map(overview.value.series.filter(r => r.group === performanceModel.value).map(r => [r.bucket, r[p]]));
         const color = chartColor(i);
         return {
-          label: group,
+          label: p.replace('Ms', ''),
           data: bucketKeys.map(k => byBucket.get(k) ?? null),
           borderColor: color,
           backgroundColor: `${color}25`,
@@ -147,23 +158,6 @@ const chartConfig = computed<ChartConfiguration<'line'>>(() => {
           spanGaps: true,
         };
       });
-    })()
-    : (['p50Ms', 'p95Ms', 'p99Ms'] as PercentileKey[]).map((p, i) => {
-      const byBucket = new Map(overview.value.series.filter(r => r.group === performanceModel.value).map(r => [r.bucket, r[p]]));
-      const color = chartColor(i);
-      return {
-        label: p.replace('Ms', ''),
-        data: bucketKeys.map(k => byBucket.get(k) ?? null),
-        borderColor: color,
-        backgroundColor: `${color}25`,
-        borderWidth: 2,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        tension: 0.25,
-        fill: false,
-        spanGaps: true,
-      };
-    });
 
   const yTitle = performanceChartView.value === 'percentile'
     ? `${performanceModel.value || 'all models'} latency`

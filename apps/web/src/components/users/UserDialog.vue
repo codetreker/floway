@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { Button, Dialog, Input, Spinner, Switch } from '@floway-dev/ui';
 import { computed, ref, watch } from 'vue';
 
+import type { WireUser } from './types.ts';
 import { callApi, useApi } from '../../api/client.ts';
 import type { UpstreamOption } from '../../composables/useUpstreamOptions.ts';
 import SecretInput from '../shared/SecretInput.vue';
 import UpstreamPicker, { type UpstreamPickerValue } from '../upstreams/UpstreamPicker.vue';
-import type { WireUser } from './types.ts';
+import { Button, Dialog, Input, Spinner, Switch } from '@floway-dev/ui';
 
 const open = defineModel<boolean>('open');
 

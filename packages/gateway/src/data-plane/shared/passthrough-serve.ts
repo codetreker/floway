@@ -1,17 +1,16 @@
-// Shared serve scaffold for non-LLM data-plane endpoints (embeddings, image
-// generations, image edits). These bypass the LLM source/target executor
-// because they have no protocol translation — the request body is forwarded
-// to the chosen provider's matching endpoint and the JSON response is
-// passed through back to the client. The shape is:
+// Shared serve scaffold for non-LLM passthrough data-plane endpoints. These
+// bypass the LLM source/target executor because they have no protocol
+// translation — the request body is forwarded to the chosen provider's
+// matching endpoint and the JSON response is passed through back to the
+// client. The shape is:
 //
 //   resolve model -> iterate provider bindings -> first matching binding
 //     -> provider call -> passthrough response -> fire-and-forget usage + perf
 //
 // Usage extraction is provided by the caller because each endpoint family
-// reports usage differently (OpenAI embeddings use `prompt_tokens`, images
-// use `input_tokens`/`output_tokens`). Usage and request-performance writes
-// are scheduled through the runtime's background scheduler so transient
-// repo failures cannot turn a successful 200 from upstream into a 502.
+// reports usage differently. Usage and request-performance writes are
+// scheduled through the runtime's background scheduler so transient repo
+// failures cannot turn a successful 200 from upstream into a 502.
 
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -20,6 +19,7 @@ import type { NonLlmServeApiName } from './api-names.ts';
 import type { PerformanceTelemetryContext } from './telemetry/performance.ts';
 import { createUpstreamLatencyRecorder, recordPerformanceError, recordPerformanceLatency, recordRequestPerformance, runtimeLocationFromRequest } from './telemetry/performance.ts';
 import { recordTokenUsage } from './telemetry/usage.ts';
+import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import type { TokenUsage } from '../../repo/types.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
@@ -28,16 +28,11 @@ import type { BackgroundScheduler } from '@floway-dev/platform';
 import { httpResponseToResponse, ProviderModelsUnavailableError, toInternalDebugError } from '@floway-dev/provider';
 import type { ProviderCallResult, ProviderModelRecord, UpstreamCallOptions } from '@floway-dev/provider';
 
-// Headers we forward verbatim from a successful upstream JSON response.
-// The set is intentionally narrow and matches the passthrough contract that
-// OpenAI clients (and the OpenAI Node SDK retry policy) expect to see:
-//   - x-request-id              upstream-assigned request correlation id
-//   - openai-*                  organization, model, processing-ms, version, etc.
-//   - x-ratelimit-*             RPM/TPM quota signals
-//   - retry-after               rate-limit / overload back-off hint
-//   - cf-ray                    Cloudflare edge ray id (useful in support tickets)
-// Plus content-type, which is set with an application/json fallback if the
-// upstream omitted it.
+// Headers we forward verbatim from a successful upstream JSON response, plus
+// content-type with an application/json fallback when the upstream omitted
+// it. The set is intentionally narrow and matches the passthrough contract
+// OpenAI clients (and the OpenAI Node SDK retry policy) expect to see —
+// correlation, organisation/model metadata, quota signals, retry-after.
 const FORWARDED_RESPONSE_HEADER_PREFIXES = ['openai-', 'x-ratelimit-'] as const;
 const FORWARDED_RESPONSE_HEADERS = new Set(['x-request-id', 'retry-after', 'cf-ray']);
 
@@ -53,10 +48,6 @@ const forwardedResponseHeaders = (resp: Response): Headers => {
   return headers;
 };
 
-// Forward an upstream response to the client: stream the body unchanged and
-// preserve the status, with the header allow-list applied (see
-// FORWARDED_RESPONSE_HEADER_PREFIXES / FORWARDED_RESPONSE_HEADERS). Content-
-// type falls back to application/json only when the upstream omitted it.
 const forwardUpstreamResponse = (resp: Response): Response =>
   new Response(resp.body, {
     status: resp.status,
@@ -95,21 +86,6 @@ const safeJsonClone = async (resp: Response, sourceApi: NonLlmServeApiName): Pro
   }
 };
 
-const performanceContextFor = (
-  apiKeyId: string,
-  modelId: string,
-  binding: ProviderModelRecord,
-  modelKey: string,
-  runtimeLocation: string,
-): PerformanceTelemetryContext => ({
-  keyId: apiKeyId,
-  model: modelId,
-  upstream: binding.upstream,
-  modelKey,
-  stream: false,
-  runtimeLocation,
-});
-
 export interface PassthroughServeContext {
   readonly c: Context;
   readonly sourceApi: NonLlmServeApiName;
@@ -117,14 +93,11 @@ export interface PassthroughServeContext {
   // resolves it against the provider registry; if no upstream serves the
   // id, the client sees a 404 with the standard wording.
   readonly model: string;
-  // Selects which provider binding can serve this endpoint family. For
-  // embeddings this is `kind === 'embedding'`; for images it gates on the
-  // specific `endpoints` entry.
   readonly bindingServesEndpoint: (binding: ProviderModelRecord) => boolean;
   // Performs the upstream HTTP call for the chosen binding. Any throw here
   // is preserved and becomes a 502 with the internal-debug envelope —
   // exceptions thrown from the actual fetch must not be silently swallowed.
-  // `opts` carries the per-call hooks the gateway threads in (today: the
+  // `opts` carries the per-call hooks the gateway threads in (the
   // recordUpstreamLatency wrapper for the upstream_success metric); the
   // callback forwards it verbatim to the chosen provider call method.
   readonly call: (binding: ProviderModelRecord, opts: UpstreamCallOptions) => Promise<ProviderCallResult>;
@@ -135,8 +108,6 @@ export interface PassthroughServeContext {
   readonly extractUsage: (usage: unknown) => TokenUsage | null;
   // Returned as the 400 body when no provider binding matched. Phrased
   // per-endpoint so the error tells the client which capability is missing.
-  // The helper interpolates the resolved model id by calling
-  // `noBindingMessage(modelId)`.
   readonly noBindingMessage: (modelId: string) => string;
 }
 
@@ -149,7 +120,8 @@ export const passthroughServe = async (ctx: PassthroughServeContext): Promise<Re
   let lastPerformance: PerformanceTelemetryContext | undefined;
 
   try {
-    const { id: modelId, model: resolved } = await resolveModelForRequest(model, effectiveUpstreamIdsFromContext(c));
+    const fetcherForUpstream = await createPerRequestFetcher();
+    const { id: modelId, model: resolved } = await resolveModelForRequest(model, effectiveUpstreamIdsFromContext(c), fetcherForUpstream);
     if (!resolved) {
       return passthroughApiError(c, `Model ${modelId} is not available on any configured upstream.`, 404);
     }
@@ -158,9 +130,16 @@ export const passthroughServe = async (ctx: PassthroughServeContext): Promise<Re
       if (!bindingServesEndpoint(binding)) continue;
 
       const recorder = createUpstreamLatencyRecorder();
-      const { response, modelKey } = await call(binding, { recordUpstreamLatency: recorder.record });
+      const { response, modelKey } = await call(binding, { fetcher: fetcherForUpstream(binding.upstream), recordUpstreamLatency: recorder.record });
       const upstreamDurationMs = recorder.durationMs();
-      const performanceContext = performanceContextFor(apiKeyId, modelId, binding, modelKey, runtimeLocation);
+      const performanceContext: PerformanceTelemetryContext = {
+        keyId: apiKeyId,
+        model: modelId,
+        upstream: binding.upstream,
+        modelKey,
+        stream: false,
+        runtimeLocation,
+      };
       lastPerformance = performanceContext;
 
       if (!response.ok) {
@@ -203,8 +182,6 @@ export const passthroughServe = async (ctx: PassthroughServeContext): Promise<Re
   }
 };
 
-// Body-parse failures are source-specific (JSON for embeddings/generations,
-// multipart for edits), so callers need a way to return a uniformly shaped
-// 400 without depending on internal helpers.
+// Uniform error envelope for this endpoint family.
 export const passthroughApiError = (c: Context, message: string, status: ContentfulStatusCode): Response =>
   c.json({ error: { message, type: 'api_error' } }, status);

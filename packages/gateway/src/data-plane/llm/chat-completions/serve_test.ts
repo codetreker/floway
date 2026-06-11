@@ -9,7 +9,7 @@ import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 // Mock the candidates seam so each test hands the serve exactly the
@@ -130,6 +130,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

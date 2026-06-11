@@ -4,7 +4,7 @@ import { codexAccessTokenKey } from './access-token-cache.ts';
 import { callCodexResponses, type CodexCallEffects } from './fetch.ts';
 import { codexQuotaKey } from './quota.ts';
 import type { CodexAccountCredential } from './state.ts';
-import type { CacheRepo, UpstreamModel } from '@floway-dev/provider';
+import type { CacheRepo, Fetcher, UpstreamModel } from '@floway-dev/provider';
 import { noopUpstreamCallOptions } from '@floway-dev/test-utils';
 
 const makeMemoryCache = (): CacheRepo & { _store: Map<string, string> } => {
@@ -59,7 +59,7 @@ describe('callCodexResponses — gates', () => {
     const cache = makeMemoryCache();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: { ...activeAccount, state: 'session_terminated' },
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -77,7 +77,7 @@ describe('callCodexResponses — gates', () => {
     vi.useFakeTimers().setSystemTime(new Date('2026-06-05T00:30:00.000Z'));
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -96,7 +96,7 @@ describe('callCodexResponses — token freshness', () => {
     const effects = makeEffects();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects, opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -113,7 +113,7 @@ describe('callCodexResponses — token freshness', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
     await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: noopUpstreamCallOptions,
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers).get('authorization')).toBe('Bearer at_kv');
@@ -125,7 +125,7 @@ describe('callCodexResponses — token freshness', () => {
     const effects = makeEffects();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects, opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     expect(effects.persistTerminalState).toHaveBeenCalledWith('refresh_failed', expect.stringMatching(/gone/));
@@ -140,7 +140,7 @@ describe('callCodexResponses — upstream classification', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(true);
     const stored = cache._store.get(codexQuotaKey('up_a'));
@@ -156,7 +156,7 @@ describe('callCodexResponses — upstream classification', () => {
     await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
       model, body: { input: [], stream: false as unknown as true, store: true } as unknown as Parameters<typeof callCodexResponses>[0]['body'],
-      headers: {}, cache, effects: makeEffects(), opts: noopUpstreamCallOptions,
+      headers: {}, cache, effects: makeEffects(), call: noopUpstreamCallOptions,
     });
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     expect(body.model).toBe('gpt-5.4');
@@ -172,7 +172,7 @@ describe('callCodexResponses — upstream classification', () => {
     const effects = makeEffects();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects, opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(503);
@@ -190,7 +190,7 @@ describe('callCodexResponses — upstream classification', () => {
     const effects = makeEffects();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects, opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(401);
@@ -207,7 +207,7 @@ describe('callCodexResponses — upstream classification', () => {
     }));
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(429);
@@ -223,7 +223,7 @@ describe('callCodexResponses — upstream classification', () => {
     const effects = makeEffects();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects, opts: noopUpstreamCallOptions,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(503);
@@ -235,17 +235,25 @@ describe('callCodexResponses — upstream classification', () => {
 // Mints an enforcing recorder mirroring `createUpstreamLatencyRecorder` from
 // the gateway side: counts wraps and refuses to surrender a duration when
 // `record` was never invoked. Gives provider-level tests a way to assert the
-// contract without depending on the gateway package.
+// contract without depending on the gateway package. The `fetcher` honours
+// the third-arg recorder so the data-plane POSTs (which thread the recorder
+// through the fetcher rather than wrapping outside) still count.
 const enforcingRecorder = () => {
   const wrappedPromises: unknown[] = [];
   let last: number | undefined;
+  const record = <T>(promise: Promise<T>): Promise<T> => {
+    wrappedPromises.push(promise);
+    const startedAt = performance.now();
+    return promise.finally(() => { last = performance.now() - startedAt; });
+  };
+  const fetcher: Fetcher = (url, init, recordUpstreamLatency) => {
+    const inner = fetch(url, init);
+    return recordUpstreamLatency ? recordUpstreamLatency(inner) : inner;
+  };
   return {
     options: {
-      recordUpstreamLatency: <T>(promise: Promise<T>): Promise<T> => {
-        wrappedPromises.push(promise);
-        const startedAt = performance.now();
-        return promise.finally(() => { last = performance.now() - startedAt; });
-      },
+      fetcher,
+      recordUpstreamLatency: record,
     },
     invocations: () => wrappedPromises.length,
     durationMs: (): number => {
@@ -261,7 +269,7 @@ describe('callCodexResponses — recorder contract', () => {
     const recorder = enforcingRecorder();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: { ...activeAccount, state: 'session_terminated' },
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: recorder.options,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: recorder.options,
     });
     expect(result.ok).toBe(false);
     expect(recorder.invocations()).toBe(1);
@@ -279,7 +287,7 @@ describe('callCodexResponses — recorder contract', () => {
     const recorder = enforcingRecorder();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: recorder.options,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: recorder.options,
     });
     expect(result.ok).toBe(false);
     expect(recorder.invocations()).toBe(1);
@@ -292,7 +300,7 @@ describe('callCodexResponses — recorder contract', () => {
     const recorder = enforcingRecorder();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: recorder.options,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: recorder.options,
     });
     expect(result.ok).toBe(false);
     expect(recorder.invocations()).toBe(1);
@@ -310,7 +318,7 @@ describe('callCodexResponses — recorder contract', () => {
     const recorder = enforcingRecorder();
     const result = await callCodexResponses({
       upstreamId: 'up_a', account: activeAccount,
-      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), opts: recorder.options,
+      model, body: { input: [], stream: true }, headers: {}, cache, effects: makeEffects(), call: recorder.options,
     });
     expect(result.ok).toBe(true);
     // Both upstream fetches go through `recordUpstreamLatency`; the OAuth

@@ -186,6 +186,7 @@ test('/v1/images/edits forwards a multipart request through an Azure model and r
     updatedAt: '2026-05-25T00:00:00Z',
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'azkey',

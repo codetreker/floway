@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Button, Dialog, Input, Spinner } from '@floway-dev/ui';
 import { computed, ref, watch } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
@@ -7,6 +6,7 @@ import type { ApiKey } from '../../api/types.ts';
 import type { UpstreamOption } from '../../composables/useUpstreamOptions.ts';
 import { useAuthStore } from '../../stores/auth.ts';
 import UpstreamPicker, { type UpstreamPickerValue } from '../upstreams/UpstreamPicker.vue';
+import { Button, Dialog, Input, Spinner } from '@floway-dev/ui';
 
 const open = defineModel<boolean>('open');
 

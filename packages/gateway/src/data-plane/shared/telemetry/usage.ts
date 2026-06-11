@@ -1,11 +1,8 @@
+import { currentHour } from './hour.ts';
 import { getRepo } from '../../../repo/index.ts';
 import type { TokenUsage } from '../../../repo/types.ts';
-import type { BillingDimension } from '@floway-dev/protocols/common';
+import { BILLING_DIMENSIONS, type BillingDimension } from '@floway-dev/protocols/common';
 import type { TelemetryModelIdentity } from '@floway-dev/provider';
-
-const currentHour = (): string => new Date().toISOString().slice(0, 13);
-
-const BILLING_DIMENSIONS: readonly BillingDimension[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
 
 export const hasTokenUsage = (usage: TokenUsage): boolean => BILLING_DIMENSIONS.some(dimension => (usage[dimension] ?? 0) > 0);
 
@@ -36,8 +33,7 @@ export const tokenUsageFromPromptTokenResponse = (usage: unknown): TokenUsage | 
 // When a details object is missing but its total is present, the whole total is
 // charged on the bare dimension rather than inventing a split. A present field
 // that is a non-number is treated as a malformed upstream payload (return
-// null) rather than silently coerced — matching the anti-fallback rule in
-// AGENTS.md.
+// null) rather than silently coerced.
 export const tokenUsageFromImagesResponse = (usage: unknown): TokenUsage | null => {
   if (!usage || typeof usage !== 'object') return null;
   const { input_tokens: inputTotal, output_tokens: outputTotal, input_tokens_details: inputDetails, output_tokens_details: outputDetails } = usage as ImagesUsageShape;

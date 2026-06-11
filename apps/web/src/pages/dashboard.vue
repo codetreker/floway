@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { OverlayScrollbars } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 
-import PasswordDialog from '../components/users/PasswordDialog.vue';
 import { callApi, useApi } from '../api/client.ts';
+import PasswordDialog from '../components/users/PasswordDialog.vue';
 import { useAuthStore } from '../stores/auth.ts';
+import { OverlayScrollbars } from '@floway-dev/ui';
 
 interface TabDef {
   path: string;

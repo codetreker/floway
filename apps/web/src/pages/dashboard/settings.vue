@@ -1,10 +1,20 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 import { callApi, useApi } from '../../api/client.ts';
-import type { SearchConfig } from '../../api/types.ts';
-import { useModelsStore as useModelsStoreForLoader } from '../../composables/useModels.ts';
-import { useUpstreamsStore as useUpstreamsStoreForLoader } from '../../composables/useUpstreams.ts';
+import type { ProxyRecord, SearchConfig, UpstreamRecord } from '../../api/types.ts';
+import ProxyEditDialog from '../../components/proxy-edit/ProxyEditDialog.vue';
+import ApiEndpointsSection from '../../components/settings/ApiEndpointsSection.vue';
+import ExportSection from '../../components/settings/ExportSection.vue';
+import ImportSection from '../../components/settings/ImportSection.vue';
+import ProxiesSettingsCard from '../../components/settings/ProxiesSettingsCard.vue';
+import SearchConfigSection from '../../components/settings/SearchConfigSection.vue';
+import UpstreamsSettingsCard from '../../components/settings/UpstreamsSettingsCard.vue';
+import { useModelsStore } from '../../composables/useModels.ts';
+import { useProxiesStore } from '../../composables/useProxies.ts';
+import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
 
 const defaultSearchConfig: SearchConfig = {
   provider: 'disabled',
@@ -16,8 +26,9 @@ export const useSettingsPageData = defineBasicLoader(async () => {
   const api = useApi();
   const [searchRes] = await Promise.all([
     callApi<SearchConfig>(() => api.api['search-config'].$get()),
-    useUpstreamsStoreForLoader().load(),
-    useModelsStoreForLoader().load(),
+    useUpstreamsStore().load(),
+    useModelsStore().load(),
+    useProxiesStore().load(),
   ]);
   return {
     searchConfig: searchRes.data ?? defaultSearchConfig,
@@ -27,34 +38,34 @@ export const useSettingsPageData = defineBasicLoader(async () => {
 </script>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-
-import type { UpstreamRecord } from '../../api/types.ts';
-import ApiEndpointsSection from '../../components/settings/ApiEndpointsSection.vue';
-import ExportSection from '../../components/settings/ExportSection.vue';
-import ImportSection from '../../components/settings/ImportSection.vue';
-import SearchConfigSection from '../../components/settings/SearchConfigSection.vue';
-import UpstreamsSettingsCard from '../../components/settings/UpstreamsSettingsCard.vue';
-import { useModelsStore } from '../../composables/useModels.ts';
-import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
 
 definePage({ meta: { requiresAdmin: true } });
 
 const router = useRouter();
 const { upstreams, loading: storeLoading, error: storeError, load } = useUpstreamsStore();
 const modelsStore = useModelsStore();
+const proxiesStore = useProxiesStore();
+const { load: loadProxies } = proxiesStore;
 const settingsData = useSettingsPageData();
 
-// Local working copy that the child reorders via v-model:ordered; reloadAll
-// re-syncs from the store after a successful PATCH.
+// Local working copy the child reorders via v-model:ordered; reloadAll
+// re-syncs from the store after the child reports a change.
 const ordered = ref<UpstreamRecord[]>([]);
 watch(upstreams, list => {
   ordered.value = list ? [...list] : [];
 }, { immediate: true });
 
 const reloadAll = async () => {
-  await Promise.all([load(), modelsStore.load()]);
+  await Promise.all([load(), modelsStore.load(), loadProxies()]);
+};
+
+// Proxy editor is hosted as a modal — v-if drives the unmount on close
+// so the next open boots from a fresh script setup (no manual reset).
+const proxyDialogOpen = ref(false);
+const proxyDialogRecord = ref<ProxyRecord | null>(null);
+const openProxyDialog = (record: ProxyRecord | null): void => {
+  proxyDialogRecord.value = record;
+  proxyDialogOpen.value = true;
 };
 </script>
 
@@ -74,6 +85,11 @@ const reloadAll = async () => {
           @edit="(record: UpstreamRecord) => router.push(`/dashboard/upstreams/${record.id}`)"
           @changed="reloadAll"
         />
+        <ProxiesSettingsCard
+          @add="() => openProxyDialog(null)"
+          @edit="(record: ProxyRecord) => openProxyDialog(record)"
+          @changed="reloadAll"
+        />
         <SearchConfigSection
           :initial-config="settingsData.data.value.searchConfig"
           :initial-error="settingsData.data.value.searchConfigError"
@@ -89,5 +105,12 @@ const reloadAll = async () => {
         </div>
       </div>
     </div>
+
+    <ProxyEditDialog
+      v-if="proxyDialogOpen"
+      v-model:open="proxyDialogOpen"
+      :record="proxyDialogRecord"
+      @saved="reloadAll"
+    />
   </div>
 </template>

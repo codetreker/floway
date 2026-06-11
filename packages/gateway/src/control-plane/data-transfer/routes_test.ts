@@ -67,6 +67,7 @@ const CUSTOM_UPSTREAM: UpstreamRecord = {
   updatedAt: '2026-01-01T00:00:00.000Z',
   flagOverrides: { 'messages-web-search-shim': true },
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
   config: {
     baseUrl: 'https://custom.example.com',
     bearerToken: 'sk-custom',
@@ -86,6 +87,7 @@ const COPILOT_UPSTREAM: UpstreamRecord = {
   updatedAt: '2026-01-01T00:00:00.000Z',
   flagOverrides: {},
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
   config: {
     githubToken: 'ghu-alice',
     accountType: 'individual',
@@ -109,6 +111,7 @@ const AZURE_UPSTREAM: UpstreamRecord = {
   updatedAt: '2026-01-01T00:00:00.000Z',
   flagOverrides: {},
   disabledPublicModelIds: ['gpt-public'],
+  proxyFallbackList: [],
   config: {
     endpoint: 'https://example.openai.azure.com',
     apiKey: 'az-key',
@@ -139,6 +142,7 @@ const CODEX_UPSTREAM: UpstreamRecord = {
   updatedAt: '2026-01-01T00:00:00.000Z',
   flagOverrides: {},
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
   config: {
     accounts: [{
       email: 'alice@example.com',
@@ -254,7 +258,7 @@ const doExport = async (app: Hono, includePerformance = false) => {
   return (await resp.json()) as Record<string, any>;
 };
 
-const doImport = async (app: Hono, mode: string, data: unknown, version: unknown = 5) => {
+const doImport = async (app: Hono, mode: string, data: unknown, version: unknown = 6) => {
   const resp = await app.request('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -274,18 +278,19 @@ const latestImportData = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-test('export emits the v5 envelope with users and upstreams', async () => {
+test('export emits the v6 envelope with users and upstreams', async () => {
   const { app, repo } = setup();
   // Seed the admin user 1 — exports always carry the users table.
   await repo.users.save(SEED_ADMIN);
 
   const result = await doExport(app);
 
-  assertEquals(result.version, 5);
+  assertEquals(result.version, 6);
   assertEquals(typeof result.exportedAt, 'string');
   assertEquals(result.data.users, [SEED_ADMIN]);
   assertEquals(result.data.apiKeys, []);
   assertEquals(result.data.upstreams, []);
+  assertEquals(result.data.proxies, []);
   assertEquals(result.data.usage, []);
   assertEquals(result.data.searchUsage, []);
   assertEquals(result.data.performanceIncluded, false);
@@ -339,7 +344,7 @@ test('import rejects any version other than the current one before deleting data
   await repo.apiKeys.save(KEY_A);
   await repo.upstreams.save(CUSTOM_UPSTREAM);
 
-  const VERSION_ERROR = 'version must be 5 — older export formats are not supported; re-export from the current deployment';
+  const VERSION_ERROR = 'version must be 6 — older export formats are not supported; re-export from the current deployment';
   const priorVersion = await doImport(app, 'replace', { apiKeys: [] }, 3);
   const ancientVersion = await doImport(app, 'replace', { apiKeys: [] }, 1);
   const missingVersionResponse = await app.request('/import', {
@@ -379,7 +384,7 @@ test('import replace writes upstreams and clears replaced collections', async ()
   });
 
   assertEquals(result.status, 200);
-  assertEquals(result.body.imported, { users: 1, apiKeys: 1, upstreams: 1, usage: 1, searchUsage: 1, performance: 0 });
+  assertEquals(result.body.imported, { users: 1, apiKeys: 1, upstreams: 1, proxies: 0, usage: 1, searchUsage: 1, performance: 0 });
   assertEquals(await repo.apiKeys.list(), [KEY_B]);
   assertEquals(await repo.upstreams.list(), [AZURE_UPSTREAM]);
   assertEquals(await repo.usage.listAll(), [USAGE_2]);
@@ -652,7 +657,7 @@ test('import rejects legacy enabled_fixes payloads before mutating', async () =>
   assertEquals(await repo.upstreams.list(), [CUSTOM_UPSTREAM]);
 });
 
-test('import rejects missing latest-v5 arrays before clearing existing data', async () => {
+test('import rejects missing latest-v6 arrays before clearing existing data', async () => {
   const { app, repo } = setup();
   await repo.apiKeys.save(KEY_A);
   await repo.upstreams.save(CUSTOM_UPSTREAM);
@@ -678,14 +683,14 @@ test('import rejects missing latest-v5 arrays before clearing existing data', as
 test('import validates mode and data before mutating', async () => {
   const { app } = setup();
 
-  const invalidMode = await doImport(app, 'invalid', {}, 5);
+  const invalidMode = await doImport(app, 'invalid', {}, 6);
   const missingData = await app.request('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: 'replace', version: 5 }),
+    body: JSON.stringify({ mode: 'replace', version: 6 }),
   });
-  const missingUpstreams = await doImport(app, 'merge', {}, 5);
-  const emptyMerge = await doImport(app, 'merge', latestImportData(), 5);
+  const missingUpstreams = await doImport(app, 'merge', {}, 6);
+  const emptyMerge = await doImport(app, 'merge', latestImportData(), 6);
 
   assertEquals(invalidMode.status, 400);
   assertEquals(invalidMode.body.error, "mode must be 'merge' or 'replace'");
@@ -694,10 +699,139 @@ test('import validates mode and data before mutating', async () => {
   assertEquals(missingUpstreams.status, 400);
   assertEquals(missingUpstreams.body.error, 'invalid apiKeys: apiKeys must be an array');
   assertEquals(emptyMerge.status, 200);
-  assertEquals(emptyMerge.body.imported, { users: 1, apiKeys: 0, upstreams: 0, usage: 0, searchUsage: 0, performance: 0 });
+  assertEquals(emptyMerge.body.imported, { users: 1, apiKeys: 0, upstreams: 0, proxies: 0, usage: 0, searchUsage: 0, performance: 0 });
 });
 
-test('v5 export/import round-trips users and per-key user_id', async () => {
+const HTTP_PROXY_URL = 'http://198.51.100.20:3128';
+const SOCKS_PROXY_URL = 'socks5://user:pass@198.51.100.10:1080';
+
+test('export includes proxies with full credential URIs and round-trips through import', async () => {
+  const { app, repo } = setup();
+  await repo.proxies.save({ id: 'p_socks', name: 'SOCKS', url: SOCKS_PROXY_URL, dialTimeoutSeconds: 45 });
+  await repo.proxies.save({ id: 'p_http', name: 'HTTP', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
+  const upstreamWithFallback: UpstreamRecord = { ...CUSTOM_UPSTREAM, proxyFallbackList: ['p_socks', 'p_http', 'direct'] };
+  await repo.upstreams.save(upstreamWithFallback);
+
+  const exported = await doExport(app);
+
+  assertEquals(exported.data.proxies, [
+    { id: 'p_socks', name: 'SOCKS', url: SOCKS_PROXY_URL, dial_timeout_seconds: 45 },
+    { id: 'p_http', name: 'HTTP', url: HTTP_PROXY_URL, dial_timeout_seconds: null },
+  ]);
+
+  const fresh = new InMemoryRepo();
+  initRepo(fresh);
+  const importApp = new Hono();
+  importApp.post('/import', zValidator('json', importBody), importData);
+  const result = await doImport(importApp, 'replace', exported.data);
+  assertEquals(result.status, 200);
+  assertEquals(result.body.imported.proxies, 2);
+
+  const restored = await fresh.proxies.list();
+  assertEquals(restored.map(p => ({ id: p.id, name: p.name, url: p.url, dialTimeoutSeconds: p.dialTimeoutSeconds })).sort((a, b) => a.id.localeCompare(b.id)), [
+    { id: 'p_http', name: 'HTTP', url: HTTP_PROXY_URL, dialTimeoutSeconds: null },
+    { id: 'p_socks', name: 'SOCKS', url: SOCKS_PROXY_URL, dialTimeoutSeconds: 45 },
+  ]);
+
+  const restoredUpstream = await fresh.upstreams.getById(upstreamWithFallback.id);
+  assertEquals(restoredUpstream?.proxyFallbackList, ['p_socks', 'p_http', 'direct']);
+});
+
+test('import in replace mode rejects an upstream fallback reference that does not resolve to an imported proxy', async () => {
+  const { app, repo } = setup();
+  await repo.upstreams.save(CUSTOM_UPSTREAM);
+
+  const result = await doImport(app, 'replace', latestImportData({
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: ['p_missing', 'direct'] }],
+    proxies: [],
+  }));
+
+  assertEquals(result.status, 400);
+  assertEquals(result.body.error, `invalid upstreams: upstream ${CUSTOM_UPSTREAM.id} references unknown proxy p_missing`);
+  assertEquals(await repo.upstreams.list(), [CUSTOM_UPSTREAM]);
+});
+
+test('import in merge mode accepts an upstream fallback reference that resolves to an existing local proxy', async () => {
+  const { app, repo } = setup();
+  await repo.proxies.save({ id: 'p_local', name: 'Local', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
+
+  // The imported payload carries no proxies of its own, only an upstream that
+  // references the destination's existing 'p_local'. Merge mode keeps the
+  // local proxies table, so this is a legitimate reference that must not be
+  // rejected as dangling.
+  const result = await doImport(app, 'merge', latestImportData({
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: ['p_local', 'direct'] }],
+    proxies: [],
+  }));
+
+  assertEquals(result.status, 200);
+  assertEquals(result.body.imported.upstreams, 1);
+  const restored = await repo.upstreams.getById(CUSTOM_UPSTREAM.id);
+  assertEquals(restored?.proxyFallbackList, ['p_local', 'direct']);
+});
+
+test('import in merge mode rejects an upstream fallback reference that resolves to neither an imported nor an existing proxy', async () => {
+  const { app, repo } = setup();
+  await repo.proxies.save({ id: 'p_local', name: 'Local', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
+
+  const result = await doImport(app, 'merge', latestImportData({
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: ['p_phantom'] }],
+    proxies: [],
+  }));
+
+  assertEquals(result.status, 400);
+  assertEquals(result.body.error, `invalid upstreams: upstream ${CUSTOM_UPSTREAM.id} references unknown proxy p_phantom`);
+});
+
+test('import rejects a proxy whose url does not parse', async () => {
+  const { app } = setup();
+
+  const result = await doImport(app, 'replace', latestImportData({
+    proxies: [{ id: 'p_bad', name: 'Bad', url: 'gibberish', dial_timeout_seconds: null }],
+  }));
+
+  assertEquals(result.status, 400);
+  assertEquals(String(result.body.error).startsWith('invalid proxies at index 0: url did not parse:'), true);
+});
+
+test('import upserts proxies on id collision (last-writer-wins on name / url / timeout)', async () => {
+  const { app, repo } = setup();
+  await repo.proxies.save({ id: 'p1', name: 'Original', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
+
+  const result = await doImport(app, 'merge', latestImportData({
+    proxies: [{ id: 'p1', name: 'Renamed', url: SOCKS_PROXY_URL, dial_timeout_seconds: 90 }],
+  }));
+
+  assertEquals(result.status, 200);
+  assertEquals(result.body.imported.proxies, 1);
+
+  const after = await repo.proxies.getById('p1');
+  assertEquals(after?.name, 'Renamed');
+  assertEquals(after?.url, SOCKS_PROXY_URL);
+  assertEquals(after?.dialTimeoutSeconds, 90);
+});
+
+test('import replace wipes proxy_upstream_backoffs alongside the proxies it cools down', async () => {
+  // Backoff rows survive only as long as the proxy_id they reference is real;
+  // a replace import that brings in a fresh proxy with the same id as a wiped
+  // one would otherwise have its first dials short-circuited by a stale
+  // cool-down row from the prior catalog.
+  const { app, repo } = setup();
+  await repo.proxies.save({ id: 'p_old', name: 'Old', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
+  await repo.upstreams.save(CUSTOM_UPSTREAM);
+  await repo.proxyBackoffs.recordDialFailure('p_old', CUSTOM_UPSTREAM.id, 'transport reset');
+  assertEquals((await repo.proxyBackoffs.listAll()).length, 1);
+
+  const result = await doImport(app, 'replace', latestImportData({
+    proxies: [{ id: 'p_old', name: 'New', url: SOCKS_PROXY_URL, dial_timeout_seconds: null }],
+    upstreams: [upstreamRecordToFullJson(CUSTOM_UPSTREAM)],
+  }));
+
+  assertEquals(result.status, 200);
+  assertEquals(await repo.proxyBackoffs.listAll(), []);
+});
+
+test('v6 export/import round-trips users and per-key user_id', async () => {
   const { app, repo } = setup();
   await repo.users.save(SEED_ADMIN);
   await repo.users.save(USER_BOB);
@@ -705,11 +839,11 @@ test('v5 export/import round-trips users and per-key user_id', async () => {
   await repo.apiKeys.save({ ...KEY_B, userId: USER_BOB.id });
 
   const exportResult = await doExport(app);
-  assertEquals(exportResult.version, 5);
+  assertEquals(exportResult.version, 6);
   assertEquals(exportResult.data.users.map((u: any) => u.id).sort(), [SEED_ADMIN.id, USER_BOB.id]);
 
   // Wipe and round-trip.
-  const result = await doImport(app, 'replace', exportResult.data, 5);
+  const result = await doImport(app, 'replace', exportResult.data, 6);
   assertEquals(result.status, 200);
   assertEquals(result.body.imported.users, 2);
   assertEquals(result.body.imported.apiKeys, 2);
@@ -720,7 +854,7 @@ test('v5 export/import round-trips users and per-key user_id', async () => {
   assertEquals(restoredKey?.userId, USER_BOB.id);
 });
 
-test('v5 import rejects api_keys whose user_id does not appear in the payload', async () => {
+test('v6 import rejects api_keys whose user_id does not appear in the payload', async () => {
   const { app, repo } = setup();
   await repo.users.save(SEED_ADMIN);
 
@@ -732,13 +866,13 @@ test('v5 import rejects api_keys whose user_id does not appear in the payload', 
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
 
   assertEquals(result.status, 400);
   assertEquals(result.body.error, 'invalid apiKeys at index 0: user_id 99 does not match any user in the payload');
 });
 
-test('v5 import rejects malformed users (bad username, bad password_hash)', async () => {
+test('v6 import rejects malformed users (bad username, bad password_hash)', async () => {
   const { app } = setup();
 
   const badUsername = await doImport(app, 'replace', {
@@ -749,7 +883,7 @@ test('v5 import rejects malformed users (bad username, bad password_hash)', asyn
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
   assertEquals(badUsername.status, 400);
   assertEquals(String(badUsername.body.error).startsWith('invalid users at index 0:'), true);
 
@@ -761,7 +895,7 @@ test('v5 import rejects malformed users (bad username, bad password_hash)', asyn
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
   assertEquals(badHash.status, 400);
   assertEquals(String(badHash.body.error).includes('passwordHash'), true);
 });
@@ -783,7 +917,7 @@ test('import rejects a pre-accounts v3 export instead of coercing its legacy api
   }, 3);
 
   assertEquals(result.status, 400);
-  assertEquals(String(result.body.error).includes('version must be 5'), true);
+  assertEquals(String(result.body.error).includes('version must be 6'), true);
   // Rejected at the version gate, before touching any data.
   assertEquals(await repo.apiKeys.list(), [KEY_A]);
   assertEquals((await repo.users.list()).map(u => u.id), [SEED_ADMIN.id]);
@@ -804,7 +938,7 @@ test('replace-mode import clears sessions before writing users', async () => {
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
 
   assertEquals(result.status, 200);
   // No public listAll on sessions; create a fresh session and check the
@@ -813,7 +947,7 @@ test('replace-mode import clears sessions before writing users', async () => {
   assertEquals(await repo.sessions.deleteByUserId(USER_BOB.id), 0);
 });
 
-test('v5 import rejects users[i].upstreamIds === undefined', async () => {
+test('v6 import rejects users[i].upstreamIds === undefined', async () => {
   const { app } = setup();
   const result = await doImport(app, 'replace', {
     users: [SEED_ADMIN, { ...USER_BOB, upstreamIds: undefined }],
@@ -823,12 +957,12 @@ test('v5 import rejects users[i].upstreamIds === undefined', async () => {
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
   assertEquals(result.status, 400);
   expect(result.body.error).toMatch(/upstreamIds/);
 });
 
-test('v5 import rejects users[i].deletedAt of non-string non-null type', async () => {
+test('v6 import rejects users[i].deletedAt of non-string non-null type', async () => {
   const { app } = setup();
   const result = await doImport(app, 'replace', {
     users: [SEED_ADMIN, { ...USER_BOB, deletedAt: 42 }],
@@ -838,12 +972,12 @@ test('v5 import rejects users[i].deletedAt of non-string non-null type', async (
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
   assertEquals(result.status, 400);
   expect(result.body.error).toMatch(/deletedAt/);
 });
 
-test('v5 replace import refuses payload missing user 1', async () => {
+test('v6 replace import refuses payload missing user 1', async () => {
   const { app } = setup();
   const result = await doImport(app, 'replace', {
     users: [USER_BOB],
@@ -853,12 +987,12 @@ test('v5 replace import refuses payload missing user 1', async () => {
     searchUsage: [],
     performanceIncluded: false,
     searchConfig: DEFAULT_SEARCH_CONFIG,
-  }, 5);
+  }, 6);
   assertEquals(result.status, 400);
   expect(result.body.error).toMatch(/user 1/);
 });
 
-test('a full v5 export re-imports verbatim — the export→import round trip is closed', async () => {
+test('a full v6 export re-imports verbatim — the export→import round trip is closed', async () => {
   const { app, repo } = setup();
   // Seed one of every collection the export emits.
   await repo.users.save(SEED_ADMIN);
@@ -879,14 +1013,14 @@ test('a full v5 export re-imports verbatim — the export→import round trip is
   await repo.searchConfig.save(config);
 
   const exported = await doExport(app, true);
-  assertEquals(exported.version, 5);
+  assertEquals(exported.version, 6);
 
   // Replace-import the export's own `data`, verbatim. If the export emits any
   // shape the import parser rejects, this 400s — the round trip is the
   // invariant, so this test fails the moment the two sides drift.
-  const result = await doImport(app, 'replace', exported.data, 5);
+  const result = await doImport(app, 'replace', exported.data, 6);
   assertEquals(result.status, 200);
-  assertEquals(result.body.imported, { users: 2, apiKeys: 2, upstreams: 4, usage: 2, searchUsage: 2, performance: 2 });
+  assertEquals(result.body.imported, { users: 2, apiKeys: 2, upstreams: 4, proxies: 0, usage: 2, searchUsage: 2, performance: 2 });
 
   // Spot-check fidelity across collection types (order-independent).
   assertEquals((await repo.upstreams.list()).find(u => u.id === 'up_codex_a')?.state, CODEX_UPSTREAM.state);
@@ -915,10 +1049,10 @@ test('any data bearing a historical version is rejected on the version gate, bef
     searchConfig: DEFAULT_SEARCH_CONFIG,
   };
 
-  for (const version of [1, 2, 3, 4]) {
+  for (const version of [1, 2, 3, 4, 5]) {
     const result = await doImport(app, 'replace', wellFormed, version);
     assertEquals(result.status, 400);
-    assertEquals(String(result.body.error).includes('version must be 5'), true);
+    assertEquals(String(result.body.error).includes('version must be 6'), true);
   }
 
   // Nothing was touched — the version gate runs before any delete or write.

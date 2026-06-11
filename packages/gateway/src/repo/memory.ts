@@ -1,15 +1,26 @@
 import { normalizeDisabledPublicModelIds } from './disabled-public-models.ts';
 import { normalizeFlagOverrides } from './flag-overrides.ts';
+import { normalizeProxyFallbackList } from './proxy-fallback-list.ts';
+import {
+  cloneStoredResponsesItem,
+  cloneStoredResponsesSnapshot,
+  compareResponsesItemsByFreshness,
+  responsesItemStoreKey,
+} from './responses-clone.ts';
 import { RESPONSES_REFRESH_DEBOUNCE_MS } from './responses-payload.ts';
 import type {
   ApiKey,
   ApiKeyRepo,
+  BackoffRow,
   CacheRepo,
   PerformanceDimensions,
   PerformanceErrorSample,
   PerformanceLatencySample,
   PerformanceRepo,
   PerformanceTelemetryRecord,
+  ProxyBackoffRepo,
+  ProxyRecord,
+  ProxyRepo,
   Repo,
   ResponsesItemsRepo,
   ResponsesSnapshotsRepo,
@@ -30,10 +41,8 @@ import { serializeStoredState } from './upstream-json.ts';
 import { latencyBucketForMs } from '../shared/performance-histogram.ts';
 import { generateSessionToken } from '../shared/session-tokens.ts';
 import { assertWebSearchProviderName } from '../shared/web-search-providers.ts';
-import { type BillingDimension, type ModelPricing, unitPriceForDimension } from '@floway-dev/protocols/common';
+import { BILLING_DIMENSIONS, type BillingDimension, type ModelPricing, unitPriceForDimension } from '@floway-dev/protocols/common';
 import type { UpstreamRecord } from '@floway-dev/provider';
-
-const BILLING_DIMENSIONS: readonly BillingDimension[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
 
 const SEED_ADMIN_USER: User = {
   id: 1,
@@ -549,6 +558,7 @@ const cloneUpstreamRecord = (upstream: UpstreamRecord): UpstreamRecord => ({
   state: upstream.state === null || upstream.state === undefined ? null : structuredClone(upstream.state),
   flagOverrides: normalizeFlagOverrides(upstream.flagOverrides),
   disabledPublicModelIds: normalizeDisabledPublicModelIds(upstream.disabledPublicModelIds),
+  proxyFallbackList: normalizeProxyFallbackList(upstream.proxyFallbackList),
 });
 
 class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
@@ -656,11 +666,6 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
   }
 }
 
-const cloneStoredResponsesItem = (item: StoredResponsesItem): StoredResponsesItem => ({
-  ...item,
-  payload: item.payload === null ? null : structuredClone(item.payload),
-});
-
 class MemoryResponsesSnapshotsRepo implements ResponsesSnapshotsRepo {
   private store = new Map<string, StoredResponsesSnapshot>();
 
@@ -698,15 +703,183 @@ class MemoryResponsesSnapshotsRepo implements ResponsesSnapshotsRepo {
   }
 }
 
-const cloneStoredResponsesSnapshot = (snapshot: StoredResponsesSnapshot): StoredResponsesSnapshot => ({
-  ...snapshot,
-  itemIds: [...snapshot.itemIds],
-});
+class MemoryProxyRepo implements ProxyRepo {
+  private store = new Map<string, ProxyRecord>();
 
-const compareResponsesItemsByFreshness = (a: StoredResponsesItem, b: StoredResponsesItem): number =>
-  b.refreshedAt - a.refreshedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+  constructor(private upstreams: UpstreamRepo) {}
 
-const responsesItemStoreKey = (apiKeyId: string | null, id: string): string => `${apiKeyId ?? ''}\0${id}`;
+  list(): Promise<ProxyRecord[]> {
+    return Promise.resolve(
+      [...this.store.values()]
+        .map(cloneProxyRecord)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    );
+  }
+
+  getById(id: string): Promise<ProxyRecord | null> {
+    const found = this.store.get(id);
+    return Promise.resolve(found ? cloneProxyRecord(found) : null);
+  }
+
+  insert(input: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<ProxyRecord> {
+    const now = new Date().toISOString();
+    const record: ProxyRecord = {
+      id: input.id,
+      name: input.name,
+      url: input.url,
+      createdAt: now,
+      updatedAt: now,
+      dialTimeoutSeconds: input.dialTimeoutSeconds,
+    };
+    this.store.set(record.id, record);
+    return Promise.resolve(cloneProxyRecord(record));
+  }
+
+  patch(id: string, patch: { name?: string; url?: string; dialTimeoutSeconds?: number | null }): Promise<{ record: ProxyRecord; urlChanged: boolean } | null> {
+    const existing = this.store.get(id);
+    if (!existing) return Promise.resolve(null);
+
+    const urlChanged = patch.url !== undefined && patch.url !== existing.url;
+    // Distinguish "absent" from "explicit null" — `??` would collapse a
+    // deliberate clear back to the existing value.
+    const nextDialTimeout = Object.hasOwn(patch, 'dialTimeoutSeconds') ? patch.dialTimeoutSeconds! : existing.dialTimeoutSeconds;
+    const updated: ProxyRecord = {
+      ...existing,
+      name: patch.name ?? existing.name,
+      url: patch.url ?? existing.url,
+      dialTimeoutSeconds: nextDialTimeout,
+      updatedAt: new Date().toISOString(),
+    };
+    this.store.set(id, updated);
+    return Promise.resolve({ record: cloneProxyRecord(updated), urlChanged });
+  }
+
+  async delete(id: string): Promise<boolean> {
+    // Mirror the SQL repo's atomic delete: refuse if any upstream's fallback
+    // list still references the row, so an admin race adding the reference
+    // between a prior findUpstreamsReferencing read and this delete is
+    // rejected at the storage layer.
+    const upstreams = await this.upstreams.list();
+    if (upstreams.some(u => u.proxyFallbackList.includes(id))) return false;
+    return this.store.delete(id);
+  }
+
+  deleteAll(): Promise<void> {
+    this.store.clear();
+    return Promise.resolve();
+  }
+
+  save(record: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<void> {
+    // Upsert that mirrors the SQL ON CONFLICT path: preserve the existing
+    // row's createdAt on collision so the import never overwrites the
+    // local deployment's first-seen timestamp.
+    const existing = this.store.get(record.id);
+    const now = new Date().toISOString();
+    const next: ProxyRecord = {
+      id: record.id,
+      name: record.name,
+      url: record.url,
+      dialTimeoutSeconds: record.dialTimeoutSeconds,
+      createdAt: existing ? existing.createdAt : now,
+      updatedAt: now,
+    };
+    this.store.set(record.id, next);
+    return Promise.resolve();
+  }
+
+  async findUpstreamsReferencing(proxyId: string): Promise<string[]> {
+    const upstreams = await this.upstreams.list();
+    return upstreams.filter(u => u.proxyFallbackList.includes(proxyId)).map(u => u.id);
+  }
+}
+
+const cloneProxyRecord = (record: ProxyRecord): ProxyRecord => ({ ...record });
+
+class MemoryProxyBackoffRepo implements ProxyBackoffRepo {
+  private rows = new Map<string, BackoffRow>();
+
+  private key(proxyId: string, upstreamId: string): string {
+    return `${proxyId}\0${upstreamId}`;
+  }
+
+  recordDialFailure(proxyId: string, upstreamId: string, errorMessage: string): Promise<void> {
+    const k = this.key(proxyId, upstreamId);
+    const now = Math.floor(Date.now() / 1000);
+    const existing = this.rows.get(k);
+    if (!existing) {
+      this.rows.set(k, {
+        proxyId,
+        upstreamId,
+        failCount: 1,
+        expiresAt: now + 60,
+        lastError: errorMessage,
+        lastErrorAt: now,
+      });
+      return Promise.resolve();
+    }
+    // Mirror the SQL UPSERT schedule (see SqlProxyBackoffRepo.recordDialFailure).
+    // The exponent is clamped at 6 to stay within JS's 32-bit signed shift
+    // semantics — `1 << 31` wraps to negative and would resolve `Math.min`
+    // to a far-past expiresAt, effectively voiding the backoff.
+    const previousFailCount = existing.failCount;
+    this.rows.set(k, {
+      proxyId,
+      upstreamId,
+      failCount: previousFailCount + 1,
+      expiresAt: now + Math.min(60 * (1 << Math.min(previousFailCount, 6)), 3600),
+      lastError: errorMessage,
+      lastErrorAt: now,
+    });
+    return Promise.resolve();
+  }
+
+  recordDialSuccess(proxyId: string, upstreamId: string): Promise<void> {
+    this.rows.delete(this.key(proxyId, upstreamId));
+    return Promise.resolve();
+  }
+
+  listForUpstream(upstreamId: string): Promise<BackoffRow[]> {
+    return Promise.resolve(
+      [...this.rows.values()].filter(r => r.upstreamId === upstreamId).map(cloneBackoffRow),
+    );
+  }
+
+  listForProxy(proxyId: string): Promise<BackoffRow[]> {
+    return Promise.resolve(
+      [...this.rows.values()].filter(r => r.proxyId === proxyId).map(cloneBackoffRow),
+    );
+  }
+
+  listAll(): Promise<BackoffRow[]> {
+    return Promise.resolve([...this.rows.values()].map(cloneBackoffRow));
+  }
+
+  resetForProxy(proxyId: string): Promise<void> {
+    for (const [k, r] of this.rows) {
+      if (r.proxyId === proxyId) this.rows.delete(k);
+    }
+    return Promise.resolve();
+  }
+
+  resetForUpstream(upstreamId: string): Promise<void> {
+    for (const [k, r] of this.rows) {
+      if (r.upstreamId === upstreamId) this.rows.delete(k);
+    }
+    return Promise.resolve();
+  }
+
+  reset(proxyId: string, upstreamId: string): Promise<void> {
+    this.rows.delete(this.key(proxyId, upstreamId));
+    return Promise.resolve();
+  }
+
+  deleteAll(): Promise<void> {
+    this.rows.clear();
+    return Promise.resolve();
+  }
+}
+
+const cloneBackoffRow = (row: BackoffRow): BackoffRow => ({ ...row });
 
 export class InMemoryRepo implements Repo {
   apiKeys: ApiKeyRepo;
@@ -718,6 +891,8 @@ export class InMemoryRepo implements Repo {
   cache: CacheRepo;
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
+  proxies: ProxyRepo;
+  proxyBackoffs: ProxyBackoffRepo;
   responsesItems: ResponsesItemsRepo;
   responsesSnapshots: ResponsesSnapshotsRepo;
 
@@ -731,6 +906,8 @@ export class InMemoryRepo implements Repo {
     this.cache = new MemoryCacheRepo();
     this.searchConfig = new MemorySearchConfigRepo();
     this.upstreams = new MemoryUpstreamRepo();
+    this.proxies = new MemoryProxyRepo(this.upstreams);
+    this.proxyBackoffs = new MemoryProxyBackoffRepo();
     this.responsesItems = new MemoryResponsesItemsRepo();
     this.responsesSnapshots = new MemoryResponsesSnapshotsRepo();
   }

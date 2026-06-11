@@ -6,12 +6,10 @@ import {
   CODEX_USER_AGENT,
 } from './constants.ts';
 import { pricingForCodexModelKey } from './pricing.ts';
-import type { UpstreamModel } from '@floway-dev/provider';
+import { type Fetcher, type UpstreamModel } from '@floway-dev/provider';
 
 // Narrowed shape from /codex/models. Upstream returns
-// `{ models: [{ slug, display_name, visibility, context_window, max_context_window, ... }] }`;
-// we surface every entry regardless of `visibility` so the operator can
-// dispatch to models the ChatGPT UI hides.
+// `{ models: [{ slug, display_name, visibility, context_window, max_context_window, ... }] }`.
 export interface CodexRawModel {
   id: string;
   display_name: string;
@@ -21,8 +19,10 @@ export interface CodexRawModel {
   max_context_window: number;
 }
 
-export const fetchCodexCatalog = async (opts: { accessToken: string; accountId: string; signal?: AbortSignal }): Promise<CodexRawModel[]> => {
-  const response = await fetch(`${CODEX_BACKEND_BASE}${CODEX_MODELS_PATH}?client_version=${CODEX_CLI_VERSION}`, {
+// `fetcher` is required so the catalog refresh traverses the same proxy/
+// dial chain configured for request-time traffic.
+export const fetchCodexCatalog = async (opts: { accessToken: string; accountId: string; signal?: AbortSignal; fetcher: Fetcher }): Promise<CodexRawModel[]> => {
+  const response = await opts.fetcher(`${CODEX_BACKEND_BASE}${CODEX_MODELS_PATH}?client_version=${CODEX_CLI_VERSION}`, {
     method: 'GET',
     headers: {
       authorization: `Bearer ${opts.accessToken}`,

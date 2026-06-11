@@ -7,7 +7,7 @@ import type { ProviderCandidate } from '../shared/candidates.ts';
 import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { ProviderCallResult, ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderCallResult, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const candidatesQueue: { readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean }[] = [];
@@ -90,6 +90,7 @@ const makeCandidate = (overrides: {
       enabledFlags: upstreamModel.enabledFlags, supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

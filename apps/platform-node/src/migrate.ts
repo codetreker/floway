@@ -6,9 +6,7 @@ import type { SqlDatabase } from '@floway-dev/platform';
 
 // Resolve packages/gateway/migrations/ relative to this file's location in the
 // workspace. The Node deployment target runs under tsx against the source
-// tree, so the workspace layout is the source of truth — we walk three
-// directories up from apps/platform-node/src/ to the workspace root, then
-// down into packages/gateway/migrations/.
+// tree, so the workspace layout is the source of truth.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MIGRATIONS_DIR = join(HERE, '..', '..', '..', 'packages', 'gateway', 'migrations');
 
@@ -44,7 +42,11 @@ export const applyMigrations = async (db: SqlDatabase, dir: string = DEFAULT_MIG
       await db.prepare('INSERT INTO _migrations (name) VALUES (?)').bind(file).run();
       await db.exec('COMMIT');
     } catch (e) {
-      await db.exec('ROLLBACK');
+      // SQLite auto-rolls-back on hard errors (SQLITE_FULL, SQLITE_IOERR,
+      // …) — the explicit ROLLBACK then throws "no transaction is active"
+      // and would shadow the real DDL/IO failure in the operator's logs.
+      // Swallow it so the genuine cause survives.
+      try { await db.exec('ROLLBACK'); } catch { /* txn already auto-rolled-back */ }
       throw e;
     }
   }

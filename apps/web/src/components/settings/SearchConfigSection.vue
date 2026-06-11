@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { Button, Input, Spinner } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
 import type { SearchConfig } from '../../api/types.ts';
 import { useAuthStore } from '../../stores/auth.ts';
-
 import SecretInput from '../shared/SecretInput.vue';
+import { Button, Input } from '@floway-dev/ui';
 
 interface SearchTestResult {
   ok: boolean;
@@ -26,11 +25,11 @@ const api = useApi();
 
 const draft = ref<SearchConfig>(props.initialConfig);
 const error = ref<string | null>(props.initialError ?? null);
-const searchConfigSaving = ref(false);
-const searchConfigTesting = ref(false);
-const searchConfigTestResult = ref<SearchTestResult | null>(null);
+const saving = ref(false);
+const testing = ref(false);
+const testResult = ref<SearchTestResult | null>(null);
 
-const setSearchConfigProvider = (provider: SearchConfig['provider']) => {
+const setProvider = (provider: SearchConfig['provider']) => {
   draft.value = { ...draft.value, provider };
 };
 
@@ -59,10 +58,10 @@ const setSearchCredentialValue = (v: string) => {
   }
 };
 
-const saveSearchConfig = async () => {
-  searchConfigSaving.value = true;
+const save = async () => {
+  saving.value = true;
   const { error: err } = await callApi(() => api.api['search-config'].$put({ json: draft.value }));
-  searchConfigSaving.value = false;
+  saving.value = false;
   if (err) {
     window.alert(`Save failed: ${err.message}`);
     return;
@@ -73,9 +72,9 @@ const saveSearchConfig = async () => {
 // The test endpoint returns the same structured body at both 200 and 400, so
 // we read the body directly rather than going through callApi (which collapses
 // non-2xx into a flat error string and discards `query`/`error.code`).
-const testSearchConfig = async () => {
-  searchConfigTesting.value = true;
-  searchConfigTestResult.value = null;
+const test = async () => {
+  testing.value = true;
+  testResult.value = null;
   try {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (auth.authToken) headers['x-floway-session'] = auth.authToken;
@@ -84,16 +83,16 @@ const testSearchConfig = async () => {
       headers,
       body: JSON.stringify(draft.value),
     });
-    searchConfigTestResult.value = await resp.json() as SearchTestResult;
+    testResult.value = await resp.json() as SearchTestResult;
   } catch (e) {
-    searchConfigTestResult.value = {
+    testResult.value = {
       ok: false,
       provider: draft.value.provider,
       query: '',
       error: { code: 'NETWORK', message: e instanceof Error ? e.message : String(e) },
     };
   } finally {
-    searchConfigTesting.value = false;
+    testing.value = false;
   }
 };
 </script>
@@ -121,7 +120,7 @@ const testSearchConfig = async () => {
               value="disabled"
               class="accent-accent-cyan"
               :checked="draft.provider === 'disabled'"
-              @change="setSearchConfigProvider('disabled')"
+              @change="setProvider('disabled')"
             >
             <div>
               <p class="text-sm font-medium text-white">Disabled</p>
@@ -139,7 +138,7 @@ const testSearchConfig = async () => {
               value="tavily"
               class="accent-accent-cyan"
               :checked="draft.provider === 'tavily'"
-              @change="setSearchConfigProvider('tavily')"
+              @change="setProvider('tavily')"
             >
             <div>
               <p class="text-sm font-medium text-white">Tavily</p>
@@ -157,7 +156,7 @@ const testSearchConfig = async () => {
               value="microsoft-grounding"
               class="accent-accent-cyan"
               :checked="draft.provider === 'microsoft-grounding'"
-              @change="setSearchConfigProvider('microsoft-grounding')"
+              @change="setProvider('microsoft-grounding')"
             >
             <div>
               <p class="text-sm font-medium text-white">Microsoft Grounding</p>
@@ -186,26 +185,26 @@ const testSearchConfig = async () => {
       </div>
 
       <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <Button :loading="searchConfigSaving" @click="saveSearchConfig">Save Search Config</Button>
-        <Button variant="secondary" :loading="searchConfigTesting" :disabled="draft.provider === 'disabled'" @click="testSearchConfig">Test Search</Button>
+        <Button :loading="saving" @click="save">Save Search Config</Button>
+        <Button variant="secondary" :loading="testing" :disabled="draft.provider === 'disabled'" @click="test">Test Search</Button>
         <p v-if="draft.provider === 'disabled'" class="text-xs text-gray-500">Search testing is disabled until a provider is selected.</p>
       </div>
 
-      <div v-if="searchConfigTestResult" class="bg-surface-900 rounded-xl border border-white/5 p-4">
+      <div v-if="testResult" class="bg-surface-900 rounded-xl border border-white/5 p-4">
         <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
           <div class="min-w-0">
             <p class="text-sm font-medium text-white">Search Test Result</p>
-            <p class="text-xs text-gray-500">Provider: <span>{{ searchConfigTestResult.provider }}</span> · Query: <span>{{ searchConfigTestResult.query }}</span></p>
+            <p class="text-xs text-gray-500">Provider: <span>{{ testResult.provider }}</span> · Query: <span>{{ testResult.query }}</span></p>
           </div>
           <span
             class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full"
-            :class="searchConfigTestResult.ok ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-red-500/10 text-red-400'"
-          >{{ searchConfigTestResult.ok ? 'OK' : 'Error' }}</span>
+            :class="testResult.ok ? 'bg-accent-emerald/10 text-accent-emerald' : 'bg-red-500/10 text-red-400'"
+          >{{ testResult.ok ? 'OK' : 'Error' }}</span>
         </div>
 
-        <div v-if="searchConfigTestResult.ok" class="space-y-3">
+        <div v-if="testResult.ok" class="space-y-3">
           <div
-            v-for="result in searchConfigTestResult.results ?? []"
+            v-for="result in testResult.results ?? []"
             :key="result.url + result.title"
             class="rounded-lg border border-white/5 bg-surface-800 p-3"
           >
@@ -221,8 +220,8 @@ const testSearchConfig = async () => {
         </div>
 
         <div v-else class="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-          <p class="text-sm text-red-300 font-medium">{{ searchConfigTestResult.error?.code }}</p>
-          <p class="text-sm text-gray-300 mt-1">{{ searchConfigTestResult.error?.message }}</p>
+          <p class="text-sm text-red-300 font-medium">{{ testResult.error?.code }}</p>
+          <p class="text-sm text-gray-300 mt-1">{{ testResult.error?.message }}</p>
         </div>
       </div>
     </div>

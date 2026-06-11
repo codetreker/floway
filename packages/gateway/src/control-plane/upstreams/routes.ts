@@ -3,11 +3,15 @@ import type { z } from 'zod';
 
 import { upstreamRecordToJson, type SerializedUpstreamRecord } from './serialize.ts';
 import { createProviderInstance } from '../../data-plane/providers/registry.ts';
+import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { type CtxWithJson } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
+import { DIRECT_PROXY_ID, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
+import { shortId } from '../../shared/short-id.ts';
 import { detectAccountType, fetchGitHubUser, pollGitHubDeviceFlow, startGitHubDeviceFlow } from '../auth/github-device-flow.ts';
 import type { codexImportBody, codexPkceStartBody, codexRefreshNowBody, codexReimportBody, copilotAuthPollBody, createUpstreamBody, fetchModelsBody, updateUpstreamBody } from '../schemas.ts';
-import { clearModelsStore, getProviderRepo, invalidateModelsStore, ProviderModelsUnavailableError, getFlagCatalog } from '@floway-dev/provider';
+import { copilotConfigField, type CopilotUpstreamConfig, isRecord } from '../shared/field-validators.ts';
+import { clearModelsStore, directFetcher, getProviderRepo, invalidateModelsStore, ProviderModelsUnavailableError, getFlagCatalog } from '@floway-dev/provider';
 import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import { assertAzureUpstreamRecord } from '@floway-dev/provider-azure';
 import {
@@ -29,7 +33,7 @@ import {
   putCodexAccessToken,
   refreshCodexAccessToken,
 } from '@floway-dev/provider-codex';
-import { clearCopilotTokenCache, isCopilotAccountType, type CopilotAccountType } from '@floway-dev/provider-copilot';
+import { clearCopilotTokenCache, isCopilotAccountType } from '@floway-dev/provider-copilot';
 import { assertCustomUpstreamRecord, fetchCustomModels } from '@floway-dev/provider-custom';
 
 // Serialize for the HTTP response, attaching the live KV codex_quota snapshot
@@ -44,22 +48,7 @@ const serializeForResponse = async (record: UpstreamRecord): Promise<SerializedU
   return serialized;
 };
 
-interface CopilotUpstreamUser {
-  login: string;
-  avatar_url: string;
-  name: string | null;
-  id: number;
-}
-
-interface CopilotUpstreamConfig {
-  githubToken: string;
-  accountType: CopilotAccountType;
-  user: CopilotUpstreamUser;
-}
-
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const validationError = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -67,49 +56,6 @@ const validationError = (error: unknown): string => (error instanceof Error ? er
 // request-time zod schemas guard incoming bodies; these parsers guard the DB
 // boundary so a manually-edited or migrated row that violates the runtime
 // invariants surfaces with an actionable message instead of crashing later.
-
-const stringField = (value: unknown, field: string): string => {
-  if (typeof value !== 'string') throw new Error(`Malformed copilot upstream config: ${field} must be a string`);
-  return value;
-};
-
-const nonEmptyStringField = (value: unknown, field: string): string => {
-  const str = stringField(value, field).trim();
-  if (str === '') throw new Error(`Malformed copilot upstream config: ${field} must be a non-empty string`);
-  return str;
-};
-
-const nullableStringField = (value: unknown, field: string): string | null => {
-  if (value !== null && typeof value !== 'string') throw new Error(`Malformed copilot upstream config: ${field} must be a string or null`);
-  return value;
-};
-
-const numberField = (value: unknown, field: string): number => {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`Malformed copilot upstream config: ${field} must be an integer`);
-  return value;
-};
-
-const copilotUserField = (value: unknown): CopilotUpstreamUser => {
-  if (!isRecord(value)) throw new Error('Malformed copilot upstream config: user must be an object');
-  return {
-    login: stringField(value.login, 'user.login'),
-    avatar_url: stringField(value.avatar_url, 'user.avatar_url'),
-    name: nullableStringField(value.name, 'user.name'),
-    id: numberField(value.id, 'user.id'),
-  };
-};
-
-const copilotConfigField = (value: unknown): CopilotUpstreamConfig => {
-  if (!isRecord(value)) throw new Error('Malformed copilot upstream config: config must be an object');
-  if (!isCopilotAccountType(value.accountType)) {
-    throw new Error('Malformed copilot upstream config: accountType must be one of individual, business, enterprise');
-  }
-  return {
-    githubToken: nonEmptyStringField(value.githubToken, 'githubToken'),
-    accountType: value.accountType,
-    user: copilotUserField(value.user),
-  };
-};
 
 const normalizeConfig = (record: UpstreamRecord): ValidationResult<unknown> => {
   try {
@@ -119,7 +65,13 @@ const normalizeConfig = (record: UpstreamRecord): ValidationResult<unknown> => {
       assertCodexUpstreamRecord(record);
       return { ok: true, value: record.config };
     }
-    return { ok: true, value: copilotConfigField(record.config) };
+    return {
+      ok: true,
+      value: copilotConfigField(
+        record.config,
+        (field, expected) => new Error(`Malformed copilot upstream config: ${field} must be ${expected}`),
+      ),
+    };
   } catch (error) {
     return { ok: false, error: validationError(error) };
   }
@@ -136,9 +88,24 @@ const mergeConfigPatch = (provider: UpstreamProviderKind, existing: unknown, pat
   return { ok: true, value: next };
 };
 
-const newId = (): string => `up_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+const newId = (): string => shortId('up');
 
 const nextSortOrder = (upstreams: readonly UpstreamRecord[]): number => upstreams.reduce((acc, upstream) => Math.max(acc, upstream.sortOrder), -1) + 1;
+
+// 'direct' is always valid; any other entry must reference an existing
+// proxy row. List order matters at dial time (see createFetcher),
+// and persistence layers dedupe via normalizeProxyFallbackList before
+// storing.
+const validateProxyFallbackList = async (list: readonly string[]): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const ids = list.filter(id => id !== DIRECT_PROXY_ID);
+  if (ids.length === 0) return { ok: true };
+  const proxies = await getRepo().proxies.list();
+  const known = new Set(proxies.map(p => p.id));
+  for (const id of ids) {
+    if (!known.has(id)) return { ok: false, error: `unknown proxy id in fallback list: ${id}` };
+  }
+  return { ok: true };
+};
 
 export const listUpstreams = async (c: Context) => {
   const items = await getRepo().upstreams.list();
@@ -176,6 +143,10 @@ export const createUpstream = async (c: CtxWithJson<typeof createUpstreamBody>) 
     return c.json({ error: 'Use POST /api/upstreams/codex-import for codex provider' }, 400);
   }
 
+  const proxyFallbackList = normalizeProxyFallbackList(body.proxy_fallback_list ?? []);
+  const fallbackCheck = await validateProxyFallbackList(proxyFallbackList);
+  if (!fallbackCheck.ok) return c.json({ error: fallbackCheck.error }, 400);
+
   const existing = await getRepo().upstreams.list();
   const now = new Date().toISOString();
   const upstream: UpstreamRecord = {
@@ -188,13 +159,15 @@ export const createUpstream = async (c: CtxWithJson<typeof createUpstreamBody>) 
     updatedAt: now,
     flagOverrides: body.flag_overrides ?? {},
     disabledPublicModelIds: body.disabled_public_model_ids ?? [],
+    proxyFallbackList,
     config: body.config,
     state: null,
   };
 
   // Schema validated shape; this catches Azure-specific URL / endpoint-mix
   // rules and Custom-specific path-override URL parsing that live in the
-  // shared/upstream/* assertion helpers.
+  // per-provider assertCustomUpstreamRecord / assertAzureUpstreamRecord
+  // helpers.
   const config = normalizeConfig(upstream);
   if (!config.ok) return c.json({ error: config.error }, 400);
 
@@ -228,6 +201,12 @@ export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody>) 
   if (body.sort_order !== undefined) next = { ...next, sortOrder: body.sort_order };
   if (body.flag_overrides !== undefined) next = { ...next, flagOverrides: body.flag_overrides };
   if (body.disabled_public_model_ids !== undefined) next = { ...next, disabledPublicModelIds: body.disabled_public_model_ids };
+  if (body.proxy_fallback_list !== undefined) {
+    const normalized = normalizeProxyFallbackList(body.proxy_fallback_list);
+    const fallbackCheck = await validateProxyFallbackList(normalized);
+    if (!fallbackCheck.ok) return c.json({ error: fallbackCheck.error }, 400);
+    next = { ...next, proxyFallbackList: normalized };
+  }
   if (body.config !== undefined) {
     const config = mergeConfigPatch(existing.provider, existing.config, body.config);
     if (!config.ok) return c.json({ error: config.error }, 400);
@@ -245,8 +224,11 @@ export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody>) 
 
 export const deleteUpstream = async (c: Context) => {
   const id = c.req.param('id') ?? '';
-  const deleted = await getRepo().upstreams.delete(id);
+  const repo = getRepo();
+  const deleted = await repo.upstreams.delete(id);
   if (!deleted) return c.json({ error: 'Upstream not found' }, 404);
+  // Sweep orphaned backoff rows. proxy_upstream_backoffs has no FK to upstreams, so the cleanup is unconditional.
+  await repo.proxyBackoffs.resetForUpstream(id);
   await invalidateModelsStore(id);
   return c.json({ ok: true });
 };
@@ -280,22 +262,25 @@ export const fetchModels = async (c: CtxWithJson<typeof fetchModelsBody>) => {
     updatedAt: now,
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     config: { ...config, bearerToken },
     state: null,
   };
 
   let assertedConfig;
   try {
-    // assertCustomUpstreamRecord validates the record and surfaces the typed
-    // config; a malformed draft or an empty bearerToken with no stored secret
-    // to substitute surfaces here.
     assertedConfig = assertCustomUpstreamRecord(record).config;
   } catch (e) {
     return c.json({ error: validationError(e) }, 400);
   }
 
   try {
-    const result = await fetchCustomModels(assertedConfig);
+    // Edit mode (`id` present) routes the upstream's catalog GET through the
+    // per-request proxy fallback chain so the dashboard's Refresh button hits
+    // the same egress path as the data plane; a brand-new draft has no saved
+    // row yet, so it falls back to direct.
+    const fetcher = id === undefined ? directFetcher : (await createPerRequestFetcher())(id);
+    const result = await fetchCustomModels(assertedConfig, fetcher);
     return c.json(result);
   } catch (e) {
     // Mirror the control-plane /models convention: squash genuine upstream
@@ -309,8 +294,7 @@ export const fetchModels = async (c: CtxWithJson<typeof fetchModelsBody>) => {
 
 // List the resolved model catalog of a SAVED upstream (any provider). A
 // read-only view for the dashboard — Copilot's catalog in particular is fixed
-// by the upstream and the operator cannot edit it. Upstream listing failures
-// surface as 502, matching the control-plane /models convention.
+// by the upstream and the operator cannot edit it.
 export const listUpstreamModels = async (c: Context) => {
   const id = c.req.param('id');
   if (!id) return c.json({ error: 'upstream id is required' }, 400);
@@ -318,8 +302,9 @@ export const listUpstreamModels = async (c: Context) => {
   if (!record) return c.json({ error: 'upstream not found' }, 404);
 
   try {
+    const fetcherForUpstream = await createPerRequestFetcher();
     const instance = await createProviderInstance(record);
-    const models = await instance.provider.getProvidedModels();
+    const models = await instance.provider.getProvidedModels(fetcherForUpstream(record.id));
     const data = models.map(model => ({
       upstreamModelId: model.id,
       publicModelId: model.id,
@@ -348,8 +333,6 @@ export const copilotAuthStart = async (c: Context) => {
     return c.json({ error: msg }, 502);
   }
 };
-
-const copilotUpstreamName = (user: CopilotUpstreamUser): string => (user.login ? `GitHub Copilot (${user.login})` : 'GitHub Copilot');
 
 const copilotConfigUserId = (config: unknown): number | null => {
   if (!isRecord(config) || !isRecord(config.user)) return null;
@@ -393,13 +376,14 @@ export const copilotAuthPoll = async (c: CtxWithJson<typeof copilotAuthPollBody>
       : {
           id: newId(),
           provider: 'copilot',
-          name: copilotUpstreamName(user),
+          name: user.login ? `GitHub Copilot (${user.login})` : 'GitHub Copilot',
           enabled: true,
           sortOrder: nextSortOrder(upstreams),
           createdAt: now,
           updatedAt: now,
           flagOverrides: {},
           disabledPublicModelIds: [],
+          proxyFallbackList: [],
           config,
           state: null,
         };
@@ -421,11 +405,7 @@ const CODEX_PKCE_PENDING_PREFIX = 'codex_oauth_pending:';
 // for token exchange anyway.
 const CODEX_PKCE_TTL_MS = 5 * 60 * 1000;
 
-interface CodexPkcePendingEntry {
-  verifier: string;
-}
-
-const parseCodexPkcePendingEntry = (raw: string): CodexPkcePendingEntry => {
+const parseCodexPkcePendingEntry = (raw: string): string => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -439,7 +419,7 @@ const parseCodexPkcePendingEntry = (raw: string): CodexPkcePendingEntry => {
   if (typeof obj.verifier !== 'string' || obj.verifier === '') {
     throw new Error('Codex PKCE pending entry is missing a non-empty `verifier`');
   }
-  return { verifier: obj.verifier };
+  return obj.verifier;
 };
 
 export const codexPkceStart = async (c: CtxWithJson<typeof codexPkceStartBody>) => {
@@ -498,8 +478,8 @@ const ingestCodexCredential = async (
     if (!pendingRaw) {
       return { ok: false, error: 'PKCE state not found or expired; restart the flow' };
     }
-    const pending = parseCodexPkcePendingEntry(pendingRaw);
-    const out = await importCodexFromCallback({ code, codeVerifier: pending.verifier });
+    const verifier = parseCodexPkcePendingEntry(pendingRaw);
+    const out = await importCodexFromCallback({ code, codeVerifier: verifier });
     // Consume the cached PKCE entry so the same state cannot be replayed;
     // cache eviction handles the timeout case (it's idempotent).
     await getRepo().cache.delete(cacheKey);
@@ -529,6 +509,7 @@ export const codexImport = async (c: CtxWithJson<typeof codexImportBody>) => {
     updatedAt: now,
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     config: ingestion.config,
     state: ingestion.state,
   };
@@ -585,7 +566,12 @@ export const codexRefreshNow = async (c: CtxWithJson<typeof codexRefreshNowBody>
   }
 
   try {
-    const tokens = await refreshCodexAccessToken(account.refresh_token);
+    // Thread the per-upstream proxy-aware fetcher so the operator-pressed
+    // Refresh button respects the same fallback chain as the data-plane hot
+    // path. Without this, a Codex upstream behind a corporate proxy would
+    // dial direct here and silently fail under restricted egress.
+    const fetcher = (await createPerRequestFetcher())(id);
+    const tokens = await refreshCodexAccessToken(account.refresh_token, fetcher);
     const nextAccount = { ...account, refresh_token: tokens.refresh_token, state_updated_at: new Date().toISOString() };
     const nextState: CodexUpstreamState = { accounts: [nextAccount] };
     // CAS keyed on the just-read state. A losing race here means a concurrent

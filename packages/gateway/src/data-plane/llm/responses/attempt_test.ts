@@ -12,7 +12,7 @@ import type { GatewayCtx } from '../shared/gateway-ctx.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_attempt_test';
@@ -78,6 +78,8 @@ const makeCandidate = (callResponses: (model: unknown, body: unknown, signal?: A
       supportsResponsesItemReference: true,
     },
     targetApi: 'responses',
+
+    fetcher: directFetcher,
   };
 };
 
@@ -105,6 +107,8 @@ const makeCompactCandidate = (callResponsesCompact: (...args: unknown[]) => Prom
       supportsResponsesItemReference: true,
     },
     targetApi: 'responses',
+
+    fetcher: directFetcher,
   };
 };
 
@@ -354,6 +358,8 @@ test('generate inherits invocation headers across translation to Messages', asyn
       enabledFlags: upstreamModel.enabledFlags, supportsResponsesItemReference: true,
     },
     targetApi: 'messages',
+
+    fetcher: directFetcher,
   };
 
   const result = await responsesAttempt.generate({

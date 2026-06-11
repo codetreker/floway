@@ -25,6 +25,7 @@ const baseRecord: UpstreamRecord = {
   state: null,
   flagOverrides: {},
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
 };
 
 test('assertAzureUpstreamRecord validates Azure opaque config strictly', () => {

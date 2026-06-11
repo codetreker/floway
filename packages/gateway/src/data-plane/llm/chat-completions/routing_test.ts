@@ -7,6 +7,7 @@ import { createStoredResponsesItemId } from '../responses/items/format.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
 import type { ProviderCandidate } from '../shared/candidates.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
+import { directFetcher } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel, assertEquals } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_chat_completions_routing_test';
@@ -29,6 +30,8 @@ const candidate = (upstream: string): ProviderCandidate => {
       supportsResponsesItemReference: true,
     },
     targetApi: 'chat-completions',
+
+    fetcher: directFetcher,
   };
 };
 

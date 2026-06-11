@@ -1,10 +1,17 @@
 <script lang="ts">
+import { useIntervalFn } from '@vueuse/core';
+import type { TooltipItem } from 'chart.js';
+import type { ChartConfiguration } from 'chart.js/auto';
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { computed, ref, watch } from 'vue';
 
-import { callApi, useApi as useApiForLoader, type ApiClient } from '../../api/client.ts';
-import { dashboardRangeQuery as dashboardRangeQueryForLoader } from '../../components/charts/dashboard-chart.ts';
-import { useModelsStore as useModelsStoreForLoader } from '../../composables/useModels.ts';
-import { useAuthStore as useAuthStoreForLoader } from '../../stores/auth.ts';
+import { callApi, useApi, type ApiClient } from '../../api/client.ts';
+import ChartCanvas from '../../components/charts/ChartCanvas.vue';
+import { bucketKeyForUtcHour, chartColor, chartFont, chartXAxisTick, dashboardBuckets, dashboardRangeQuery, type DashboardRange } from '../../components/charts/dashboard-chart.ts';
+import UsageSummaryMetric from '../../components/usage/UsageSummaryMetric.vue';
+import { useModelsStore } from '../../composables/useModels.ts';
+import { useAuthStore } from '../../stores/auth.ts';
+import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
 
 type BillingDimension = 'input' | 'input_cache_read' | 'input_cache_write' | 'input_image' | 'output' | 'output_image';
 
@@ -82,13 +89,13 @@ const fetchUsageForView = async (
 };
 
 export const useUsagePageData = defineBasicLoader(async () => {
-  const api = useApiForLoader();
-  const auth = useAuthStoreForLoader();
+  const api = useApi();
+  const auth = useAuthStore();
   const view: UsageView = auth.canViewGlobalTelemetry ? 'all-by-user' : 'self-by-key';
-  const { start, end } = dashboardRangeQueryForLoader('today');
+  const { start, end } = dashboardRangeQuery('today');
   const [{ usage, search }] = await Promise.all([
     fetchUsageForView(api, view, start, end),
-    useModelsStoreForLoader().load(),
+    useModelsStore().load(),
   ]);
   return {
     view,
@@ -99,19 +106,6 @@ export const useUsagePageData = defineBasicLoader(async () => {
 </script>
 
 <script setup lang="ts">
-import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
-import { useIntervalFn } from '@vueuse/core';
-import type { TooltipItem } from 'chart.js';
-import type { ChartConfiguration } from 'chart.js/auto';
-import { computed, ref, watch } from 'vue';
-
-import { useApi } from '../../api/client.ts';
-import { bucketKeyForUtcHour, chartColor, chartFont, chartXAxisTick, dashboardBuckets, dashboardRangeQuery, type DashboardRange } from '../../components/charts/dashboard-chart.ts';
-import ChartCanvas from '../../components/charts/ChartCanvas.vue';
-import UsageSummaryMetric from '../../components/usage/UsageSummaryMetric.vue';
-import { useModelsStore } from '../../composables/useModels.ts';
-import { useAuthStore } from '../../stores/auth.ts';
-
 type Metric =
   | 'requests' | 'cost'
   | 'total' | 'input' | 'output' | 'prefill'
@@ -180,7 +174,7 @@ const switchTokenChartMetric = (m: string) => { tokenChartMetric.value = m as Me
 
 watch(tokenRange, load);
 watch(view, load);
-useIntervalFn(load, 60_000);
+useIntervalFn(() => { void load(); }, 60_000);
 
 const tokenSummary = computed(() => {
   const records = (data.value?.records ?? []).filter(r => !hiddenKeys.value.has(r.keyId) && !hiddenModels.value.has(r.model));
@@ -374,8 +368,6 @@ const tooltipHeader = (labelWidth: number) =>
 
 const tooltipRow = (label: string, labelWidth: number, detail: TokenDetail) => {
   const cached = detail.cacheRead;
-  // Input/output columns mix text and image token counts; pricing already
-  // differs per dimension, so the display does not split them out.
   const prompt = detail.input + detail.cacheRead + detail.cacheCreation + detail.inputImage;
   const output = detail.output + detail.outputImage;
   const total = prompt + output;

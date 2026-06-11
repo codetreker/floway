@@ -24,6 +24,7 @@ const azureUpstream = (id: string, sortOrder: number, modelIds: string[], endpoi
   state: null,
   flagOverrides: {},
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
 });
 
 // pickTarget helpers mirroring the preference chains each source uses.

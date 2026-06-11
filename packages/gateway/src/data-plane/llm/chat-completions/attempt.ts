@@ -22,11 +22,7 @@ export interface ChatCompletionsAttemptArgs {
   readonly ctx: GatewayCtx;
   readonly store: StatefulResponsesStore;
   readonly candidate: ProviderCandidate;
-  // Optional invocation-headers inheritance from a source attempt that
-  // translated INTO chat-completions. Source-side interceptors (e.g. Messages
-  // claude-agent / interaction-id setters) write trace headers into the
-  // source `MessagesInvocation.headers` bag; passing them in here keeps them
-  // on the wire for the translated upstream call.
+  // See responses/attempt.ts for the inherited-headers contract.
   readonly inheritedInvocationHeaders?: Record<string, string>;
 }
 
@@ -66,10 +62,9 @@ export const chatCompletionsAttempt = {
   },
 };
 
-// Mirror of `messagesAttempt` rewrite — Chat Completions carries stored
-// Responses reasoning ids on `assistant.reasoning_items`, which the
-// translate-package view exposes as Responses items so this same rewrite
-// pass works across protocols.
+// Chat Completions carries stored Responses reasoning ids on
+// `assistant.reasoning_items`; the translate-package view exposes them as
+// Responses items so the shared rewrite pass works here too.
 const rewriteOrRenderChatCompletionsFailure = async (
   payload: ChatCompletionsPayload,
   store: StatefulResponsesStore,
@@ -113,7 +108,7 @@ const callChatCompletionsAsExecuteResult = async (
     body,
     ctx.abortSignal,
     invocationHeaders,
-    { recordUpstreamLatency: recorder.record },
+    { fetcher: candidate.fetcher, recordUpstreamLatency: recorder.record },
   );
   return await providerStreamResultToExecuteResult(providerResult, candidate, ctx, recorder.durationMs());
 };

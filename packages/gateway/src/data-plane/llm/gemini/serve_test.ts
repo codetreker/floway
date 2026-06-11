@@ -10,7 +10,7 @@ import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderCallResult, ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderCallResult, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const candidatesQueue: { readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean }[] = [];
@@ -125,6 +125,7 @@ const makeCandidate = (overrides: {
       enabledFlags: upstreamModel.enabledFlags, supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

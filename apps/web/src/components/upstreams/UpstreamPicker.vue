@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Badge, Sortable, Switch } from '@floway-dev/ui';
 import { computed, ref, watch } from 'vue';
 
 import type { UpstreamProviderKind } from '../../api/types.ts';
 import type { UpstreamOption } from '../../composables/useUpstreamOptions.ts';
+import { Badge, Sortable, Switch } from '@floway-dev/ui';
 
 export interface UpstreamPickerValue {
   override: boolean;

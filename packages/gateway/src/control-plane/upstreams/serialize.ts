@@ -11,10 +11,10 @@ export interface SerializedUpstreamRecord {
   updated_at: string;
   flag_overrides: Record<string, boolean>;
   disabled_public_model_ids: string[];
+  proxy_fallback_list: string[];
   config: unknown;
   state: unknown;
-  // Present only for provider === 'codex'. Route handlers attach the live
-  // snapshot after serialization so this module stays free of provider I/O.
+  // Present only for provider === 'codex'.
   codex_quota?: CodexQuotaSnapshot | null;
 }
 
@@ -91,8 +91,7 @@ const redactedState = (upstream: UpstreamRecord): unknown => {
   case 'copilot':
   case 'custom':
   case 'azure':
-    // No autonomous state today. The column is null in D1 for these; do not
-    // synthesize anything.
+    // These providers have no autonomous state.
     return null;
   default: {
     const exhaustive: never = upstream.provider;
@@ -114,6 +113,7 @@ const serializeBase = (
   updated_at: upstream.updatedAt,
   flag_overrides: { ...upstream.flagOverrides },
   disabled_public_model_ids: [...upstream.disabledPublicModelIds],
+  proxy_fallback_list: [...upstream.proxyFallbackList],
   config: payload.config,
   state: payload.state,
 });

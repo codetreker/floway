@@ -1,3 +1,4 @@
+import { createPerRequestFetcher } from '../../../../../dial/per-request.ts';
 import { sleep } from '../../../../../shared/sleep.ts';
 import { resolveModelForRequest } from '../../../../providers/registry.ts';
 import { createUpstreamLatencyRecorder, recordPerformanceError, recordPerformanceLatency } from '../../../../shared/telemetry/performance.ts';
@@ -17,7 +18,7 @@ import type {
   ResponsesPayload,
   ResponsesTool,
 } from '@floway-dev/protocols/responses';
-import type { PerformanceTelemetryContext, ProviderModelRecord } from '@floway-dev/provider';
+import type { Fetcher, PerformanceTelemetryContext, ProviderModelRecord } from '@floway-dev/provider';
 
 export const SHIM_TOOL_NAME = 'image_generation';
 
@@ -59,12 +60,11 @@ const EDIT_MIME_ALIASES: Record<string, string> = {
 const EDIT_SUPPORTED_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 // The canonical edit-supported mimetype for a source, or null when gpt-image
-// edit cannot accept the format. TODO(transcode): native Responses runs the
-// input through its multimodal pipeline and re-encodes it, so it edits e.g. a
-// gif input that this endpoint would reject; we forward bytes verbatim and have
-// no image codec in the Workers runtime (only a D1 binding, no Cloudflare Images
-// binding), so an unsupported format is rejected up front instead. If an Images
-// binding is later added, transcode to a supported format here to match native.
+// edit cannot accept the format. Native Responses runs the input through its
+// multimodal pipeline and re-encodes it, so it edits e.g. a gif input that
+// this endpoint would reject; we forward bytes verbatim and have no image
+// codec available through @floway-dev/platform contracts, so an unsupported
+// format is rejected up front.
 const editSupportedMime = (mime: string): string | null => {
   const canonical = EDIT_MIME_ALIASES[mime] ?? mime;
   return EDIT_SUPPORTED_MIMES.has(canonical) ? canonical : null;
@@ -105,7 +105,7 @@ const base64ToArrayBuffer = (b64: string): ArrayBuffer => {
 
 // Parse a `data:<mime>;base64,<payload>` URL or a bare base64 string into
 // raw bytes. Returns null for non-data URLs (e.g. http(s)): fetching remote
-// images for edit binding is deferred — only inline image bytes are bound.
+// images for edit binding is not supported — only inline image bytes are bound.
 const decodeInlineImage = (imageUrl: string, fallbackMime = 'image/png'): ImageSource | null => {
   const dataUrlMatch = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(imageUrl);
   if (dataUrlMatch === null) {
@@ -284,8 +284,7 @@ const validateHostedImageGenerationEntry = (
 };
 
 // Validate every hosted `image_generation` entry; the LAST entry's config
-// wins (most-recent declaration), but any earlier entry's invalid field
-// still rejects the request.
+// wins (most-recent declaration).
 export const prepareImageGenerationConfig = (tools: readonly ResponsesTool[]): PrepareConfigResult => {
   let config: ImageGenerationConfig | undefined;
   for (const [i, tool] of tools.entries()) {
@@ -299,10 +298,10 @@ export const prepareImageGenerationConfig = (tools: readonly ResponsesTool[]): P
 };
 
 // Single optional `prompt` parameter — matches the native `image_gen.imagegen`
-// tool dumped 6/6-consistently from the orchestrator (size/quality/etc. are
-// NOT model-chosen; the shim layers them on from the client config, exactly
-// like Azure). A minimal description elicits native-quality refined prompts
-// while costing ~50 input tokens vs the native hosted tool's ~2300.
+// tool's surface (size/quality/etc. are NOT model-chosen; the shim layers them
+// on from the client config, exactly like Azure). A minimal description
+// elicits native-quality refined prompts while costing ~50 input tokens vs
+// the native hosted tool's ~2300.
 export const buildImageGenerationFunctionTool = (name: string): ResponsesFunctionTool => ({
   type: 'function',
   name,
@@ -430,7 +429,7 @@ const errorFromBody = (body: string, status: number): { type?: string; code: str
       };
     }
   } catch {
-    // fall through to the status-only shape
+    // Non-JSON body falls through to the generic HTTP-status message.
   }
   return { message: `Image backend returned HTTP ${status}`, code: `upstream_${status}` };
 };
@@ -530,12 +529,13 @@ const serverError = (e: unknown): ImageError => ({
 const resolveImageBinding = async (
   isEdit: boolean,
   state: ShimState,
+  fetcherForUpstream: (upstreamId: string) => Fetcher,
 ): Promise<{ ok: true; binding: ProviderModelRecord } | { ok: false; error: ImageError }> => {
   const endpointKey = isEdit ? 'imagesEdits' : 'imagesGenerations';
   const endpointPath = isEdit ? '/images/edits' : '/images/generations';
   let resolution;
   try {
-    resolution = await resolveModelForRequest(state.config.model, state.upstreamIds);
+    resolution = await resolveModelForRequest(state.config.model, state.upstreamIds, fetcherForUpstream);
   } catch (e) {
     return { ok: false, error: serverError(e) };
   }
@@ -597,6 +597,7 @@ export const parseRetryAfterMs = (headers: Headers): number | null => {
 // the underlying socket can be reused while we sleep.
 const issueImageCall = async (
   binding: ProviderModelRecord,
+  fetcher: Fetcher,
   prompt: string,
   isEdit: boolean,
   sources: readonly ImageSource[],
@@ -606,8 +607,8 @@ const issueImageCall = async (
   for (let attempt = 0; ; attempt++) {
     const recorder = createUpstreamLatencyRecorder();
     const { response, modelKey } = await (isEdit
-      ? binding.provider.callImagesEdits(binding.upstreamModel, buildEditsForm(prompt, state.config, sources, stream), state.downstreamAbortSignal, undefined, { recordUpstreamLatency: recorder.record })
-      : binding.provider.callImagesGenerations(binding.upstreamModel, buildGenerationsBody(prompt, state.config, stream), state.downstreamAbortSignal, undefined, { recordUpstreamLatency: recorder.record }));
+      ? binding.provider.callImagesEdits(binding.upstreamModel, buildEditsForm(prompt, state.config, sources, stream), state.downstreamAbortSignal, undefined, { fetcher, recordUpstreamLatency: recorder.record })
+      : binding.provider.callImagesGenerations(binding.upstreamModel, buildGenerationsBody(prompt, state.config, stream), state.downstreamAbortSignal, undefined, { fetcher, recordUpstreamLatency: recorder.record }));
     const context: PerformanceTelemetryContext = {
       keyId: state.apiKeyId,
       model: binding.upstreamModel.id,
@@ -756,15 +757,17 @@ const streamImageGeneration = (
   sources: readonly ImageSource[],
   state: ShimState,
 ) => async function* (): AsyncGenerator<ServerToolLifecycleEvent, ServerToolTerminal> {
-  const resolved = await resolveImageBinding(isEdit, state);
+  const fetcherForUpstream = await createPerRequestFetcher();
+  const resolved = await resolveImageBinding(isEdit, state, fetcherForUpstream);
   if (!resolved.ok) return imageTerminal(prompt, action, { ok: false, error: resolved.error });
   const { binding } = resolved;
+  const fetcher = fetcherForUpstream(binding.upstream);
   const wantsPartials = (state.config.partial_images ?? 0) > 0;
 
   let response: Response;
   let modelKey: string;
   try {
-    ({ response, modelKey } = await issueImageCall(binding, prompt, isEdit, sources, state, wantsPartials));
+    ({ response, modelKey } = await issueImageCall(binding, fetcher, prompt, isEdit, sources, state, wantsPartials));
   } catch (e) {
     return imageTerminal(prompt, action, { ok: false, error: serverError(e) });
   }
@@ -816,15 +819,12 @@ const streamImageGeneration = (
 // downstream client on the synthesized `image_generation_call` item.
 //
 // Fidelity across requests: a client may echo a prior call back as a bare id
-// with the bytes dropped. Such a reference is restored before this seam runs —
-// the stored-items layer persists every synthesized output item as a portable
-// row and inline-expands a by-id reference back to the full `payload.item`
-// (result bytes included) ahead of the source interceptors — so this seam, and
-// `collectImageSources`, already receive the complete item. The
-// `image_generation_call` shape needs no out-of-band payload for this to be
-// lossless: every field required to rebuild the pair, INCLUDING the error
-// (`status` + `error{message,code,type}`), has a public home on the item, so
-// persisting the public item alone suffices.
+// with the bytes dropped. By the time this seam runs the input item already
+// carries the full result payload — collectImageSources can bind result bytes
+// directly without any out-of-band lookup. The `image_generation_call` shape
+// needs no out-of-band payload for this to be lossless: every field required
+// to rebuild the pair, INCLUDING the error (`status` + `error{message,code,
+// type}`), has a public home on the item.
 export const transformInputItemsForImageGeneration = (
   input: ResponsesInputItem[],
   toolName: string,

@@ -1,8 +1,11 @@
-import type { CacheRepo, LlmTargetApi, ModelProvider, ModelProviderInstance, ProviderCandidate, ProviderModelRecord, TelemetryModelIdentity, UpstreamCallOptions, UpstreamModel } from '@floway-dev/provider';
+import { directFetcher, type CacheRepo, type LlmTargetApi, type ModelProvider, type ModelProviderInstance, type ProviderCandidate, type ProviderModelRecord, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
 
-// No-op options for tests that call provider methods directly without going
-// through the gateway's recorder.
+// No-op UpstreamCallOptions for tests calling provider methods directly:
+// identity recordUpstreamLatency satisfies the contract without piping
+// latency anywhere; the fetcher uses runtime fetch so `globalThis.fetch`
+// spies still intercept.
 export const noopUpstreamCallOptions: UpstreamCallOptions = {
+  fetcher: directFetcher,
   recordUpstreamLatency: <T>(promise: Promise<T>): Promise<T> => promise,
 };
 
@@ -41,12 +44,11 @@ export const testTelemetryModelIdentity: TelemetryModelIdentity = {
   cost: null,
 };
 
-// Auto-wrap a caller-provided mock impl so its returned value flows through
-// the per-call `recordUpstreamLatency` hook. Gateway-side tests stub provider
-// methods with `vi.fn(async () => ...)` and would otherwise leave the gateway
-// recorder uninvoked, tripping its enforce-throw. Wrapping at the stub-
-// provider layer keeps the spy's mock.calls intact (the inner fn still
-// records every arg including opts) while satisfying the contract.
+// Auto-wrap a caller-provided mock impl so its returned value flows
+// through the per-call `recordUpstreamLatency` hook. Direct vi.fn stubs
+// would otherwise leave the contract uninvoked. Wrapping here keeps the
+// spy's mock.calls intact (the inner fn still receives every arg,
+// including opts).
 const autoWrap = <T>(impl: T | undefined): T | undefined => {
   if (!impl) return undefined;
   const fn = impl as unknown as (...args: unknown[]) => Promise<unknown> | unknown;
@@ -69,35 +71,29 @@ export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvi
   callImagesEdits: autoWrap(overrides.callImagesEdits) ?? (() => Promise.reject(new Error('stubProvider.callImagesEdits was called'))),
 });
 
-export const stubProviderInstance = (overrides: Partial<ModelProviderInstance> = {}): ModelProviderInstance => ({
-  upstream: 'test-upstream',
-  providerKind: 'custom',
-  name: 'Test Upstream',
-  disabledPublicModelIds: [],
-  provider: stubProvider(),
-  supportsResponsesItemReference: false,
-  ...overrides,
-});
-
-export const stubProviderModelRecord = (overrides: Partial<ProviderModelRecord> = {}): ProviderModelRecord => {
-  const provider = overrides.provider ?? stubProvider();
-  return {
-    upstream: 'test-upstream',
-    upstreamName: 'Test Upstream',
-    providerKind: 'custom',
-    provider,
-    upstreamModel: stubUpstreamModel(),
-    enabledFlags: new Set<string>(),
-    supportsResponsesItemReference: false,
-    ...overrides,
-  };
-};
-
 export const stubProviderCandidate = (overrides: { targetApi?: LlmTargetApi; binding?: Partial<ProviderModelRecord>; provider?: ModelProviderInstance } = {}): ProviderCandidate => {
-  const provider = overrides.provider ?? stubProviderInstance();
+  const provider = overrides.provider ?? {
+    upstream: 'test-upstream',
+    providerKind: 'custom',
+    name: 'Test Upstream',
+    disabledPublicModelIds: [],
+    provider: stubProvider(),
+    supportsResponsesItemReference: false,
+  };
+  const bindingOverrides = overrides.binding ?? {};
   return {
     provider,
-    binding: stubProviderModelRecord({ provider: provider.provider, ...(overrides.binding ?? {}) }),
+    binding: {
+      upstream: 'test-upstream',
+      upstreamName: 'Test Upstream',
+      providerKind: 'custom',
+      provider: provider.provider,
+      upstreamModel: stubUpstreamModel(),
+      enabledFlags: new Set<string>(),
+      supportsResponsesItemReference: false,
+      ...bindingOverrides,
+    },
     targetApi: overrides.targetApi ?? 'messages',
+    fetcher: directFetcher,
   };
 };

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { OverlayScrollbars } from '@floway-dev/ui';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { computed } from 'vue';
 
 import type { ApiKey } from '../../api/types.ts';
 import type { UpstreamOption } from '../../composables/useUpstreamOptions.ts';
+import { OverlayScrollbars } from '@floway-dev/ui';
 
 dayjs.extend(relativeTime);
 

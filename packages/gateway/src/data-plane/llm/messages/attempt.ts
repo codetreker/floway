@@ -24,10 +24,7 @@ export interface MessagesAttemptGenerateArgs {
   readonly store: StatefulResponsesStore;
   readonly candidate: ProviderCandidate;
   readonly anthropicBeta?: readonly string[];
-  // Optional invocation-headers inheritance from a source attempt that
-  // translated INTO messages. Source-side interceptors write trace headers
-  // into the source invocation; passing them in here keeps them on the wire
-  // for the translated upstream call.
+  // See responses/attempt.ts for the inherited-headers contract.
   readonly inheritedInvocationHeaders?: Record<string, string>;
 }
 
@@ -61,7 +58,7 @@ export const messagesAttempt = {
           ctx.abortSignal,
           invocation.headers,
           invocation.anthropicBeta,
-          { recordUpstreamLatency: recorder.record },
+          { fetcher: candidate.fetcher, recordUpstreamLatency: recorder.record },
         );
         return await providerStreamResultToExecuteResult(providerResult, candidate, ctx, recorder.durationMs());
       }
@@ -113,12 +110,12 @@ export const messagesAttempt = {
         ctx.abortSignal,
         invocation.headers,
         invocation.anthropicBeta,
-        { recordUpstreamLatency: recorder.record },
+        { fetcher: candidate.fetcher, recordUpstreamLatency: recorder.record },
       );
       return response;
     });
-    // count_tokens is excluded from the `upstream_success` metric — the
-    // dashboard only tracks generation-shaped traffic — but the recorder
+    // count_tokens is excluded from the `upstream_success` metric — that
+    // metric only covers generation-shaped traffic — but the recorder
     // contract still has to fire so a provider that forgets to wrap fails
     // loud on the happy path. Discarding the duration is intentional;
     // upstream throws are already loud via the await above.
@@ -129,10 +126,10 @@ export const messagesAttempt = {
 
 // Rewrites stored Responses item carriers (assistant thinking blocks whose
 // signature packs a gateway-stored reasoning id) to the upstream-owned id
-// the chosen candidate's wire requires. Failures only originate from
-// `item_reference` against a candidate without item_reference support, which
-// the affinity walk already excluded — but defensive rewrite is cheap and
-// keeps the attempt closed-loop.
+// the chosen candidate's wire requires. The failure path translates a
+// missing-item lookup into a 400 invalid_request_error so a caller that
+// referenced an item the gateway no longer has gets a useful error envelope
+// rather than a generic 500.
 const rewriteOrRenderMessagesFailure = async (
   payload: MessagesPayload,
   store: StatefulResponsesStore,

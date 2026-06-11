@@ -1,28 +1,5 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
-
-import { callApi as callApiForLoader, useApi as useApiForLoader } from '../../api/client.ts';
-import type { ApiKey as LoaderApiKey } from '../../api/types.ts';
-import { useModelsStore as useModelsStoreForLoader } from '../../composables/useModels.ts';
-import { useUpstreamOptionsStore as useUpstreamOptionsStoreForLoader } from '../../composables/useUpstreamOptions.ts';
-
-export const useKeysPageData = defineBasicLoader(async () => {
-  const api = useApiForLoader();
-  const upstreamOptions = useUpstreamOptionsStoreForLoader();
-  const [keysRes] = await Promise.all([
-    callApiForLoader<LoaderApiKey[]>(() => api.api.keys.$get()),
-    upstreamOptions.load(),
-    useModelsStoreForLoader().load(),
-  ]);
-  return {
-    keys: keysRes.error ? [] : keysRes.data,
-    error: keysRes.error?.message ?? upstreamOptions.error.value,
-  };
-});
-</script>
-
-<script setup lang="ts">
-import { Button, Input } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
@@ -32,6 +9,24 @@ import EditKeyDialog from '../../components/keys/EditKeyDialog.vue';
 import KeysTable from '../../components/keys/KeysTable.vue';
 import { useModelsStore } from '../../composables/useModels.ts';
 import { useUpstreamOptionsStore } from '../../composables/useUpstreamOptions.ts';
+import { Button, Input } from '@floway-dev/ui';
+
+export const useKeysPageData = defineBasicLoader(async () => {
+  const api = useApi();
+  const upstreamOptions = useUpstreamOptionsStore();
+  const [keysRes] = await Promise.all([
+    callApi<ApiKey[]>(() => api.api.keys.$get()),
+    upstreamOptions.load(),
+    useModelsStore().load(),
+  ]);
+  return {
+    keys: keysRes.error ? [] : keysRes.data,
+    error: keysRes.error?.message ?? upstreamOptions.error.value,
+  };
+});
+</script>
+
+<script setup lang="ts">
 
 const api = useApi();
 const upstreamOptionsStore = useUpstreamOptionsStore();

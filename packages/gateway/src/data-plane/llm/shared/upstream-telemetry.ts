@@ -87,14 +87,6 @@ export const recordUpstreamHttpFailure = (ctx: GatewayCtx, context: PerformanceT
   ctx.scheduleBackground(() => recordPerformanceError(context, 'upstream_success'));
 };
 
-// `/responses/compact` is non-streaming so it has no frame stream to wrap with
-// withUpstreamTelemetry; record the `upstream_success` latency directly with
-// the recorder-measured round-trip. (Embeddings/images get the same treatment
-// in passthrough-serve via its own scheduler-typed helper.)
-export const recordUpstreamLatency = (ctx: GatewayCtx, context: PerformanceTelemetryContext, durationMs: number): void => {
-  ctx.scheduleBackground(() => recordPerformanceLatency(context, 'upstream_success', durationMs));
-};
-
 function classifyTerminalFrame<T>(frame: ProtocolFrame<T>, targetApi: LlmTargetApi): TerminalKind | null {
   if (frame.type === 'done') {
     // Chat Completions's terminal signal IS the `[DONE]` sentinel; Messages

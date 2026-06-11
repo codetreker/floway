@@ -1,19 +1,13 @@
 <script setup lang="ts">
-// Single model card in the horizontal grid. Renders the enable switch, the
-// display name, the upstream model id (with copy button), and — for Custom
-// rows that have an auto twin — the Auto/Manual mode pills. Click anywhere
-// (outside the active controls) selects this card.
+import { ref } from 'vue';
 
 import { Switch } from '@floway-dev/ui';
-import { ref } from 'vue';
 
 defineProps<{
   displayName: string;
   publicId: string;
   enabled: boolean;
   selected: boolean;
-  // Show the Auto/Manual pills. False for Azure (always manual, no twin) and
-  // Copilot (catalog is read-only).
   showModePills: boolean;
   mode: 'auto' | 'manual';
 }>();

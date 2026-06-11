@@ -1,6 +1,6 @@
 import { getRepo } from '../../repo/index.ts';
 import { type ModelEndpointKey, type ModelEndpoints, kindForEndpoints } from '@floway-dev/protocols/common';
-import type { InternalModel, ModelProviderInstance, ProviderModelRecord, ResolvedModel, UpstreamModel, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import type { InternalModel, ModelProviderInstance, ProviderModelRecord, ResolvedModel, Fetcher, UpstreamModel, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import { createAzureProvider } from '@floway-dev/provider-azure';
 import { createCodexProvider } from '@floway-dev/provider-codex';
 import { createCopilotProvider } from '@floway-dev/provider-copilot';
@@ -12,6 +12,8 @@ interface ProviderModelsResult {
   lastError: unknown;
 }
 
+const NO_UPSTREAM_CONFIGURED_MESSAGE = 'No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard';
+
 type ProviderFactory = (record: UpstreamRecord) => ModelProviderInstance | Promise<ModelProviderInstance>;
 
 const providerFactories: Record<UpstreamProviderKind, ProviderFactory> = {
@@ -21,18 +23,17 @@ const providerFactories: Record<UpstreamProviderKind, ProviderFactory> = {
   codex: createCodexProvider,
 };
 
-// Build a single provider instance for one upstream record, regardless of kind.
-// Used by the control plane to list a saved upstream's resolved catalog.
 export const createProviderInstance = (record: UpstreamRecord): ModelProviderInstance | Promise<ModelProviderInstance> =>
   providerFactories[record.provider](record);
 
-// Ids not in the catalog are silently dropped; null preserves global sort order.
 // The upstream scope is a required argument across the catalog-assembly chain
 // (this, getModels, getInternalModels) so a caller can never omit it and
 // silently receive the full, unscoped catalog — a missing scope is a compile
 // error, not a runtime leak. Pass `null` to deliberately request every enabled
 // upstream.
-export const listModelProviders = async (upstreamFilter: readonly string[] | null): Promise<ModelProviderInstance[]> => {
+export const listModelProviders = async (
+  upstreamFilter: readonly string[] | null,
+): Promise<ModelProviderInstance[]> => {
   const upstreams = await getRepo().upstreams.list();
   const enabledById = new Map<string, UpstreamRecord>();
   for (const upstream of upstreams) {
@@ -45,7 +46,8 @@ export const listModelProviders = async (upstreamFilter: readonly string[] | nul
 
   const providers: ModelProviderInstance[] = [];
   for (const upstream of selection) {
-    providers.push(await providerFactories[upstream.provider](upstream));
+    const factory = providerFactories[upstream.provider];
+    providers.push(await factory(upstream));
   }
 
   return providers;
@@ -72,14 +74,17 @@ const resolvedFromUpstreamModel = (upstreamModel: UpstreamModel, record: Provide
   };
 };
 
-const collectProviderModels = async (providers: readonly ModelProviderInstance[]): Promise<ProviderModelsResult> => {
+const collectProviderModels = async (
+  providers: readonly ModelProviderInstance[],
+  fetcherForUpstream: (upstreamId: string) => Fetcher,
+): Promise<ProviderModelsResult> => {
   const byId = new Map<string, ResolvedModel>();
   let sawSuccess = false;
   let lastError: unknown = null;
 
   for (const instance of providers) {
     try {
-      const providedModels = await instance.provider.getProvidedModels();
+      const providedModels = await instance.provider.getProvidedModels(fetcherForUpstream(instance.upstream));
       sawSuccess = true;
       // Operator-disabled public model ids vanish entirely for this upstream:
       // dropped before they reach the catalog map, so they appear in no /models
@@ -110,6 +115,11 @@ const collectProviderModels = async (providers: readonly ModelProviderInstance[]
         });
       }
     } catch (error) {
+      // Caller-driven cancellation must propagate. Burying it in lastError
+      // and letting an earlier sawSuccess return a partially-populated
+      // model list would mask the abort and let the rest of the data-plane
+      // request build a Response against a stale catalog.
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       lastError = error;
     }
   }
@@ -164,30 +174,36 @@ export const compareModelIds = (a: string, b: string): number => {
     || cmp(a, b, -1);
 };
 
-export const getModels = async (upstreamFilter: readonly string[] | null): Promise<ResolvedModel[]> => {
+// `fetcherForUpstream` routes each upstream's catalog fetch through its
+// per-upstream proxy chain.
+export const getModels = async (
+  upstreamFilter: readonly string[] | null,
+  fetcherForUpstream: (upstreamId: string) => Fetcher,
+): Promise<ResolvedModel[]> => {
   const providers = await listModelProviders(upstreamFilter);
   if (providers.length === 0) {
-    throw new Error('No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
+    throw new Error(NO_UPSTREAM_CONFIGURED_MESSAGE);
   }
 
-  const { models, sawSuccess, lastError } = await collectProviderModels(providers);
+  const { models, sawSuccess, lastError } = await collectProviderModels(providers, fetcherForUpstream);
 
   if (sawSuccess) return [...models].sort((a, b) => compareModelIds(a.id, b.id));
   if (lastError) throw lastError;
   return [];
 };
 
-// Strips planner-only and provider-binding fields, leaving the InternalModel
-// shape consumed by the public /models DTO projection and the dashboard.
-export const getInternalModels = async (upstreamFilter: readonly string[] | null): Promise<InternalModel[]> =>
-  (await getModels(upstreamFilter)).map(({ providers: _providers, endpoints: _endpoints, ...model }) => model);
+export const getInternalModels = async (
+  upstreamFilter: readonly string[] | null,
+  fetcherForUpstream: (upstreamId: string) => Fetcher,
+): Promise<InternalModel[]> =>
+  (await getModels(upstreamFilter, fetcherForUpstream)).map(({ providers: _providers, endpoints: _endpoints, ...model }) => model);
 
-export interface ModelResolution {
+interface ModelResolution {
   id: string;
   model?: ResolvedModel;
 }
 
-export interface ProviderModelResolution {
+interface ProviderModelResolution {
   id: string;
   model: UpstreamModel;
   binding: ProviderModelRecord;
@@ -216,13 +232,17 @@ const resolveProviderAlias = (providers: readonly ModelProviderInstance[], byId:
   return modelWithProviderInstances(resolved, providersForAlias);
 };
 
-export const resolveModelForRequest = async (modelId: string, upstreamFilter: readonly string[] | null): Promise<ModelResolution> => {
+export const resolveModelForRequest = async (
+  modelId: string,
+  upstreamFilter: readonly string[] | null,
+  fetcherForUpstream: (upstreamId: string) => Fetcher,
+): Promise<ModelResolution> => {
   const providers = await listModelProviders(upstreamFilter);
   if (providers.length === 0) {
-    throw new Error('No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
+    throw new Error(NO_UPSTREAM_CONFIGURED_MESSAGE);
   }
 
-  const { models, lastError } = await collectProviderModels(providers);
+  const { models, lastError } = await collectProviderModels(providers, fetcherForUpstream);
   const byId = new Map(models.map(model => [model.id, model]));
 
   const exact = byId.get(modelId);
@@ -249,8 +269,9 @@ const providerModelRecord = (instance: ModelProviderInstance, upstreamModel: Ups
 export const resolveModelForProvider = async (
   instance: ModelProviderInstance,
   modelId: string,
+  fetcher: Fetcher,
 ): Promise<ProviderModelResolution | undefined> => {
-  const providedModels = await instance.provider.getProvidedModels();
+  const providedModels = await instance.provider.getProvidedModels(fetcher);
   const disabled = new Set(instance.disabledPublicModelIds);
   const exact = providedModels.find(model => model.id === modelId && !disabled.has(model.id));
   if (exact) return { id: exact.id, model: exact, binding: providerModelRecord(instance, exact) };

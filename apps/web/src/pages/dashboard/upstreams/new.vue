@@ -1,11 +1,15 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { useRoute } from 'vue-router';
 
-import { useUpstreamsStore as useStoreForLoader } from '../../../composables/useUpstreams.ts';
+import type { UpstreamProviderKind } from '../../../api/types.ts';
+import UpstreamEditPage from '../../../components/upstream-edit/UpstreamEditPage.vue';
+import { useProxiesStore } from '../../../composables/useProxies.ts';
+import { useUpstreamsStore } from '../../../composables/useUpstreams.ts';
 
 export const useNewUpstreamData = defineBasicLoader(async () => {
-  const store = useStoreForLoader();
-  await store.load();
+  const store = useUpstreamsStore();
+  await Promise.all([store.load(), useProxiesStore().load()]);
   const list = store.upstreams.value ?? [];
   const nextSortOrder = list.reduce((acc, u) => Math.max(acc, u.sort_order), -1) + 1;
   return {
@@ -16,12 +20,6 @@ export const useNewUpstreamData = defineBasicLoader(async () => {
 </script>
 
 <script setup lang="ts">
-import { useRoute } from 'vue-router';
-
-import UpstreamEditPage from '../../../components/upstream-edit/UpstreamEditPage.vue';
-import { useUpstreamsStore } from '../../../composables/useUpstreams.ts';
-import type { UpstreamProviderKind } from '../../../api/types.ts';
-
 definePage({ meta: { requiresAdmin: true } });
 
 const route = useRoute('/dashboard/upstreams/new');
@@ -35,12 +33,7 @@ const initialProvider: UpstreamProviderKind = (() => {
 })();
 
 const onSaved = async () => {
-  // Refetch the list so the settings page sees the new upstream when the
-  // editor navigates back. The Copilot device-flow and Codex import paths
-  // both end on the new upstream's edit page (see
-  // UpstreamEditPage.onCopilotCompleted / onCodexImported), so the
-  // just-authorised account can be configured straight away without a
-  // round-trip through settings.
+  // Refetch so navigations back to listings see the new upstream.
   await store.load();
 };
 </script>

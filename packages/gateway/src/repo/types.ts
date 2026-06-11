@@ -95,13 +95,12 @@ export interface PerformanceTelemetryRecord extends PerformanceDimensions {
 
 export interface ApiKeyRepo {
   list(): Promise<ApiKey[]>;
-  // Includes soft-deleted rows. Telemetry attribution and v4 export need every
-  // historical key, including ones the owner has rotated or deleted, so the
-  // user_id behind each row stays resolvable.
+  // Includes soft-deleted rows so the user_id behind a historical key stays
+  // resolvable after the owner rotates or deletes it.
   listIncludingDeleted(): Promise<ApiKey[]>;
   listByUserId(userId: number): Promise<ApiKey[]>;
-  // Self-scope telemetry includes the actor's own soft-deleted keys so a
-  // rotated key's name still surfaces in the dashboard's by-key view.
+  // Includes the user's own soft-deleted keys so a rotated key's name still
+  // resolves when attributing past usage.
   listByUserIdIncludingDeleted(userId: number): Promise<ApiKey[]>;
   findByRawKey(rawKey: string): Promise<ApiKey | null>;
   getById(id: string): Promise<ApiKey | null>;
@@ -145,8 +144,7 @@ export interface UsageRepo {
   record(record: UsageRecord): Promise<void>;
   query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]>;
   listAll(): Promise<UsageRecord[]>;
-  // Replacement upsert (counts and cost both overwritten from the record).
-  // Used by import/restore flows.
+  // Replacement upsert: counts and cost are both overwritten from the record.
   set(record: UsageRecord): Promise<void>;
   deleteAll(): Promise<void>;
 }
@@ -191,6 +189,56 @@ export interface UpstreamRepo {
   // options.expectedState at write time. On updated:false the caller re-reads
   // and decides whether to retry or drop the update.
   saveState(id: string, newState: unknown, options: { expectedState: unknown }): Promise<{ updated: boolean }>;
+}
+
+export interface ProxyRecord {
+  id: string;
+  name: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  // Operator-set per-proxy override of the dial-stage deadline (seconds).
+  // null falls back to the gateway-wide dial-stage default.
+  dialTimeoutSeconds: number | null;
+}
+
+export interface ProxyRepo {
+  list(): Promise<ProxyRecord[]>;
+  getById(id: string): Promise<ProxyRecord | null>;
+  insert(input: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<ProxyRecord>;
+  // Returns the updated record alongside the bit `url` actually changed by
+  // this patch so callers that react to URL edits (e.g. wiping outstanding
+  // backoff rows) don't need a redundant getById round-trip.
+  patch(id: string, patch: { name?: string; url?: string; dialTimeoutSeconds?: number | null }): Promise<{ record: ProxyRecord; urlChanged: boolean } | null>;
+  // Upsert: an id collision overwrites the configurable columns (name, url,
+  // dial_timeout_seconds) and refreshes updated_at; created_at belongs to the
+  // local deployment and is preserved.
+  save(record: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<void>;
+  delete(id: string): Promise<boolean>;
+  deleteAll(): Promise<void>;
+  findUpstreamsReferencing(proxyId: string): Promise<string[]>;
+}
+
+export interface BackoffRow {
+  proxyId: string;
+  upstreamId: string;
+  failCount: number;
+  // Unix seconds.
+  expiresAt: number;
+  lastError: string | null;
+  lastErrorAt: number | null;
+}
+
+export interface ProxyBackoffRepo {
+  recordDialFailure(proxyId: string, upstreamId: string, errorMessage: string): Promise<void>;
+  recordDialSuccess(proxyId: string, upstreamId: string): Promise<void>;
+  listForUpstream(upstreamId: string): Promise<BackoffRow[]>;
+  listForProxy(proxyId: string): Promise<BackoffRow[]>;
+  listAll(): Promise<BackoffRow[]>;
+  resetForProxy(proxyId: string): Promise<void>;
+  resetForUpstream(upstreamId: string): Promise<void>;
+  reset(proxyId: string, upstreamId: string): Promise<void>;
+  deleteAll(): Promise<void>;
 }
 
 export interface StoredResponsesItem {
@@ -257,6 +305,8 @@ export interface Repo {
   cache: CacheRepo;
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
+  proxies: ProxyRepo;
+  proxyBackoffs: ProxyBackoffRepo;
   responsesItems: ResponsesItemsRepo;
   responsesSnapshots: ResponsesSnapshotsRepo;
 }

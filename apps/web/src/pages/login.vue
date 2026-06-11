@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { Input } from '@floway-dev/ui';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { callApi, useApi } from '../api/client.ts';
 import { useLoading } from '../composables/useLoading.ts';
 import { type AuthUser, useAuthStore } from '../stores/auth.ts';
+import { Input } from '@floway-dev/ui';
 
-// Public route — skipped by the auth guard via meta.public. definePage is a
-// compile-time macro and must live in <script setup>; do not import it.
 definePage({ meta: { public: true } });
 
 const api = useApi();

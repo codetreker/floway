@@ -1,17 +1,12 @@
 <script setup lang="ts">
-// Owns codex create + re-import end-to-end so the page-level Save button
-// stays out of this provider's path, mirroring CopilotConfigPanel's
-// device-flow ownership.
-
-import { Button, Spinner } from '@floway-dev/ui';
 import { computed, ref, watch } from 'vue';
 
-import { callApi, useApi } from '../../api/client.ts';
-import type { UpstreamRecord } from '../../api/types.ts';
-
+import type { CodexImportTab, CodexPkceStartResult } from './codex-import-types.ts';
 import CodexAccountCard from './CodexAccountCard.vue';
 import CodexImportTabs from './CodexImportTabs.vue';
-import type { CodexImportTab, CodexPkceStartResult } from './codex-import-types.ts';
+import { callApi, useApi } from '../../api/client.ts';
+import type { UpstreamRecord } from '../../api/types.ts';
+import { Button, Spinner } from '@floway-dev/ui';
 
 const props = defineProps<{
   mode: 'create' | 'edit';
@@ -59,8 +54,7 @@ const buildBody = (): { ok: true; value: { auth_json?: unknown; callback?: { cal
     const text = draft.value.authJsonText.trim();
     if (!text) return { ok: false, error: 'Paste the contents of ~/.codex/auth.json' };
     let parsed: unknown;
-    try { parsed = JSON.parse(text); }
-    catch (e) { return { ok: false, error: `auth.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}` }; }
+    try { parsed = JSON.parse(text); } catch (e) { return { ok: false, error: `auth.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}` }; }
     return { ok: true, value: { auth_json: parsed } };
   }
   const url = draft.value.callbackUrlText.trim();
@@ -75,11 +69,11 @@ const submit = async () => {
   submitting.value = true;
   const result = props.mode === 'create'
     ? await callApi<UpstreamRecord>(
-      () => api.api.upstreams['codex-import'].$post({ json: body.value }),
-    )
+        () => api.api.upstreams['codex-import'].$post({ json: body.value }),
+      )
     : await callApi<UpstreamRecord>(
-      () => api.api.upstreams[':id']['codex-reimport'].$post({ param: { id: props.record!.id }, json: body.value }),
-    );
+        () => api.api.upstreams[':id']['codex-reimport'].$post({ param: { id: props.record!.id }, json: body.value }),
+      );
   submitting.value = false;
   if (result.error) { emit('error', result.error.message); return; }
   emit('imported', result.data);

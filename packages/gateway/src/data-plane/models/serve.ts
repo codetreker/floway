@@ -5,25 +5,19 @@
 import type { Context } from 'hono';
 
 import { loadModels } from './load.ts';
+import { MODEL_LISTING_FAILURE_MESSAGE } from './shared.ts';
+import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { ProviderModelsUnavailableError } from '@floway-dev/provider';
 
-const apiErrorResponse = (message: string, status: number): Response => Response.json({ error: { message, type: 'api_error' } }, { status });
-
-// Upstream HTTP/parse failures are squashed to a generic 502 so we do not
-// leak upstream identity. Other errors (e.g. the registry's "no upstream
-// configured" hint) carry actionable operator guidance and surface verbatim.
-const modelLoadErrorResponse = (error: unknown): Response => {
-  if (error instanceof ProviderModelsUnavailableError) {
-    return apiErrorResponse('Upstream model listing failed', 502);
-  }
-  return apiErrorResponse(error instanceof Error ? error.message : String(error), 502);
-};
-
 export const models = async (c: Context) => {
   try {
-    return Response.json(await loadModels(effectiveUpstreamIdsFromContext(c)));
+    const fetcherForUpstream = await createPerRequestFetcher();
+    return Response.json(await loadModels(effectiveUpstreamIdsFromContext(c), fetcherForUpstream));
   } catch (e) {
-    return modelLoadErrorResponse(e);
+    const message = e instanceof ProviderModelsUnavailableError
+      ? MODEL_LISTING_FAILURE_MESSAGE
+      : (e instanceof Error ? e.message : String(e));
+    return Response.json({ error: { message, type: 'api_error' } }, { status: 502 });
   }
 };

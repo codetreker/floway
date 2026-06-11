@@ -1,14 +1,13 @@
 <script setup lang="ts">
 // Custom provider-specific fields (Base URL, auth, default endpoints, fetch
-// /models toggle, path overrides). The model list is owned by ModelsPanel on
-// the right side — this panel only carries the connection-shaped config.
-
-import { Button, Input, Switch } from '@floway-dev/ui';
+// /models toggle, path overrides). The model list is owned by a separate
+// panel — this panel only carries the connection-shaped config.
 
 import type { CustomDraft } from './customConfig.ts';
 import { PATH_KEYS } from './customConfig.ts';
 import EndpointsField from './EndpointsField.vue';
 import SecretInput from '../shared/SecretInput.vue';
+import { Button, Input, Switch } from '@floway-dev/ui';
 
 const draft = defineModel<CustomDraft>({ required: true });
 
@@ -17,8 +16,7 @@ defineProps<{
   editMode: boolean;
   fetchLoading: boolean;
   fetchError: string | null;
-  // Wall-clock summary of the last fetch (e.g. "12 returned · 3m ago"), or null
-  // when no successful fetch has happened yet.
+  /** Wall-clock summary of the last fetch, e.g. "12 returned · 3m ago". */
   fetchStatus: string | null;
 }>();
 

@@ -1,15 +1,14 @@
 <script setup lang="ts">
-// Right-side composite that owns the model row reconciliation: keeps the
-// merged manual+auto list in sync with the props, and hands the selected
-// row down to ModelEditor.
+// Owns the model row reconciliation: keeps the merged manual+auto list in
+// sync with the props, and hands the selected row down to ModelEditor.
 
-import { Button } from '@floway-dev/ui';
 import { computed, reactive, ref, watch } from 'vue';
 
-import type { FlagDef, UpstreamModelConfig, UpstreamProviderKind } from '../../api/types.ts';
 import ModelEditor from './ModelEditor.vue';
-import ModelsGrid from './ModelsGrid.vue';
 import { newUiId, type Row, seedFromAuto } from './modelRows.ts';
+import ModelsGrid from './ModelsGrid.vue';
+import type { FlagDef, UpstreamModelConfig, UpstreamProviderKind } from '../../api/types.ts';
+import { Button } from '@floway-dev/ui';
 
 const manualModels = defineModel<UpstreamModelConfig[]>({ required: true });
 const disabledIds = defineModel<string[]>('disabledIds', { required: true });
@@ -95,8 +94,7 @@ const reconcile = () => {
 watch([manualModels, () => props.autoModels], reconcile, { immediate: true, deep: false });
 
 const selectedRow = computed<Row | null>(() =>
-  selectedUiId.value === null ? null : rows.value.find(r => r.uiId === selectedUiId.value) ?? null,
-);
+  selectedUiId.value === null ? null : rows.value.find(r => r.uiId === selectedUiId.value) ?? null);
 
 const emitManual = () => {
   manualModels.value = rows.value
@@ -147,7 +145,7 @@ const setMode = (uiId: string, mode: 'auto' | 'manual') => {
 
 const patchConfig = (patch: Partial<UpstreamModelConfig>) => {
   const row = selectedRow.value;
-  if (!row || row.kind !== 'manual') return;
+  if (row?.kind !== 'manual') return;
   Object.assign(row.config, patch);
   for (const key of Object.keys(patch) as (keyof UpstreamModelConfig)[]) {
     if (patch[key] === undefined) delete (row.config as unknown as Record<string, unknown>)[key];

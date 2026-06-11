@@ -63,6 +63,7 @@ export const buildCopilotUpstreamRecord = (githubAccount: CopilotAccountFixture,
     state: null,
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     ...rest,
     config: overrideConfig ?? config,
   };
@@ -87,6 +88,7 @@ export const buildCustomUpstreamRecord = (overrides: Partial<UpstreamRecord> = {
     state: null,
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     ...rest,
     config: overrideConfig ?? config,
   };
@@ -150,9 +152,8 @@ export async function setupAppTest(options: SetupOptions = {}): Promise<AppTestC
   }
 
   // Most tests need an admin-authenticated dashboard caller; expose a fresh
-  // session token tied to user 1 (the seed admin) so they can use
-  // `x-floway-session: adminSession` instead of a now-rejected `x-api-key:
-  // ADMIN_KEY`.
+  // session token tied to user 1 (the seed admin) for
+  // `x-floway-session: adminSession`.
   const adminSession = (await repo.sessions.create(1)).id;
 
   return { repo, adminKey, adminSession, apiKey, githubAccount, copilotUpstream };
@@ -254,9 +255,9 @@ export function sseChatCompletionsResponse(response: Record<string, unknown>): R
 }
 
 export function sseResponsesResponse(response: Record<string, unknown>): Response {
-  // The target boundary expands fast-path (created+in_progress+terminal) into
-  // a full sequence, so emitting only those wrapper events here is sufficient
-  // and exercises the production expansion path.
+  // The Responses stream wrapper expands a created+in_progress+completed
+  // triplet into the full event sequence, so emitting just those three
+  // wrapper events here exercises that expansion path.
   return sseResponse([
     { event: 'response.created', data: { type: 'response.created', response: { ...response, status: 'in_progress', output: [], output_text: '' }, sequence_number: 0 } },
     { event: 'response.in_progress', data: { type: 'response.in_progress', response: { ...response, status: 'in_progress', output: [], output_text: '' }, sequence_number: 1 } },

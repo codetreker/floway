@@ -167,6 +167,7 @@ test('PATCH /api/upstreams keeps Azure as a single endpoint config', async () =>
     updatedAt: '2026-05-22T00:00:00.000Z',
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'az-secret',
@@ -225,6 +226,7 @@ test('GET /api/upstream-options returns the minimal picker shape to admin and no
     updatedAt: '2026-05-01T00:00:00.000Z',
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     config: { baseUrl: 'https://custom.example.com', bearerToken: 'sk-secret', endpoints: { chatCompletions: {} } },
     state: null,
   });
@@ -287,6 +289,7 @@ test('POST /api/upstreams/fetch-models substitutes the stored secret when the to
     updatedAt: '2026-05-22T00:00:00.000Z',
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     config: { ...customConfig, bearerToken: 'sk-stored-secret' },
     state: null,
   });
@@ -343,6 +346,45 @@ test('POST /api/upstreams/fetch-models rejects a malformed draft config with 400
   assertEquals(resp.status, 400);
   const body = (await resp.json()) as { error: string };
   assertEquals(body.error.includes('bearerToken'), true);
+});
+
+test('POST /api/upstreams/fetch-models routes through the saved upstream\'s proxy fallback list when an id is supplied', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  // A malformed proxy URL surfaces from the per-request fetcher as a dial-time
+  // error keyed on the upstream id. directFetcher would have ignored the list
+  // entirely and the catalog GET would succeed — so a 502 here proves the
+  // route built and used the per-upstream fetcher.
+  await repo.proxies.insert({ id: 'p_bad', name: 'Bad', url: 'gibberish-no-scheme', dialTimeoutSeconds: null });
+  await repo.upstreams.save({
+    id: 'up_with_bad_proxy',
+    provider: 'custom',
+    name: 'Custom with bad proxy',
+    enabled: true,
+    sortOrder: 0,
+    createdAt: '2026-05-22T00:00:00.000Z',
+    updatedAt: '2026-05-22T00:00:00.000Z',
+    flagOverrides: {},
+    disabledPublicModelIds: [],
+    proxyFallbackList: ['p_bad'],
+    config: { ...customConfig, bearerToken: 'sk-stored' },
+    state: null,
+  });
+
+  await withMockedFetch(
+    async request => {
+      // Reached only if the route fell back to directFetcher — failing here
+      // pins the regression rather than letting it slip past as a 200.
+      throw new Error(`unexpected direct fetch in proxy-fallback path: ${request.url}`);
+    },
+    async () => {
+      const resp = await requestApp(
+        '/api/upstreams/fetch-models',
+        authed(adminSession, { id: 'up_with_bad_proxy', config: { ...customConfig, bearerToken: '' } }),
+      );
+      assertEquals(resp.status, 502);
+    },
+  );
 });
 
 test('GET /api/upstreams/:id/models resolves a saved upstream catalog and 404s for an unknown id', async () => {
@@ -585,4 +627,108 @@ test('POST /api/upstreams/:id/codex-refresh-now still answers when the failure-s
   const afterState = after?.state as { accounts: Array<{ state: string; refresh_token: string }> };
   assertEquals(afterState.accounts[0].refresh_token, 'rt_concurrent_winner');
   assertEquals(afterState.accounts[0].state, 'active');
+});
+
+// --- proxy_fallback_list ---
+//
+// The list has set semantics — duplicates are dropped silently before
+// storage. Order is meaningful at dial time. Both POST and PATCH normalize
+// the list so the wire response matches what GET returns afterwards.
+
+test('POST /api/upstreams accepts proxy_fallback_list and surfaces it in the response', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.proxies.insert({ id: 'p_fallback', name: 'Fallback', url: 'socks5://198.51.100.10:1080', dialTimeoutSeconds: null });
+
+  const resp = await requestApp(
+    '/api/upstreams',
+    authed(adminSession, createBody({ proxy_fallback_list: ['p_fallback', 'direct'] })),
+  );
+  assertEquals(resp.status, 201);
+  const created = (await resp.json()) as Record<string, any>;
+  assertEquals(created.proxy_fallback_list, ['p_fallback', 'direct']);
+
+  const stored = await repo.upstreams.getById(created.id);
+  assertEquals(stored?.proxyFallbackList, ['p_fallback', 'direct']);
+});
+
+test('POST /api/upstreams normalises proxy_fallback_list duplicates so the response matches what GET returns', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.proxies.insert({ id: 'p_fallback', name: 'Fallback', url: 'socks5://198.51.100.10:1080', dialTimeoutSeconds: null });
+
+  const resp = await requestApp(
+    '/api/upstreams',
+    authed(adminSession, createBody({ proxy_fallback_list: ['p_fallback', 'direct', 'p_fallback', 'direct'] })),
+  );
+  assertEquals(resp.status, 201);
+  const created = (await resp.json()) as Record<string, any>;
+  // Without the API-layer normalize, the response would echo the duplicates
+  // while the saved row only kept one of each — operators would see a
+  // different list on POST vs the next GET.
+  assertEquals(created.proxy_fallback_list, ['p_fallback', 'direct']);
+
+  const get = await requestApp('/api/upstreams', authed(adminSession));
+  const list = (await get.json()) as Array<Record<string, any>>;
+  const fresh = list.find(u => u.id === created.id);
+  assertEquals(fresh!.proxy_fallback_list, ['p_fallback', 'direct']);
+});
+
+test('PATCH /api/upstreams sets proxy_fallback_list', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.proxies.insert({ id: 'p_fallback', name: 'Fallback', url: 'socks5://198.51.100.10:1080', dialTimeoutSeconds: null });
+
+  const create = await requestApp('/api/upstreams', authed(adminSession, createBody()));
+  const created = (await create.json()) as { id: string; proxy_fallback_list: string[] };
+  assertEquals(created.proxy_fallback_list, []);
+
+  const patch = await requestApp(`/api/upstreams/${created.id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', 'x-floway-session': adminSession },
+    body: JSON.stringify({ proxy_fallback_list: ['p_fallback', 'direct'] }),
+  });
+  assertEquals(patch.status, 200);
+  const updated = (await patch.json()) as Record<string, any>;
+  assertEquals(updated.proxy_fallback_list, ['p_fallback', 'direct']);
+});
+
+test('PATCH /api/upstreams rejects proxy_fallback_list referencing an unknown proxy id', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+
+  const create = await requestApp('/api/upstreams', authed(adminSession, createBody()));
+  const created = (await create.json()) as { id: string };
+
+  const patch = await requestApp(`/api/upstreams/${created.id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', 'x-floway-session': adminSession },
+    body: JSON.stringify({ proxy_fallback_list: ['nope'] }),
+  });
+  assertEquals(patch.status, 400);
+  const body = (await patch.json()) as { error: string };
+  assertEquals(body.error.toLowerCase().includes('unknown proxy id'), true);
+});
+
+test('DELETE /api/upstreams sweeps orphaned proxy backoff rows', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+  await repo.proxies.insert({ id: 'p_a', name: 'A', url: 'socks5://198.51.100.10:1080', dialTimeoutSeconds: null });
+
+  const create = await requestApp('/api/upstreams', authed(adminSession, createBody({ proxy_fallback_list: ['p_a'] })));
+  const created = (await create.json()) as { id: string };
+
+  await repo.proxyBackoffs.recordDialFailure('p_a', created.id, 'tcp refused');
+  await repo.proxyBackoffs.recordDialFailure('p_a', 'other_upstream', 'tcp refused');
+  assertEquals((await repo.proxyBackoffs.listAll()).length, 2);
+
+  const del = await requestApp(`/api/upstreams/${created.id}`, {
+    method: 'DELETE',
+    headers: { 'x-floway-session': adminSession },
+  });
+  assertEquals(del.status, 200);
+
+  const remaining = await repo.proxyBackoffs.listAll();
+  assertEquals(remaining.length, 1);
+  assertEquals(remaining[0]!.upstreamId, 'other_upstream');
 });

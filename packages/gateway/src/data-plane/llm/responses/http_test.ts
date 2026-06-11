@@ -8,7 +8,7 @@ import type { StoredResponsesItem } from '../../../repo/types.ts';
 import type { ProviderCandidate } from '../shared/candidates.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 // Mock the candidates seam so each test hands the http entry exactly the
@@ -111,6 +111,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

@@ -1,7 +1,5 @@
 import type { UsageRecord } from '../../repo/types.ts';
-import { type BillingDimension, unitPriceForDimension } from '@floway-dev/protocols/common';
-
-const BILLING_DIMENSIONS: readonly BillingDimension[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
+import { BILLING_DIMENSIONS, type BillingDimension, unitPriceForDimension } from '@floway-dev/protocols/common';
 
 export interface DisplayUsageRecord {
   keyId: string;

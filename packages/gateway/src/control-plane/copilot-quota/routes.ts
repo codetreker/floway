@@ -1,9 +1,8 @@
-// GET /api/upstreams/:id/copilot/quota — fetch Copilot usage/quota info for one upstream.
-
 import type { Context } from 'hono';
 
+import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { getRepo } from '../../repo/index.ts';
-import { githubHeaders } from '@floway-dev/provider-copilot';
+import { assertCopilotUpstreamRecord, githubHeaders } from '@floway-dev/provider-copilot';
 
 interface QuotaDetail {
   entitlement: number;
@@ -33,24 +32,18 @@ interface CopilotUsageResponse {
   };
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const githubTokenFromConfig = (config: unknown): string | null => {
-  if (!isRecord(config) || typeof config.githubToken !== 'string' || config.githubToken.length === 0) return null;
-  return config.githubToken;
-};
-
 export const copilotQuota = async (c: Context) => {
   try {
-    const id = c.req.param('id') ?? '';
+    const id = c.req.param('id')!;
     const upstream = await getRepo().upstreams.getById(id);
     if (!upstream) return c.json({ error: 'Upstream not found' }, 404);
     if (upstream.provider !== 'copilot') return c.json({ error: 'Upstream is not a Copilot upstream' }, 400);
 
-    const githubToken = githubTokenFromConfig(upstream.config);
-    if (!githubToken) return c.json({ error: 'Copilot upstream is missing githubToken' }, 400);
+    const { config } = assertCopilotUpstreamRecord(upstream);
 
-    const resp = await fetch('https://api.github.com/copilot_internal/user', { headers: githubHeaders(githubToken) });
+    const fetcherForUpstream = await createPerRequestFetcher();
+    const fetcher = fetcherForUpstream(upstream.id);
+    const resp = await fetcher('https://api.github.com/copilot_internal/user', { headers: githubHeaders(config.githubToken) });
 
     if (!resp.ok) {
       const text = await resp.text();

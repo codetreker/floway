@@ -11,7 +11,7 @@ import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderCallResult, ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderCallResult, type ProviderStreamResult } from '@floway-dev/provider';
 import { assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_gemini_attempt_test';
@@ -107,6 +107,7 @@ const makeCandidate = (overrides: {
       enabledFlags: upstreamModel.enabledFlags, supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

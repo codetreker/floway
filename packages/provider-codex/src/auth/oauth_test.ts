@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { CodexOAuthSessionTerminatedError, exchangeCodexAuthorizationCode, refreshCodexAccessToken } from './oauth.ts';
+import { directFetcher } from '@floway-dev/provider';
 
 const okResponse = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 const errorResponse = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -44,7 +45,7 @@ describe('exchangeCodexAuthorizationCode', () => {
 describe('refreshCodexAccessToken', () => {
   test('POSTs grant_type=refresh_token + scope', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse({ access_token: 'at2', refresh_token: 'rt2', id_token: 'it2', expires_in: 600 }));
-    const result = await refreshCodexAccessToken('rt_old');
+    const result = await refreshCodexAccessToken('rt_old', directFetcher);
     expect(result.access_token).toBe('at2');
     expect(result.refresh_token).toBe('rt2');
     const params = new URLSearchParams((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
@@ -56,11 +57,11 @@ describe('refreshCodexAccessToken', () => {
 
   test('session-terminated → CodexOAuthSessionTerminatedError', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorResponse(400, { error: { code: 'app_session_terminated', message: 'gone' } }));
-    await expect(refreshCodexAccessToken('rt_dead')).rejects.toBeInstanceOf(CodexOAuthSessionTerminatedError);
+    await expect(refreshCodexAccessToken('rt_dead', directFetcher)).rejects.toBeInstanceOf(CodexOAuthSessionTerminatedError);
   });
 
   test('invalid_grant → CodexOAuthSessionTerminatedError (refresh-only)', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorResponse(400, { error: { code: 'invalid_grant', message: 'Your refresh token has already been used to generate a new access token. Please try signing in again.' } }));
-    await expect(refreshCodexAccessToken('rt_replayed')).rejects.toBeInstanceOf(CodexOAuthSessionTerminatedError);
+    await expect(refreshCodexAccessToken('rt_replayed', directFetcher)).rejects.toBeInstanceOf(CodexOAuthSessionTerminatedError);
   });
 });
