@@ -1,20 +1,26 @@
 <script setup lang="ts">
-import { Spinner } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
+import { Spinner } from '@floway-dev/ui';
 
 interface ExportPayload {
   version: number;
   exportedAt?: string;
   data: {
+    users?: unknown[];
     apiKeys?: unknown[];
     upstreams?: unknown[];
+    proxies?: unknown[];
     usage?: unknown[];
     searchUsage?: unknown[];
     performance?: unknown[];
   };
 }
+
+// The dashboard only round-trips the current export format. Older exports are
+// rejected rather than silently coerced.
+const EXPORT_VERSION = 6 as const;
 
 const api = useApi();
 
@@ -41,7 +47,7 @@ const handleImportFile = async (event: Event) => {
   try {
     const text = await file.text();
     const json = JSON.parse(text) as ExportPayload;
-    if (json.version !== 3 || !json.data) throw new Error('Unsupported export file: expected version 3 with a `data` field');
+    if (json.version !== EXPORT_VERSION || !json.data) throw new Error(`Unsupported export file: expected a version ${EXPORT_VERSION} export with a \`data\` field. Re-export from the current dashboard.`);
     importPayload.value = json;
   } catch (e: unknown) {
     importError.value = e instanceof Error ? e.message : String(e);
@@ -50,12 +56,14 @@ const handleImportFile = async (event: Event) => {
 };
 
 const importPreview = computed(() => {
-  if (!importPayload.value) return { ready: false, apiKeys: 0, upstreams: 0, usage: 0, searchUsage: 0, performance: 0, exportedAt: null as string | null };
+  if (!importPayload.value) return { ready: false, users: 0, apiKeys: 0, upstreams: 0, proxies: 0, usage: 0, searchUsage: 0, performance: 0, exportedAt: null as string | null };
   const d = importPayload.value.data;
   return {
     ready: true,
+    users: d.users?.length ?? 0,
     apiKeys: d.apiKeys?.length ?? 0,
     upstreams: d.upstreams?.length ?? 0,
+    proxies: d.proxies?.length ?? 0,
     usage: d.usage?.length ?? 0,
     searchUsage: d.searchUsage?.length ?? 0,
     performance: d.performance?.length ?? 0,
@@ -71,7 +79,7 @@ const doImport = async () => {
   importStatus.value = null;
   const { error } = await callApi(
     () => api.api.import.$post({
-      json: { version: 3 as const, mode: importMode.value, data: importPayload.value!.data },
+      json: { version: EXPORT_VERSION, mode: importMode.value, data: importPayload.value!.data },
     }),
   );
   importLoading.value = false;
@@ -119,7 +127,11 @@ const doImport = async () => {
     <div v-if="importStatus" class="mb-3 rounded-md border border-accent-emerald/30 bg-accent-emerald/10 px-3 py-2 text-xs text-accent-emerald">{{ importStatus }}</div>
 
     <div v-if="importPreview.ready">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 mb-4">
+        <div class="bg-surface-800 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500 mb-1">Users</p>
+          <p class="text-lg font-bold font-mono text-white">{{ importPreview.users }}</p>
+        </div>
         <div class="bg-surface-800 rounded-lg p-3 text-center">
           <p class="text-xs text-gray-500 mb-1">API Keys</p>
           <p class="text-lg font-bold font-mono text-white">{{ importPreview.apiKeys }}</p>
@@ -127,6 +139,10 @@ const doImport = async () => {
         <div class="bg-surface-800 rounded-lg p-3 text-center">
           <p class="text-xs text-gray-500 mb-1">Upstream Records</p>
           <p class="text-lg font-bold font-mono text-white">{{ importPreview.upstreams }}</p>
+        </div>
+        <div class="bg-surface-800 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500 mb-1">Proxies</p>
+          <p class="text-lg font-bold font-mono text-white">{{ importPreview.proxies }}</p>
         </div>
         <div class="bg-surface-800 rounded-lg p-3 text-center">
           <p class="text-xs text-gray-500 mb-1">Usage Records</p>

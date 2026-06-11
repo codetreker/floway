@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { OverlayScrollbars } from '@floway-dev/ui';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 
+import { callApi, useApi } from '../api/client.ts';
+import PasswordDialog from '../components/users/PasswordDialog.vue';
 import { useAuthStore } from '../stores/auth.ts';
+import { OverlayScrollbars } from '@floway-dev/ui';
 
-// Tab labels and order mirror the prerender dashboard exactly. "API Keys" not
-// "Keys"; admin-only Settings hides for API-key users; rest are visible to
-// every authenticated identity.
 interface TabDef {
   path: string;
   label: string;
@@ -19,6 +18,7 @@ interface TabDef {
 
 const allTabs: TabDef[] = [
   { path: '/dashboard/settings', label: 'Settings', adminOnly: true, alsoActiveFor: ['/dashboard/upstreams'] },
+  { path: '/dashboard/users', label: 'Users', adminOnly: true },
   { path: '/dashboard/models', label: 'Models' },
   { path: '/dashboard/keys', label: 'API Keys' },
   { path: '/dashboard/usage', label: 'Usage' },
@@ -28,6 +28,7 @@ const allTabs: TabDef[] = [
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const api = useApi();
 
 const tabs = computed(() => allTabs.filter(t => !t.adminOnly || auth.isAdmin));
 
@@ -40,7 +41,16 @@ const isTabActive = (tab: TabDef) =>
 const mainClass = 'mx-auto w-full max-w-[1408px] px-4 py-6 sm:px-6';
 const headerInnerClass = 'mx-auto w-full max-w-[1408px] flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3 sm:px-6';
 
+const passwordDialogOpen = ref(false);
+const passwordToast = ref<string | null>(null);
+
+const onPasswordChanged = () => {
+  passwordToast.value = 'Password updated. Other devices have been signed out.';
+  window.setTimeout(() => { passwordToast.value = null; }, 4000);
+};
+
 const logout = async () => {
+  await callApi(() => api.auth.logout.$post());
   auth.clearAuth();
   await router.replace('/login');
 };
@@ -77,9 +87,43 @@ const logout = async () => {
           </RouterLink>
         </OverlayScrollbars>
 
-        <button type="button" class="btn-ghost ml-auto shrink-0 text-xs" @click="logout">Logout</button>
+        <div class="group relative ml-auto shrink-0">
+          <button
+            type="button"
+            class="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-gray-300 hover:bg-surface-800 hover:text-white"
+          >
+            <span class="font-medium">{{ auth.currentUser?.username }}</span>
+            <svg class="h-3 w-3 text-gray-500 transition-transform group-hover:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          <!-- The `pt-1` strip is a hover bridge: it keeps `.group:hover` true
+               while the cursor crosses the gap between trigger and panel. -->
+          <div class="invisible absolute right-0 top-full z-50 pt-1 opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+            <div class="min-w-[180px] rounded-md border border-white/[0.08] bg-surface-800 py-1 shadow-xl">
+              <button
+                type="button"
+                class="flex w-full items-center px-3 py-1.5 text-left text-xs text-gray-300 hover:bg-surface-700 hover:text-white"
+                @click="passwordDialogOpen = true"
+              >
+                Change password
+              </button>
+              <button
+                type="button"
+                class="flex w-full items-center px-3 py-1.5 text-left text-xs text-gray-300 hover:bg-surface-700 hover:text-white"
+                @click="logout"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
+
+    <div v-if="passwordToast" class="border-b border-accent-emerald/40 bg-accent-emerald/10 px-4 py-2 text-center text-sm text-accent-emerald">
+      {{ passwordToast }}
+    </div>
 
     <OverlayScrollbars
       class="min-h-0 flex-1"
@@ -91,5 +135,11 @@ const logout = async () => {
         <RouterView />
       </main>
     </OverlayScrollbars>
+
+    <PasswordDialog
+      v-model:open="passwordDialogOpen"
+      mode="self"
+      @saved="onPasswordChanged"
+    />
   </div>
 </template>

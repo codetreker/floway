@@ -10,6 +10,9 @@
 // confirmed its usage object never emits cached fields.
 export type BillingDimension = 'input' | 'input_cache_read' | 'input_cache_write' | 'input_image' | 'output' | 'output_image';
 
+// Iteration form of BillingDimension; the type union is the source of truth.
+export const BILLING_DIMENSIONS: readonly BillingDimension[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
+
 // Per-model pricing in USD per million tokens, aligned with the sst/models.dev
 // `Cost` schema (https://github.com/sst/models.dev/blob/main/packages/core/src/schema.ts).
 // Keys are billing dimensions: bare `input`/`output` are the text/fallback rate
@@ -46,33 +49,11 @@ export const unitPriceForDimension = (pricing: ModelPricing | null, dimension: B
 //
 // Convention borrowed from Together AI's `type` field on /v1/models, which
 // chooses a single string enum because each model id in practice maps to
-// one endpoint family. We renamed `type` to `kind` to avoid colliding with
-// Anthropic's `type: 'model'` object discriminator already on PublicModel.
+// one endpoint family. Field is named `kind` rather than `type` because
+// PublicModel already carries Anthropic's `type: 'model'` discriminator.
 //
-// Together AI's live /v1/models is known to emit at least these values:
-//
-//   chat        — instruction-tuned chat models (vision LLMs are also `chat`)
-//   language    — base / text-completion models
-//   code        — code-completion models
-//   image       — text-to-image AND image-to-image (one type, switched by
-//                 presence of an input image in the request)
-//   embedding   — vector embedding models
-//   moderation  — Llama-Guard-style classifiers (routed via /v1/completions)
-//   rerank      — query/document re-rankers
-//   audio       — text-to-speech models
-//   transcribe  — speech-to-text models
-//   video       — text-to-video models
-//
-// This list is open-ended and has grown reactively: Together's published
-// OpenAPI schema still lists only the first 7, but the live API has
-// emitted at least `audio`, `transcribe`, and `video` in production, each
-// landing in the official together-python SDK only after response
-// validation broke downstream (PRs #241, #341, #383). New values may
-// appear at any time.
-//
-// We adopt the same vocabulary because the names are already established
-// in the ecosystem. Add a value here only when we actually route that
-// endpoint family — do not pre-declare for future capabilities.
+// Add a value here only when we actually route that endpoint family — do
+// not pre-declare for future capabilities.
 export type ModelKind = 'chat' | 'embedding' | 'image';
 
 // Public DTO served at /v1/models and /models. Single superset shape — OpenAI's

@@ -1,21 +1,20 @@
 <script setup lang="ts">
-import { Code } from '@floway-dev/ui';
 import { computed, ref, watchEffect } from 'vue';
 
 import type { ControlPlaneModel } from '../../api/types.ts';
+import { Code } from '@floway-dev/ui';
 
 const props = defineProps<{
   apiKey: string;
   models: ControlPlaneModel[];
 }>();
 
-const baseUrl = computed(() => (typeof window !== 'undefined' ? window.location.origin : ''));
+const baseUrl = computed(() => window.location.origin);
 
 // Picker buckets — Claude Code only accepts claude-* generation ids, Codex
 // accepts gpt-* / codex-* generation ids. Backend already collapses dated /
 // variant suffixes; dedupe by id and sort by family tier so the picker
-// defaults land on the canonical Opus / Sonnet / Haiku per slot, mirroring
-// the prerender dashboard (sortClaudeBig/Sonnet/Small in client.tsx).
+// defaults land on the canonical Opus / Sonnet / Haiku per slot.
 const CLAUDE_TIER: Record<string, number> = { opus: 0, sonnet: 1, haiku: 2 };
 const claudeTier = (id: string) => {
   for (const t of Object.keys(CLAUDE_TIER)) if (id.includes(t)) return CLAUDE_TIER[t]!;

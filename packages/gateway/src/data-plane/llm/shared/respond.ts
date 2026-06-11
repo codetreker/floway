@@ -1,7 +1,7 @@
 import type { StreamCompletion } from './stream/sse.ts';
 import type { TokenUsage } from '../../../repo/types.ts';
-import { recordRequestPerformanceForApiKey } from '../../shared/telemetry/performance.ts';
-import { hasTokenUsage, recordTokenUsageForApiKey } from '../../shared/telemetry/usage.ts';
+import { recordRequestPerformance } from '../../shared/telemetry/performance.ts';
+import { hasTokenUsage, recordTokenUsage } from '../../shared/telemetry/usage.ts';
 import type { GatewayCtx } from '../shared/gateway-ctx.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import { plainResult } from '@floway-dev/provider';
@@ -53,11 +53,8 @@ export const eventResultMetadata = async <TEvent>(result: Extract<ExecuteResult<
     ...(result.performance ? { performance: result.performance } : {}),
   });
 
-// `GatewayCtx.apiKeyId` is `string | null`; the telemetry helpers accept
-// `string | undefined` and skip on falsy. Coerce here to satisfy the signature
-// without losing the no-op-on-missing-key behavior.
 export const recordUsage = async (ctx: GatewayCtx, modelIdentity: TelemetryModelIdentity, usage: TokenUsage | null): Promise<void> => {
-  if (usage && hasTokenUsage(usage)) await recordTokenUsageForApiKey(ctx.apiKeyId ?? undefined, modelIdentity, usage);
+  if (usage && hasTokenUsage(usage)) await recordTokenUsage(ctx.apiKeyId, modelIdentity, usage);
 };
 
 // `GatewayCtx.scheduleBackground` takes a thunk returning Promise<void> | void;
@@ -66,5 +63,5 @@ export const recordUsage = async (ctx: GatewayCtx, modelIdentity: TelemetryModel
 // an await).
 export const recordPerformance = (ctx: GatewayCtx, context: EventResultMetadata['performance'], failed: boolean): void => {
   const scheduler = (promise: Promise<unknown>) => ctx.scheduleBackground(() => promise as Promise<void>);
-  recordRequestPerformanceForApiKey(ctx.apiKeyId ?? undefined, scheduler, context, failed, performance.now() - ctx.requestStartedAt);
+  recordRequestPerformance(scheduler, context, failed, performance.now() - ctx.requestStartedAt);
 };

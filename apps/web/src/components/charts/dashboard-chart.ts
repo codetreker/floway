@@ -11,16 +11,22 @@ export interface DashboardRangeQuery {
   bucket: 'hour' | '4h' | 'day';
 }
 
+// Color allocation algorithm: entities are sorted by stable id (user.id ASC
+// for users; key.createdAt ASC for keys), and the chart color slot is the
+// entity's index in that sorted list (mod palette length). This palette order
+// is the one-time tuning that makes prod's user.id-sorted users land on the
+// colors they had under the original by-key chart — so renaming an account
+// or adding a new one no longer reshuffles the dashboard.
 export const DASHBOARD_CHART_PALETTE = [
-  '#00e5ff',
   '#00e676',
-  '#ffd740',
+  '#00e5ff',
   '#ff5252',
+  '#ffd740',
   '#7c4dff',
-  '#ff6e40',
   '#64ffda',
-  '#eeff41',
+  '#ff6e40',
   '#40c4ff',
+  '#eeff41',
   '#ea80fc',
 ];
 

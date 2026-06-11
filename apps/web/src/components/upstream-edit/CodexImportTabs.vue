@@ -1,12 +1,9 @@
 <script setup lang="ts">
-// Tabbed paste-area for both creation and re-import flows. auth_json: paste
-// ~/.codex/auth.json verbatim. callback: open the PKCE authorize URL in a
-// browser, then paste the redirected URL. The parent owns PKCE-start + the
-// v-model values so flushing/closing belong with the outer panel.
-
-import { Button, Spinner, Tabs, Textarea } from '@floway-dev/ui';
+// PKCE state arrives via props and the three text/tab pieces are v-model so
+// this component stays a presentation-only paste area.
 
 import type { CodexImportTab, CodexPkceStartResult } from './codex-import-types.ts';
+import { Button, Spinner, Tabs, Textarea } from '@floway-dev/ui';
 
 const props = defineProps<{
   pkce: CodexPkceStartResult | null;
@@ -24,8 +21,7 @@ const importTabs = [
 
 const copyAuthorizeUrl = async () => {
   if (!props.pkce) return;
-  try { await navigator.clipboard.writeText(props.pkce.authorize_url); }
-  catch { /* clipboard is best-effort; the visible link still works */ }
+  try { await navigator.clipboard.writeText(props.pkce.authorize_url); } catch { /* clipboard is best-effort; the visible link still works */ }
 };
 </script>
 

@@ -7,6 +7,7 @@ import { createStoredResponsesItemId } from '../responses/items/format.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
 import type { ProviderCandidate } from '../shared/candidates.ts';
 import type { MessagesPayload } from '@floway-dev/protocols/messages';
+import { directFetcher } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel, assertEquals } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_messages_routing_test';
@@ -35,6 +36,8 @@ const candidate = (upstream: string): ProviderCandidate => {
       supportsResponsesItemReference: true,
     },
     targetApi: 'messages',
+
+    fetcher: directFetcher,
   };
 };
 

@@ -65,6 +65,8 @@ export const respondMessages = async (
       const metadata = await eventResultMetadata(result);
       try {
         await recordUsage(ctx, metadata.modelIdentity, state.usage);
+      } catch (error) {
+        console.error('Failed to record Messages usage:', error);
       } finally {
         recordPerformance(ctx, metadata.performance, state.failedAfter(completion));
       }

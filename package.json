@@ -8,7 +8,7 @@
     "dev:web": "pnpm --filter @floway-dev/web run dev",
     "dev:node": "pnpm --filter @floway-dev/platform-node run start",
     "build:web": "pnpm --filter @floway-dev/web run build",
-    "deploy": "jiti scripts/check-bindings.ts && pnpm run build:web && wrangler deploy",
+    "deploy": "pnpm install --frozen-lockfile && jiti scripts/check-bindings.ts && pnpm run build:web && wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply $(node -p \"require('jsonc-parser').parse(require('fs').readFileSync('wrangler.jsonc','utf8')).d1_databases[0].database_name\")",
     "db:migrate:remote": "wrangler d1 migrations apply $(node -p \"require('jsonc-parser').parse(require('fs').readFileSync('wrangler.jsonc','utf8')).d1_databases[0].database_name\") --remote",
     "lint": "eslint --cache .",

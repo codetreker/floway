@@ -1,14 +1,10 @@
-// Control-plane DTOs the SPA consumes. These mirror the serialized shapes that
-// the gateway emits from the unified /api endpoints — keeping them here (rather
-// than re-using internal repo types) prevents the bundler from pulling Worker
-// runtime code into the browser bundle.
+// Control-plane DTOs the SPA consumes — serialized shapes the gateway emits at /api.
 
 export type UpstreamProviderKind = 'custom' | 'azure' | 'copilot' | 'codex';
 
 export type ModelKind = 'chat' | 'embedding' | 'image';
 
-// Structured per-endpoint capability map. Mirrors @floway-dev/protocols
-// ModelEndpoints: a present key means the model is served by that endpoint.
+// A present key means the model is served by that endpoint.
 export interface ModelEndpoints {
   chatCompletions?: {};
   responses?: {};
@@ -20,8 +16,7 @@ export interface ModelEndpoints {
 
 export type ModelEndpointKey = keyof ModelEndpoints;
 
-// USD per million tokens, keyed by billing dimension. Mirrors
-// @floway-dev/protocols ModelPricing; every key is optional.
+// USD per million tokens, keyed by billing dimension.
 export type ModelPricing = Partial<Record<'input' | 'input_cache_read' | 'input_cache_write' | 'input_image' | 'output' | 'output_image', number>>;
 
 export interface UpstreamModelConfig {
@@ -30,7 +25,7 @@ export interface UpstreamModelConfig {
   kind: ModelKind;
   endpoints: ModelEndpoints;
   display_name?: string;
-  limits?: { max_context_window_tokens?: number; max_prompt_tokens?: number; max_output_tokens?: number };
+  limits?: ModelLimits;
   cost?: ModelPricing;
   flagOverrides?: { enabled: boolean; values: Record<string, boolean> };
 }
@@ -40,9 +35,8 @@ export interface CustomModelsFetch {
   endpoint?: string;
 }
 
-// Raw model entries returned by the draft /models browse endpoint
-// (POST /api/upstreams/fetch-models). Permissive superset of the OpenAI,
-// Anthropic, and floway-native /models shapes the backend parser admits.
+// Raw model entries returned by POST /api/upstreams/fetch-models; permissive
+// superset over the shapes the backend accepts.
 export interface CustomRawModel {
   id: string;
   display_name?: string;
@@ -51,7 +45,7 @@ export interface CustomRawModel {
   owned_by?: string;
   limits?: ModelLimits;
   cost?: ModelPricing;
-  kind?: 'chat' | 'embedding' | 'image';
+  kind?: ModelKind;
 }
 
 export interface CustomUpstreamConfig {
@@ -140,6 +134,10 @@ export interface UpstreamRecord {
   // longer present in the live model list.
   disabled_public_model_ids: string[];
   config: CustomUpstreamConfig | AzureUpstreamConfig | CopilotUpstreamConfig | CodexUpstreamConfig;
+  // Ordered fallback dial-list. Each entry is either a proxy id from the
+  // proxies table or the literal string `direct` (no proxy). Empty list means
+  // "always direct".
+  proxy_fallback_list: string[];
   // Codex is the only provider that ships gateway-managed state on the row
   // today; the other providers serialize this as null.
   state: CodexUpstreamState | null;
@@ -153,6 +151,18 @@ export interface FlagDef {
   label: string;
   description: string;
   defaultFor: UpstreamProviderKind[];
+}
+
+// Importing the gateway's source-of-truth type as the actual definition (rather
+// than redeclaring the shape) makes any future field rename a compile error
+// here instead of a runtime mismatch the next time someone refreshes the page.
+export type { SerializedProxyRecord as ProxyRecord, SerializedBackoffRow as BackoffRow } from '@floway-dev/gateway/control-plane/proxies/serialize';
+
+// 409 body returned by DELETE /api/proxies/:id when the row is referenced
+// by an upstream's fallback list.
+export interface ProxyConflictBody {
+  error: string;
+  referencing_upstream_ids?: string[];
 }
 
 export interface ApiKey {
@@ -181,7 +191,7 @@ export interface PublicModel {
   limits?: ModelLimits;
   endpoints?: Record<string, ModelEndpointInfo>;
   cost?: ModelPricing;
-  kind?: 'chat' | 'embedding' | 'image';
+  kind?: ModelKind;
 }
 
 export interface ControlPlaneModel extends PublicModel {

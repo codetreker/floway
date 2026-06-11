@@ -8,7 +8,7 @@ import type { StoredResponsesItem } from '../../../repo/types.ts';
 import type { ProviderCandidate } from '../shared/candidates.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 // Mock the candidates seam so each test hands the http entry exactly the
@@ -42,12 +42,14 @@ const installRepo = (): InMemoryRepo => {
   return repo;
 };
 
-const makeApp = (): Hono<{ Variables: { apiKeyId: string; apiKeyUpstreamIds: readonly string[] } }> => {
-  const app = new Hono<{ Variables: { apiKeyId: string; apiKeyUpstreamIds: readonly string[] } }>();
+const makeApp = (): Hono<{ Variables: { apiKeyId: string; apiKeyUpstreamIds: readonly string[] | null; userUpstreamIds: readonly string[] | null } }> => {
+  const app = new Hono<{ Variables: { apiKeyId: string; apiKeyUpstreamIds: readonly string[] | null; userUpstreamIds: readonly string[] | null } }>();
   // Stamp the authenticated key onto every request so the http entry sees the
   // same value the real auth middleware would set.
   app.use('*', async (c, next) => {
     c.set('apiKeyId', API_KEY_ID);
+    c.set('apiKeyUpstreamIds', null);
+    c.set('userUpstreamIds', null);
     await next();
   });
   app.post('/v1/responses', responsesHttp.generate);
@@ -109,6 +111,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 

@@ -5,10 +5,10 @@
 // upstream level that's the flag's defaultFor; at the model level that's the
 // upstream's effective value for the flag.
 
-import { cn, OverlayScrollbars } from '@floway-dev/ui';
 import type { HTMLAttributes } from 'vue';
 
 import type { FlagDef, UpstreamProviderKind } from '../../api/types.ts';
+import { cn, OverlayScrollbars } from '@floway-dev/ui';
 
 const overrides = defineModel<Record<string, boolean>>({ required: true });
 

@@ -42,9 +42,11 @@ Node.js (`node:sqlite` + `sharp` + filesystem) is a parallel deployment
 target with the same Hono app and the same `packages/gateway/migrations` SQL.
 The `@floway-dev/platform` package owns the abstract runtime contracts
 (`FileProvider`, `ImageProcessor`, `SqlDatabase`, `BackgroundScheduler`,
-`EnvGetter`); each `apps/platform-*` app supplies the concrete impls and
-its own entry. `packages/gateway` (the gateway core) imports only platform
-contracts and is ESLint-prohibited from reaching into any `apps/platform-*`.
+`EnvGetter`, `SocketDial`); each `apps/platform-*` app supplies the
+concrete impls (including the runtime's root-CA list as a plain
+`readonly string[]`) and its own entry. `packages/gateway` (the gateway
+core) imports only platform contracts and is ESLint-prohibited from
+reaching into any `apps/platform-*`.
 
 ## Workspace Layout
 
@@ -52,6 +54,7 @@ contracts and is ESLint-prohibited from reaching into any `apps/platform-*`.
 floway/
 ├── packages/
 │   ├── gateway/             # @floway-dev/gateway — Hono app, control/data planes, repo, migrations
+│   ├── http/                # @floway-dev/http — HTTP/1.1 + userspace TLS + WebSocket upgrade over a duplex byte stream
 │   ├── interceptor/         # @floway-dev/interceptor — generic interceptor framework
 │   ├── platform/            # @floway-dev/platform — runtime contracts + portable helpers
 │   ├── protocols/           # @floway-dev/protocols — protocol type defs
@@ -60,6 +63,8 @@ floway/
 │   ├── provider-codex/      # @floway-dev/provider-codex — ChatGPT Codex (subscription) provider
 │   ├── provider-copilot/    # @floway-dev/provider-copilot — GitHub Copilot provider
 │   ├── provider-custom/     # @floway-dev/provider-custom — generic OpenAI-compatible
+│   ├── proxy/               # @floway-dev/proxy — proxy URI parsing + per-protocol byte-stream dialers
+│   ├── test-utils/          # @floway-dev/test-utils — shared Vitest fixtures and stubs (test-only)
 │   ├── translate/           # @floway-dev/translate — cross-protocol translation pairs
 │   └── ui/                  # @floway-dev/ui — internal Vue component library
 └── apps/
@@ -68,15 +73,30 @@ floway/
     └── web/                 # @floway-dev/web — Vue + Vite SPA dashboard
 ```
 
-Dependency direction is strict. The leaf-most packages are `protocols` and
-`interceptor`. `translate` depends on `protocols`. `provider` depends on
-`platform` + `protocols` + `interceptor`; the per-vendor `provider-*` packages
-depend on `provider`. `gateway` depends on `platform` + `protocols` + `translate`
-+ all `provider-*`, and is the runtime-agnostic gateway core. `apps/platform-*`
-depend on `platform` + `gateway` plus their target's runtime libraries
-(`@cloudflare/workers-types`; `sharp` + `@hono/node-server`); they are the only
-places runtime-specific symbols (D1, R2, Images, KV, ExecutionContext, sharp,
-node:sqlite, fs) appear. `apps/web` depends on `ui` and type-imports
+Dependency direction is strict. The leaf-most packages are `protocols`,
+`interceptor`, and `http` (HTTP/1.1 over a duplex byte stream + userspace
+TLS + WebSocket upgrade, no runtime dependencies). `translate` depends on
+`protocols`. `proxy` depends on `http`; it parses subscription-style
+proxy URIs, dispatches to per-protocol byte-stream dialers, and exposes a
+`runProxiedRequest` orchestrator that composes dial → optional userspace
+TLS → fetch-on-stream. All dialers — including `vless-ws`, which layers
+`wsUpgradeAndFrame` over the runtime's TLS-wrapped duplex — stay
+runtime-agnostic by taking the raw TCP `socketDial` primitive through
+`DialOptions`, so they never import `@floway-dev/platform`. `provider`
+depends on `platform` + `protocols` + `interceptor`; the per-vendor
+`provider-*` packages depend on `provider`.
+`gateway` depends on `platform` + `protocols` + `translate` + `http` +
+`proxy` + all `provider-*`, and is the runtime-agnostic gateway core; it
+threads `getSocketDial()` from `@floway-dev/platform` into the proxy
+library at the dial-layer composition root. `apps/platform-*` depend on
+`platform` + `gateway` plus their target's runtime libraries
+(`@cloudflare/workers-types`; `sharp` + `@hono/node-server`); they are the
+only places runtime-specific symbols (D1, R2, Images, KV, ExecutionContext,
+sharp, node:sqlite, fs) appear. `apps/web` depends on `ui` + `proxy` (the
+latter only via its `/url`, `/url-kind`, `/proxy-config`, and `/constants`
+subpath exports — chosen so the dashboard's proxy editor reuses URI
+parse/format and config types without pulling dialers, userspace TLS, or
+Node `crypto` into the SPA bundle), and type-imports
 `@floway-dev/gateway/app-type` for Hono RPC client typing.
 
 ESLint forbids any workspace file from importing `@floway-dev/platform-*`
@@ -136,9 +156,11 @@ target serves no SPA.
 Wrangler commands go through the local dependency with `pnpm wrangler` or
 package scripts. When deploying, do not pass `--dry-run`.
 
-For manual data-plane validation, use `ADMIN_KEY` with the
-`x-models-playground: 1` header on approved playground routes. Do not
-reuse or create normal API keys for manual testing.
+For manual data-plane validation, log into the dashboard with the
+`ADMIN_KEY` backdoor or with your own user, then create or pick an API
+key under your account and use it as `x-api-key`. `ADMIN_KEY` is not a
+data-plane credential; its only purpose is to let an operator who lost
+the admin password log in via `POST /auth/login`.
 
 When investigating Copilot upstream quirks, compare at least one other
 Copilot gateway implementation before inventing a policy. For generic
@@ -202,6 +224,10 @@ pnpm wrangler d1 export <DB_NAME> --remote \
   --output "${TMPDIR:-/tmp}/<DB_NAME>-$(date -u +%Y%m%dT%H%M%SZ).sql"
 ```
 
+The export includes `password_hash` for every user (active and
+soft-deleted) — treat the file as a credential bundle. Anyone with it
+can sign in as every user whose password has not rotated since.
+
 Report the resolved backup path, then give the user two rollback commands,
 in this order:
 
@@ -235,9 +261,11 @@ works across the 100 most recent versions, but Cloudflare blocks rollback
 when intervening deployments changed Durable Object migrations or removed
 referenced KV/R2/Queue bindings. The Worker's bindings (D1, R2, Images,
 KV) only ever grow, never shrink — `pnpm run deploy` runs
-`scripts/check-bindings.ts` first and refuses to publish if
-wrangler.jsonc drops any of them — so plain code rollback stays safe; D1
-state is rolled back separately as above.
+`pnpm install --frozen-lockfile` first (so a fast-forward that introduced
+a new workspace package wires its symlinks before the build runs) then
+`scripts/check-bindings.ts` and refuses to publish if wrangler.jsonc
+drops any of them — so plain code rollback stays safe; D1 state is
+rolled back separately as above.
 
 A complete deploy fits in a strict turn budget: **three agent turns when
 migrations are pending** (Step 1 = gather, Step 2 = backup + report + two

@@ -13,8 +13,6 @@ const baseSample = {
   model: 'claude-opus-4-7',
   upstream: 'copilot:1',
   modelKey: 'claude-opus-4.7-xhigh',
-  sourceApi: 'messages' as const,
-  targetApi: 'responses' as const,
   stream: true,
   runtimeLocation: 'unknown',
 };
@@ -179,8 +177,6 @@ type FakePerformanceDimensionsRow = {
   model: string;
   upstream: string | null;
   model_key: string;
-  source_api: string;
-  target_api: string;
   stream: number;
   runtime_location: string;
 };
@@ -256,14 +252,12 @@ class FakePerformanceSqlDatabase implements SqlDatabase {
 }
 
 function summaryRowFromBinds(binds: unknown[]): FakePerformanceSummaryRow {
-  const [hour, metricScope, keyId, model, upstream, modelKey, sourceApi, targetApi, stream, runtimeLocation, requests, errors, totalMsSum] = binds as [
+  const [hour, metricScope, keyId, model, upstream, modelKey, stream, runtimeLocation, requests, errors, totalMsSum] = binds as [
     string,
     string,
     string,
     string,
     string | null,
-    string,
-    string,
     string,
     number,
     string,
@@ -278,8 +272,6 @@ function summaryRowFromBinds(binds: unknown[]): FakePerformanceSummaryRow {
     model,
     upstream,
     model_key: modelKey,
-    source_api: sourceApi,
-    target_api: targetApi,
     stream,
     runtime_location: runtimeLocation,
     requests,
@@ -289,14 +281,12 @@ function summaryRowFromBinds(binds: unknown[]): FakePerformanceSummaryRow {
 }
 
 function dimensionsRowFromBinds(binds: unknown[]): FakePerformanceDimensionsRow {
-  const [hour, metricScope, keyId, model, upstream, modelKey, sourceApi, targetApi, stream, runtimeLocation] = binds as [
+  const [hour, metricScope, keyId, model, upstream, modelKey, stream, runtimeLocation] = binds as [
     string,
     string,
     string,
     string,
     string | null,
-    string,
-    string,
     string,
     number,
     string,
@@ -308,22 +298,18 @@ function dimensionsRowFromBinds(binds: unknown[]): FakePerformanceDimensionsRow 
     model,
     upstream,
     model_key: modelKey,
-    source_api: sourceApi,
-    target_api: targetApi,
     stream,
     runtime_location: runtimeLocation,
   };
 }
 
 function bucketRowFromBinds(binds: unknown[]): FakePerformanceBucketRow {
-  const [hour, metricScope, keyId, model, upstream, modelKey, sourceApi, targetApi, stream, runtimeLocation, lowerMs, upperMs, count] = binds as [
+  const [hour, metricScope, keyId, model, upstream, modelKey, stream, runtimeLocation, lowerMs, upperMs, count] = binds as [
     string,
     string,
     string,
     string,
     string | null,
-    string,
-    string,
     string,
     number,
     string,
@@ -338,8 +324,6 @@ function bucketRowFromBinds(binds: unknown[]): FakePerformanceBucketRow {
     model,
     upstream,
     model_key: modelKey,
-    source_api: sourceApi,
-    target_api: targetApi,
     stream,
     runtime_location: runtimeLocation,
     lower_ms: lowerMs,
@@ -356,8 +340,6 @@ function sameDimensions(a: FakePerformanceDimensionsRow, b: FakePerformanceDimen
     a.model === b.model &&
     a.upstream === b.upstream &&
     a.model_key === b.model_key &&
-    a.source_api === b.source_api &&
-    a.target_api === b.target_api &&
     a.stream === b.stream &&
     a.runtime_location === b.runtime_location
   );
@@ -389,8 +371,6 @@ function compareFakePerformanceRows(a: FakePerformanceDimensionsRow, b: FakePerf
     a.model.localeCompare(b.model) ||
     (a.upstream ?? '').localeCompare(b.upstream ?? '') ||
     a.model_key.localeCompare(b.model_key) ||
-    a.source_api.localeCompare(b.source_api) ||
-    a.target_api.localeCompare(b.target_api) ||
     a.stream - b.stream ||
     a.runtime_location.localeCompare(b.runtime_location)
   );

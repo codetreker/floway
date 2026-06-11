@@ -1,15 +1,11 @@
 <script setup lang="ts">
-// Auto rows render the same form read-only with a "Switch to Manual" CTA;
-// manual rows are fully editable.
-
-import { Button, Input, Select, Switch } from '@floway-dev/ui';
 import { computed } from 'vue';
-
-import type { FlagDef, ModelKind, ModelPricing, UpstreamModelConfig, UpstreamProviderKind } from '../../api/types.ts';
 
 import EndpointsField from './EndpointsField.vue';
 import FlagOverridesEditor from './FlagOverridesEditor.vue';
 import { configOf, defaultEndpointsForKind, publicIdOf, titleFor, type Row } from './modelRows.ts';
+import type { FlagDef, ModelKind, ModelPricing, UpstreamModelConfig, UpstreamProviderKind } from '../../api/types.ts';
+import { Button, Input, Select, Switch } from '@floway-dev/ui';
 
 const props = defineProps<{
   row: Row | null;
@@ -23,7 +19,6 @@ const props = defineProps<{
   isUpstreamIdLocked: boolean;
   // Controls visibility of the "Switch to Auto / Manual" toggle in the header.
   hasAutoCounterpart: boolean;
-  // True when the parent allows mode switching at all (false for Copilot).
   modeSwitchable: boolean;
 }>();
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Button } from '@floway-dev/ui';
 import { RouterLink } from 'vue-router';
+
+import { Button } from '@floway-dev/ui';
 
 definePage({ meta: { public: true } });
 </script>

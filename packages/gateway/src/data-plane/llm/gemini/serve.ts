@@ -29,7 +29,7 @@ export const geminiServe = {
   generate: async (args: GeminiServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<GeminiStreamEvent>>> => {
     const { payload, ctx, store, model } = args;
     const { candidates, sawModel } = await enumerateProviderCandidates({
-      apiKeyUpstreamIds: ctx.apiKeyUpstreamIds,
+      upstreamIds: ctx.upstreamIds,
       model,
       // Gemini has no native upstream target in the provider API; prefer
       // Chat Completions, then Messages, then Responses.
@@ -57,7 +57,7 @@ export const geminiServe = {
   countTokens: async (args: GeminiServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<GeminiStreamEvent>> | PlainResult> => {
     const { payload, ctx, store, model } = args;
     const { candidates, sawModel } = await enumerateProviderCandidates({
-      apiKeyUpstreamIds: ctx.apiKeyUpstreamIds,
+      upstreamIds: ctx.upstreamIds,
       model,
       // Gemini countTokens has no native upstream support; only providers
       // exposing the Messages endpoint qualify because we translate Gemini

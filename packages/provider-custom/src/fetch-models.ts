@@ -3,44 +3,36 @@
 //   1. OpenAI:       { object: 'list', data: [{ id, object?, owned_by?, created? }] }
 //   2. Anthropic:    { data: [{ type: 'model', id, display_name?, created_at? }],
 //                      has_more, first_id, last_id }     (no top-level `object`)
-//   3. floway's own /models (superset of 1+2 with display_name,
-//      created_at, limits, cost, kind).
+//   3. OpenAI/Anthropic superset with optional display_name, created_at,
+//      limits, cost, kind on the model and a `data` array on the container.
 //
-// The parser is intentionally tolerant: a model is admitted if it has a string
-// `id`; everything else is best-effort metadata. The container is admitted if
-// `data` is an array. We do NOT read any per-model endpoint hint — endpoint
-// routing for an auto custom model is inferred by the provider (Tier 1 reads
-// the published `kind` here if the upstream emits it; Tier 2 falls back to an id
-// heuristic; the chat default takes the per-upstream `endpoints` config).
+// A model is admitted if it has a string `id`; everything else is best-
+// effort metadata. The container is admitted if `data` is an array.
 
 import type { CustomUpstreamConfig } from './config.ts';
 import { customFetchModels } from './fetch.ts';
 import type { ModelKind, ModelPricing } from '@floway-dev/protocols/common';
-import { ProviderModelsUnavailableError } from '@floway-dev/provider';
+import { fetchUpstreamModels, type Fetcher } from '@floway-dev/provider';
 
 export interface CustomRawModel {
   id: string;
-  // OpenAI / our-gateway use `created` (unix seconds). Anthropic / our-gateway
-  // also expose `created_at` (ISO-8601). We carry both and let the projection
-  // step decide which to use.
+  // OpenAI uses `created` (unix seconds). Anthropic uses `created_at`
+  // (ISO-8601). We carry both and let the projection step decide.
   created?: number;
   created_at?: string;
-  // OpenAI uses no display name. Anthropic / our-gateway use `display_name`.
-  // Some OpenAI-compat upstreams use the non-standard `name`.
   display_name?: string;
+  // Non-standard OpenAI-compat alternative for the display name.
   name?: string;
   owned_by?: string;
-  // floway-only superset fields.
+  // Optional superset fields, absent on minimal OpenAI-compat upstreams.
   limits?: {
     max_output_tokens?: number;
     max_context_window_tokens?: number;
     max_prompt_tokens?: number;
   };
   cost?: ModelPricing;
-  // Tier 1 embedding-vs-chat signal: present when the upstream is another
-  // floway and emits its own ModelKind. Other OpenAI-compat providers
-  // (OpenAI, Anthropic, Groq, DeepSeek) never set this; the provider's id
-  // heuristic (Tier 2) then takes over.
+  // Optional ModelKind published by floway upstreams; absent on plain
+  // OpenAI-compat upstreams.
   kind?: ModelKind;
 }
 
@@ -118,32 +110,8 @@ const parseCustomModelsResponse = (value: unknown): CustomModelsResponse | null 
   return { data };
 };
 
-export const fetchCustomModels = async (config: CustomUpstreamConfig): Promise<CustomModelsResponse> => {
-  let response: Response;
-  try {
-    response = await customFetchModels(config, { method: 'GET' });
-  } catch (cause) {
-    throw new ProviderModelsUnavailableError(null, cause);
-  }
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new ProviderModelsUnavailableError({
-      status: response.status,
-      headers: new Headers(response.headers),
-      body,
-    });
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = await response.json();
-  } catch (cause) {
-    throw new ProviderModelsUnavailableError(null, cause);
-  }
-  const result = parseCustomModelsResponse(parsed);
-  if (!result) {
-    throw new ProviderModelsUnavailableError(null, new Error('Invalid /models response shape'));
-  }
-  return result;
-};
+export const fetchCustomModels = (config: CustomUpstreamConfig, fetcher: Fetcher): Promise<CustomModelsResponse> =>
+  fetchUpstreamModels(
+    () => customFetchModels(config, { method: 'GET' }, { fetcher }),
+    parseCustomModelsResponse,
+  );

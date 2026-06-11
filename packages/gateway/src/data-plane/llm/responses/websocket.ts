@@ -41,7 +41,7 @@ export const responsesWebSocket = async (c: Context): Promise<Response> => {
   const server = pair[1];
   server.accept();
 
-  const session = createResponsesWsSession((c.get('apiKeyId') as string | undefined) ?? null);
+  const session = createResponsesWsSession(c.get('apiKeyId') as string);
   let closed = false;
   let activeAbortController: AbortController | undefined;
   let queue = Promise.resolve();

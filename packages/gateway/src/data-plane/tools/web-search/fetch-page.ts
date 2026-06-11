@@ -27,12 +27,3 @@ export const fetchPageAndRecordUsage = async (args: {
     }
   }
 };
-
-// Explicit no-record fetchPage symmetric with `searchWebWithoutRecordingUsage`.
-// Used by admin-playground paths with no apiKey to attribute usage against;
-// callers MUST use this rather than passing `keyId: undefined` to
-// `fetchPageAndRecordUsage`.
-export const fetchPageWithoutRecordingUsage = (args: {
-  provider: WebSearchProvider;
-  request: WebSearchFetchPageRequest;
-}): Promise<WebSearchFetchPageResult> => args.provider.fetchPage(args.request);

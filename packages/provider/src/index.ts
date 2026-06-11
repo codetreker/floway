@@ -32,7 +32,6 @@ export {
 
 export type {
   InternalModel,
-  PerformanceApiName,
   PerformanceTelemetryContext,
   TelemetryModelIdentity,
   UpstreamModel,
@@ -48,6 +47,7 @@ export type {
   ProviderModelRecord,
   ProviderStreamResult,
   ResolvedModel,
+  UpstreamCallOptions,
 } from './provider.ts';
 export { streamingProviderCall, type ProviderStreamParser } from './streaming.ts';
 
@@ -57,6 +57,7 @@ export { getProviderRepo, initProviderRepo } from './repo.ts';
 export {
   ProviderModelsUnavailableError,
   clearModelsStore,
+  fetchUpstreamModels,
   httpResponseToResponse,
   inProcessMemo,
   invalidateModelsStore,
@@ -97,7 +98,10 @@ export { joinBaseAndPath, validateUpstreamPath } from './join.ts';
 
 export { mergeAnthropicBetaHeader } from './anthropic-beta.ts';
 
-export type { UpstreamFetchOptions } from './upstream.ts';
+export type { Fetcher, UpstreamFetchOptions } from './options.ts';
+export { directFetcher } from './options.ts';
+
+export { isAbortError } from './abort.ts';
 
 export {
   compressBase64ImageToWebp,

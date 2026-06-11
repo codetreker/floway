@@ -2,7 +2,7 @@ import { test } from 'vitest';
 
 import { copilotAuthedFetch } from './auth.ts';
 import { clearCopilotTokenCache } from './index.ts';
-import { initProviderRepo } from '@floway-dev/provider';
+import { initProviderRepo, directFetcher } from '@floway-dev/provider';
 import { assertEquals, jsonResponse, memoryCacheRepo, withMockedFetch } from '@floway-dev/test-utils';
 
 const installRepoAndClearCache = async () => {
@@ -39,7 +39,7 @@ const mockTokenAndCapture = async (
         { method: 'POST', body: '{}' },
         'ghu_test',
         'individual',
-        extraHeaders ? { headers: extraHeaders } : undefined,
+        extraHeaders ? { headers: extraHeaders, fetcher: directFetcher } : { fetcher: directFetcher },
       );
     },
   );

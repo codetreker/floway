@@ -2,6 +2,7 @@ import { test } from 'vitest';
 
 import { compareModelIds, getInternalModels, listModelProviders, resolveModelForProvider, resolveModelForRequest } from './registry.ts';
 import { buildCopilotUpstreamRecord, buildCustomUpstreamRecord, copilotModels, setupAppTest } from '../../test-helpers.ts';
+import { directFetcher } from '@floway-dev/provider';
 import { createCopilotProvider } from '@floway-dev/provider-copilot';
 import { assertEquals, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
@@ -114,18 +115,14 @@ test('listModelProviders creates enabled provider instances with upstream row id
     },
     flagOverrides: {},
     disabledPublicModelIds: [],
+    proxyFallbackList: [],
     state: null,
   });
   await repo.upstreams.save(buildCopilotUpstreamRecord(githubAccount, { id: 'up_copilot', name: 'Copilot Row', sortOrder: 3 }));
   await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_disabled', enabled: false, sortOrder: 0 }));
 
-  const providers = await listModelProviders();
-
-  assertEquals(
-    providers.map(provider => provider.upstream),
-    ['up_custom', 'up_azure', 'up_copilot'],
-  );
-  assertEquals(providers.some(provider => provider.upstream.includes(':')), false);
+  const providers = await listModelProviders(null);
+  assertEquals(providers.map(provider => provider.upstream), ['up_custom', 'up_azure', 'up_copilot']);
 });
 
 test('getInternalModels returns the catalog projection without execution bindings', async () => {
@@ -174,7 +171,7 @@ test('getInternalModels returns the catalog projection without execution binding
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const catalog = await getInternalModels();
+      const catalog = await getInternalModels(null, () => directFetcher);
       const model = catalog.find(candidate => candidate.id === 'shared-model');
 
       assertEquals(model?.display_name, 'Shared Model');
@@ -183,7 +180,7 @@ test('getInternalModels returns the catalog projection without execution binding
       assertEquals(Object.hasOwn(model!, 'providers'), false);
       assertEquals(Object.hasOwn(model!, 'providerData'), false);
 
-      const resolved = await resolveModelForRequest('shared-model');
+      const resolved = await resolveModelForRequest('shared-model', null, () => directFetcher);
       assertEquals(resolved.model?.endpoints, { messages: {}, chatCompletions: {} });
       assertEquals(
         resolved.model?.providers.map(({ upstream }) => upstream),
@@ -233,7 +230,7 @@ test('resolveModelForRequest applies provider-owned aliases only to that provide
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const resolved = await resolveModelForRequest('claude-opus-4-7-20300101');
+      const resolved = await resolveModelForRequest('claude-opus-4-7-20300101', null, () => directFetcher);
 
       assertEquals(resolved.id, 'claude-opus-4-7');
       assertEquals(resolved.model?.endpoints, { messages: {} });
@@ -261,7 +258,7 @@ test('resolveModelForProvider only loads the selected provider catalog', async (
     config: { baseUrl: 'https://second.example.com', bearerToken: 'sk-second', endpoints: { responses: {} } },
   }));
 
-  const providers = await listModelProviders();
+  const providers = await listModelProviders(null);
   let secondModelsFetches = 0;
 
   await withMockedFetch(
@@ -277,7 +274,7 @@ test('resolveModelForProvider only loads the selected provider catalog', async (
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const resolved = await resolveModelForProvider(providers[0], 'target-model');
+      const resolved = await resolveModelForProvider(providers[0], 'target-model', directFetcher);
 
       assertEquals(resolved?.model.id, 'target-model');
       assertEquals(resolved?.binding.upstream, 'up_first');
@@ -294,7 +291,7 @@ test('listModelProviders without a filter returns global sort_order', async () =
   await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_b', name: 'B', sortOrder: 20 }));
   await repo.upstreams.save(buildCustomUpstreamRecord({ id: 'up_c', name: 'C', sortOrder: 30 }));
 
-  const providers = await listModelProviders();
+  const providers = await listModelProviders(null);
   assertEquals(providers.map(p => p.upstream), ['up_a', 'up_b', 'up_c']);
 });
 
@@ -330,6 +327,7 @@ test('disabledPublicModelIds hides models from the catalog and routing, per upst
     state: null,
     flagOverrides: {},
     disabledPublicModelIds: over.disabledPublicModelIds,
+    proxyFallbackList: [],
   });
 
   // up_a disables a solo model and a shared one (by public id, including a
@@ -352,19 +350,19 @@ test('disabledPublicModelIds hides models from the catalog and routing, per upst
     disabledPublicModelIds: [],
   }));
 
-  const catalog = await getInternalModels();
+  const catalog = await getInternalModels(null, () => directFetcher);
   assertEquals([...catalog.map(m => m.id)].sort(), ['gpt-keep', 'gpt-shared']);
 
   // The solo and override ids resolve to nothing (hidden + unroutable).
-  assertEquals((await resolveModelForRequest('gpt-solo')).model, undefined);
-  assertEquals((await resolveModelForRequest('gpt-override')).model, undefined);
+  assertEquals((await resolveModelForRequest('gpt-solo', null, () => directFetcher)).model, undefined);
+  assertEquals((await resolveModelForRequest('gpt-override', null, () => directFetcher)).model, undefined);
 
   // The shared id survives because up_b allows it; only up_b binds it.
-  const shared = await resolveModelForRequest('gpt-shared');
+  const shared = await resolveModelForRequest('gpt-shared', null, () => directFetcher);
   assertEquals(shared.model?.providers.map(({ upstream }) => upstream), ['up_b']);
 
   // The untouched model still routes from up_a.
-  const keep = await resolveModelForRequest('gpt-keep');
+  const keep = await resolveModelForRequest('gpt-keep', null, () => directFetcher);
   assertEquals(keep.model?.providers.map(({ upstream }) => upstream), ['up_a']);
 });
 
@@ -389,12 +387,13 @@ test('resolveModelForProvider rejects a model id disabled on that upstream (filt
     },
     flagOverrides: {},
     disabledPublicModelIds: ['disabled-model'],
+    proxyFallbackList: [],
     state: null,
   });
 
-  const [provider] = await listModelProviders();
-  assertEquals(await resolveModelForProvider(provider, 'enabled-model').then(r => r?.id), 'enabled-model');
-  assertEquals(await resolveModelForProvider(provider, 'disabled-model').then(r => r?.id), undefined);
+  const [provider] = await listModelProviders(null);
+  assertEquals(await resolveModelForProvider(provider, 'enabled-model', directFetcher).then(r => r?.id), 'enabled-model');
+  assertEquals(await resolveModelForProvider(provider, 'disabled-model', directFetcher).then(r => r?.id), undefined);
 });
 
 test('listModelProviders drops stale ids (deleted or disabled upstreams) from a whitelist', async () => {

@@ -23,12 +23,3 @@ export const searchWebAndRecordUsage = async (opts: {
     }
   }
 };
-
-// Explicit no-record search for the admin playground path (no apiKey
-// to attribute usage against). Callers MUST use this rather than
-// passing `keyId: undefined` to `searchWebAndRecordUsage` — recording
-// is not a silent skip.
-export const searchWebWithoutRecordingUsage = (opts: {
-  provider: WebSearchProvider;
-  request: WebSearchProviderRequest;
-}): Promise<WebSearchProviderResult> => opts.provider.search(opts.request);

@@ -4,8 +4,6 @@ import { useRouter } from 'vue-router';
 
 import { useAuthStore } from '../../stores/auth.ts';
 
-// `/dashboard` resolves to whichever tab the current identity can land on:
-// settings for admins, keys for API-key users.
 const router = useRouter();
 const auth = useAuthStore();
 

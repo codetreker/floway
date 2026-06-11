@@ -1,100 +1,95 @@
-// GET /api/search-usage — query per-key web search usage records.
-// Visibility mirrors token usage: any authenticated user can view
-// aggregate records.
+// GET /api/search-usage — query per-key or per-user web search usage records.
+//
+// Mirrors the token-usage endpoint: the `view` query parameter selects between
+// `self-by-key` (the actor's own keys) and `all-by-user` (cross-user aggregate
+// for callers with `canViewGlobalTelemetry`). Default view is determined by
+// capability.
 
+import { aggregateSearchUsageByKey, aggregateSearchUsageByUser } from './aggregate.ts';
 import { loadSearchConfig } from '../../data-plane/tools/web-search/search-config.ts';
 import { queryWebSearchUsage } from '../../data-plane/tools/web-search/usage.ts';
 import { type CtxWithQuery } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
-import type { SearchUsageRecord } from '../../repo/types.ts';
-import { isWebSearchProviderName, type WebSearchProviderName } from '../../shared/web-search-providers.ts';
+import { isWebSearchProviderName } from '../../shared/web-search-providers.ts';
 import type { searchUsageQuery } from '../schemas.ts';
-import { USAGE_KEY_COLOR_ORDER } from '../usage-key-colors.ts';
-
-const parseProvider = (provider: string | undefined): { type: 'ok'; provider?: WebSearchProviderName } | { type: 'invalid' } => {
-  if (provider === undefined) return { type: 'ok' };
-  if (isWebSearchProviderName(provider)) {
-    return { type: 'ok', provider };
-  }
-  return { type: 'invalid' };
-};
-
-// Sum across the `action` dimension so dashboard charts get one row
-// per (provider, keyId, hour). Both `search` and `fetch_page` consume
-// the same provider quota.
-type AggregatedRecord = Omit<SearchUsageRecord, 'action'>;
-
-const sumAcrossActions = (records: readonly SearchUsageRecord[]): AggregatedRecord[] => {
-  const grouped = new Map<string, AggregatedRecord>();
-  for (const r of records) {
-    // JSON-encoded tuple so a delimiter byte inside any component (e.g.
-    // `|` smuggled into a future external keyId source) can't collide
-    // with the separator.
-    const key = JSON.stringify([r.provider, r.keyId, r.hour]);
-    const existing = grouped.get(key);
-    if (existing) {
-      existing.requests += r.requests;
-    } else {
-      grouped.set(key, { provider: r.provider, keyId: r.keyId, hour: r.hour, requests: r.requests });
-    }
-  }
-  return [...grouped.values()];
-};
+import { resolveTelemetryView } from '../telemetry-view.ts';
 
 export const searchUsage = async (c: CtxWithQuery<typeof searchUsageQuery>) => {
   const query = c.req.valid('query');
-  const keyId = query.key_id === '' ? undefined : query.key_id;
-  const start = query.start ?? '';
-  const end = query.end ?? '';
-  const includeKeyMetadata = query.include_key_metadata === '1';
+  if (!query.start || !query.end) {
+    return c.json({ error: 'start and end query parameters are required (e.g. 2026-03-09T00)' }, 400);
+  }
+  const { start, end } = query;
 
-  if (!start || !end) {
-    return c.json(
-      {
-        error: 'start and end query parameters are required (e.g. 2026-03-09T00)',
-      },
-      400,
-    );
+  const { provider } = query;
+  if (provider !== undefined && !isWebSearchProviderName(provider)) {
+    return c.json({ error: "provider must be 'tavily' or 'microsoft-grounding'" }, 400);
   }
 
-  const providerResult = parseProvider(query.provider);
-  if (providerResult.type === 'invalid') {
-    return c.json(
-      {
-        error: "provider must be 'tavily' or 'microsoft-grounding'",
-      },
-      400,
-    );
+  const resolved = resolveTelemetryView(c, query.view, query.key_id);
+  if ('error' in resolved) {
+    return c.json({ error: resolved.message }, resolved.error === 'forbidden' ? 403 : 400);
   }
 
-  const records = await queryWebSearchUsage({
-    provider: providerResult.provider,
-    keyId,
+  const repo = getRepo();
+
+  if (resolved.view === 'all-by-user') {
+    const [rawRecords, users, keys] = await Promise.all([
+      queryWebSearchUsage({ provider, start, end }),
+      repo.users.listIncludingDeleted(),
+      repo.apiKeys.listIncludingDeleted(),
+    ]);
+    const keyToUser = new Map(keys.map(k => [k.id, k.userId] as const));
+    const records = aggregateSearchUsageByUser(rawRecords, keyToUser);
+
+    if (query.include_user_metadata !== '1') return c.json(records);
+    const userMetadata = users
+      .map(u => ({ id: u.id, username: u.username }))
+      .sort((a, b) => a.id - b.id);
+    const searchConfig = await loadSearchConfig();
+    return c.json({
+      records,
+      users: userMetadata,
+      activeProvider: searchConfig.provider,
+    });
+  }
+
+  // self-by-key: scope rows to the actor's keys (active + soft-deleted).
+  const ownedIds = await repo.apiKeys.idsByUserIdIncludingDeleted(resolved.scopeUserId);
+  const ownedSet = new Set(ownedIds);
+  const explicitKeyId = query.key_id === '' ? undefined : query.key_id;
+  if (explicitKeyId !== undefined && !ownedSet.has(explicitKeyId)) {
+    return c.json({ error: 'Unknown key_id' }, 404);
+  }
+
+  const rawRecords = await queryWebSearchUsage({
+    provider,
+    keyId: explicitKeyId,
     start,
     end,
   });
-  const aggregated = sumAcrossActions(records);
+  const filtered = explicitKeyId ? rawRecords : rawRecords.filter(r => ownedSet.has(r.keyId));
+  const aggregated = aggregateSearchUsageByKey(filtered);
 
   // Aggregated-records-only callers (CI, automation) skip the
   // apiKeys.list() round-trip via include_key_metadata=0.
-  if (!includeKeyMetadata) return c.json(aggregated);
+  if (query.include_key_metadata !== '1') return c.json(aggregated);
 
   const [keys, searchConfig] = await Promise.all([
-    getRepo().apiKeys.list(),
+    repo.apiKeys.listByUserIdIncludingDeleted(resolved.scopeUserId),
     loadSearchConfig(),
   ]);
   const keyMap = new Map(keys.map(k => [k.id, k]));
-  const recordsWithKeyMetadata = aggregated.map(r => ({
-    ...r,
-    keyName: keyMap.get(r.keyId)?.name ?? r.keyId.slice(0, 8),
-    keyCreatedAt: keyMap.get(r.keyId)?.createdAt ?? null,
-  }));
+  const recordsWithKeyMetadata = aggregated.map(r => {
+    const k = keyMap.get(r.keyId);
+    if (!k) throw new Error(`telemetry row references unknown key ${r.keyId} for user ${resolved.scopeUserId}`);
+    return { ...r, keyName: k.name, keyCreatedAt: k.createdAt };
+  });
   const keyMetadata = keys.map(k => ({ id: k.id, name: k.name, createdAt: k.createdAt })).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 
   return c.json({
     records: recordsWithKeyMetadata,
     keys: keyMetadata,
-    keyColorOrder: USAGE_KEY_COLOR_ORDER,
     activeProvider: searchConfig.provider,
   });
 };

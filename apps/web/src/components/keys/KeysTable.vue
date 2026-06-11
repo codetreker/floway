@@ -1,18 +1,17 @@
 <script setup lang="ts">
-import { OverlayScrollbars } from '@floway-dev/ui';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { computed } from 'vue';
 
-import type { ApiKey, UpstreamRecord } from '../../api/types.ts';
+import type { ApiKey } from '../../api/types.ts';
+import type { UpstreamOption } from '../../composables/useUpstreamOptions.ts';
+import { OverlayScrollbars } from '@floway-dev/ui';
 
 dayjs.extend(relativeTime);
 
 const props = defineProps<{
   keys: ApiKey[];
-  loading: boolean;
-  isAdmin: boolean;
-  upstreams: UpstreamRecord[];
+  upstreams: UpstreamOption[];
   selectedId: string;
   copied: string | null;
 }>();
@@ -26,7 +25,7 @@ defineEmits<{
 }>();
 
 const upstreamById = computed(() => {
-  const map = new Map<string, UpstreamRecord>();
+  const map = new Map<string, UpstreamOption>();
   for (const u of props.upstreams) map.set(u.id, u);
   return map;
 });
@@ -68,7 +67,7 @@ const upstreamsTextClass = (k: ApiKey) => {
         <tr class="border-b border-white/5">
           <th class="text-left py-2 pr-4 pl-7 text-xs font-medium text-gray-500 uppercase tracking-widest">Name</th>
           <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Key</th>
-          <th v-if="isAdmin" class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Upstreams</th>
+          <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Upstreams</th>
           <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Created</th>
           <th class="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-widest">Last Used</th>
           <th class="text-right py-2 pr-2 text-xs font-medium text-gray-500 uppercase tracking-widest">Actions</th>
@@ -94,7 +93,7 @@ const upstreamsTextClass = (k: ApiKey) => {
           <td class="py-3 pr-4">
             <code class="text-xs font-mono text-gray-500 bg-surface-800 rounded px-2 py-1">{{ truncateKey(k.key) }}</code>
           </td>
-          <td v-if="isAdmin" class="py-3 pr-4">
+          <td class="py-3 pr-4">
             <span class="text-xs cursor-default" :class="upstreamsTextClass(k)" :title="upstreamsTitle(k)">
               {{ upstreamsText(k) }}
             </span>
@@ -122,43 +121,41 @@ const upstreamsTextClass = (k: ApiKey) => {
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </button>
-              <template v-if="isAdmin">
-                <button
-                  class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1"
-                  aria-label="Edit API key"
-                  title="Edit key"
-                  @click.stop="$emit('edit', k)"
-                >
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                    <path d="m15 5 4 4" />
-                  </svg>
-                </button>
-                <button
-                  class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-amber hover:bg-white/[0.04] transition-colors p-1"
-                  aria-label="Rotate API key"
-                  title="Rotate key"
-                  @click.stop="$emit('rotate', k)"
-                >
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21.5 2v6h-6" />
-                    <path d="M2.5 22v-6h6" />
-                    <path d="M2.5 12a10 10 0 0 1 16.5-5.7L21.5 8" />
-                    <path d="M21.5 12a10 10 0 0 1-16.5 5.7L2.5 16" />
-                  </svg>
-                </button>
-                <button
-                  class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-rose hover:bg-white/[0.04] transition-colors p-1"
-                  aria-label="Delete API key"
-                  title="Delete key"
-                  @click.stop="$emit('remove', k)"
-                >
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-              </template>
+              <button
+                class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1"
+                aria-label="Edit API key"
+                title="Edit key"
+                @click.stop="$emit('edit', k)"
+              >
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  <path d="m15 5 4 4" />
+                </svg>
+              </button>
+              <button
+                class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-amber hover:bg-white/[0.04] transition-colors p-1"
+                aria-label="Rotate API key"
+                title="Rotate key"
+                @click.stop="$emit('rotate', k)"
+              >
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.5 2v6h-6" />
+                  <path d="M2.5 22v-6h6" />
+                  <path d="M2.5 12a10 10 0 0 1 16.5-5.7L21.5 8" />
+                  <path d="M21.5 12a10 10 0 0 1-16.5 5.7L2.5 16" />
+                </svg>
+              </button>
+              <button
+                class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-rose hover:bg-white/[0.04] transition-colors p-1"
+                aria-label="Delete API key"
+                title="Delete key"
+                @click.stop="$emit('remove', k)"
+              >
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
             </div>
           </td>
         </tr>

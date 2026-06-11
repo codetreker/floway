@@ -1,20 +1,26 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { useRouter } from 'vue-router';
 
 import { callApi, useApi } from '../../../api/client.ts';
 import type { CopilotQuotaSnapshot, CustomRawModel, CustomUpstreamConfig, UpstreamModelConfig } from '../../../api/types.ts';
+import UpstreamEditPage from '../../../components/upstream-edit/UpstreamEditPage.vue';
+import { useProxiesStore } from '../../../composables/useProxies.ts';
 import { useUpstreamsStore } from '../../../composables/useUpstreams.ts';
 
 // Pre-fetch the provider-specific model list (and Copilot's premium quota)
-// during route resolution so the editor mounts with its right pane and
-// account card already populated. Without this the page would render with
-// empty bodies for a frame and then flicker once the onMount fetches
-// resolved.
+// during route resolution so the editor mounts already populated; without
+// this the page renders with empty bodies for a frame and flickers once
+// the in-component fetch resolves.
 export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]', async route => {
   const api = useApi();
   const store = useUpstreamsStore();
-  await store.load();
-  const list = store.upstreams.value ?? [];
+  await Promise.all([store.load(), useProxiesStore().load()]);
+  if (store.error.value) throw new Error(store.error.value);
+  if (store.upstreams.value === null || store.flagCatalog.value === null) {
+    throw new Error('upstreams store not populated after a successful load()');
+  }
+  const list = store.upstreams.value;
   const id = route.params.id;
   const record = list.find(u => u.id === id) ?? null;
 
@@ -38,14 +44,14 @@ export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]'
       : null;
     const [modelsRes, quotaRes] = await Promise.all([modelsPromise, quotaPromise ?? Promise.resolve(null)]);
     if (modelsRes.error) upstreamModelsError = modelsRes.error.message;
-    else upstreamModels = modelsRes.data?.data ?? [];
+    else upstreamModels = modelsRes.data.data;
     if (quotaRes) {
       if (quotaRes.error) copilotQuotaError = quotaRes.error.message;
-      else copilotQuota = quotaRes.data ?? null;
+      else copilotQuota = quotaRes.data;
     }
   } else if (record?.provider === 'custom') {
     const cfg = record.config as CustomUpstreamConfig;
-    if (cfg.modelsFetch?.enabled) {
+    if (cfg.modelsFetch.enabled) {
       const { data, error } = await callApi<{ data: CustomRawModel[] }>(
         () => api.api.upstreams['fetch-models'].$post({
           json: {
@@ -66,7 +72,7 @@ export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]'
       if (error) {
         customRawModelsError = error.message;
       } else {
-        customRawModels = data?.data ?? [];
+        customRawModels = data.data;
         customFetchedAt = Date.now();
       }
     }
@@ -74,7 +80,7 @@ export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]'
 
   return {
     record,
-    flags: store.flagCatalog.value ?? [],
+    flags: store.flagCatalog.value,
     nextSortOrder: list.reduce((acc, u) => Math.max(acc, u.sort_order), -1) + 1,
     upstreamModels,
     upstreamModelsError,
@@ -88,10 +94,6 @@ export const useEditUpstreamData = defineBasicLoader('/dashboard/upstreams/[id]'
 </script>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router';
-
-import UpstreamEditPage from '../../../components/upstream-edit/UpstreamEditPage.vue';
-
 definePage({ meta: { requiresAdmin: true } });
 
 const data = useEditUpstreamData();

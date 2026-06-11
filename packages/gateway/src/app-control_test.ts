@@ -1,114 +1,27 @@
 import { test } from 'vitest';
 
 import { DEFAULT_SEARCH_CONFIG } from './data-plane/tools/web-search/search-config.ts';
-import { copilotModels, requestApp, setupAppTest } from './test-helpers.ts';
-import { assertEquals, assertExists, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
+import { requestApp, setupAppTest } from './test-helpers.ts';
+import { assertEquals, assertExists } from '@floway-dev/test-utils';
 
-test('admin key is limited to control plane routes', async () => {
-  const { adminKey } = await setupAppTest();
+test('session token grants control-plane access but is rejected on data-plane', async () => {
+  const { adminSession } = await setupAppTest();
 
   const exportResponse = await requestApp('/api/export', {
-    headers: { 'x-api-key': adminKey },
+    headers: { 'x-floway-session': adminSession },
   });
   assertEquals(exportResponse.status, 200);
 
   const modelsResponse = await requestApp('/v1/models', {
-    headers: { 'x-api-key': adminKey },
+    headers: { 'x-floway-session': adminSession },
   });
-  assertEquals(modelsResponse.status, 403);
-  assertEquals(await modelsResponse.json(), {
-    error: 'This key is for dashboard only. Create an API key for API access.',
-  });
+  assertEquals(modelsResponse.status, 401);
 });
 
-test('admin key can access playground-approved data plane routes with x-models-playground', async () => {
+test('ADMIN_KEY presented as x-api-key on data plane is rejected', async () => {
   const { adminKey } = await setupAppTest();
-
-  await withMockedFetch(
-    request => {
-      const url = new URL(request.url);
-
-      if (url.pathname === '/copilot_internal/v2/token') {
-        return jsonResponse({
-          token: 'copilot-access-token',
-          expires_at: 4102444800,
-          refresh_in: 3600,
-        });
-      }
-
-      if (url.pathname === '/models') {
-        return jsonResponse(copilotModels([{ id: 'claude-test' }]));
-      }
-
-      throw new Error(`Unhandled fetch ${request.url}`);
-    },
-    async () => {
-      const response = await requestApp('/v1/models', {
-        headers: {
-          'x-api-key': adminKey,
-          'x-models-playground': '1',
-        },
-      });
-
-      assertEquals(response.status, 200);
-      assertEquals((await response.json()).data[0].id, 'claude-test');
-    },
-  );
-});
-
-test('admin key can access playground embeddings with x-models-playground', async () => {
-  const { adminKey } = await setupAppTest();
-
-  await withMockedFetch(
-    request => {
-      const url = new URL(request.url);
-
-      if (url.pathname === '/copilot_internal/v2/token') {
-        return jsonResponse({
-          token: 'copilot-access-token',
-          expires_at: 4102444800,
-          refresh_in: 3600,
-        });
-      }
-
-      if (url.pathname === '/models') {
-        return jsonResponse(copilotModels([{ id: 'text-embedding-real', supported_endpoints: ['/embeddings'] }]));
-      }
-
-      if (url.pathname === '/embeddings') {
-        return jsonResponse({
-          object: 'list',
-          model: 'text-embedding-real',
-          data: [{ object: 'embedding', index: 0, embedding: [0.1] }],
-          usage: { prompt_tokens: 1, total_tokens: 1 },
-        });
-      }
-
-      throw new Error(`Unhandled fetch ${request.url}`);
-    },
-    async () => {
-      const response = await requestApp('/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': adminKey,
-          'x-models-playground': '1',
-        },
-        body: JSON.stringify({
-          model: 'text-embedding-real',
-          input: 'hello',
-        }),
-      });
-
-      assertEquals(response.status, 200);
-      assertEquals(await response.json(), {
-        object: 'list',
-        model: 'text-embedding-real',
-        data: [{ object: 'embedding', index: 0, embedding: [0.1] }],
-        usage: { prompt_tokens: 1, total_tokens: 1 },
-      });
-    },
-  );
+  const response = await requestApp('/v1/models', { headers: { 'x-api-key': adminKey } });
+  assertEquals(response.status, 401);
 });
 
 test('uncaught internal errors include debug details in the HTTP body', async () => {
@@ -134,10 +47,12 @@ test('API key users only see their own key in /api/keys', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: 'key_other',
+    userId: 1,
     name: 'Other key',
     key: 'raw_other_key',
     createdAt: '2026-03-15T00:00:00.000Z',
     upstreamIds: null,
+    deletedAt: null,
   });
 
   const response = await requestApp('/api/keys', {
@@ -151,16 +66,13 @@ test('API key users only see their own key in /api/keys', async () => {
   assertEquals(body[0].key, apiKey.key);
 });
 
-test('API key users cannot call admin-only key mutation routes', async () => {
+test('Owner-via-API-key can rotate their own key', async () => {
   const { apiKey } = await setupAppTest();
-
   const response = await requestApp(`/api/keys/${apiKey.id}/rotate`, {
     method: 'POST',
     headers: { 'x-api-key': apiKey.key },
   });
-
-  assertEquals(response.status, 403);
-  assertEquals(await response.json(), { error: 'Dashboard key required' });
+  assertEquals(response.status, 200);
 });
 
 test('API key users cannot mutate /api/search-config routes', async () => {
@@ -176,17 +88,19 @@ test('API key users cannot mutate /api/search-config routes', async () => {
   });
 
   assertEquals(response.status, 403);
-  assertEquals(await response.json(), { error: 'Dashboard key required' });
+  assertEquals(await response.json(), { error: 'Admin privileges required' });
 });
 
-test('/api/token-usage is visible to any authenticated user and includes all keys', async () => {
+test('/api/token-usage scopes to the actor\'s keys when called with an API key', async () => {
   const { repo, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: 'key_other',
+    userId: 1,
     name: 'Other key',
     key: 'raw_other_key',
     createdAt: '2026-03-15T00:00:00.000Z',
     upstreamIds: null,
+    deletedAt: null,
   });
   await repo.usage.set({
     keyId: apiKey.id,
@@ -215,32 +129,28 @@ test('/api/token-usage is visible to any authenticated user and includes all key
 
   assertEquals(response.status, 200);
   const body = await response.json();
-  assertEquals(body.length, 2);
+  // Non-admin actor sees only their own key's rows; the other user's row is excluded.
+  assertEquals(body.length, 1);
+  assertEquals(body[0].keyId, apiKey.id);
   assertEquals(body[0].keyName, 'Primary key');
-  assertEquals(body[1].keyName, 'Other key');
-  assertEquals(body[0].keyCreatedAt, apiKey.createdAt);
-  assertEquals(body[1].keyCreatedAt, '2026-03-15T00:00:00.000Z');
-  const ownRecord = body.find((record: { keyId: string }) => record.keyId === apiKey.id);
-  const otherRecord = body.find((record: { keyId: string }) => record.keyId === 'key_other');
-  assertExists(ownRecord);
-  assertExists(otherRecord);
-  assertEquals(ownRecord.tokens.input_cache_read, 4);
-  assertEquals(ownRecord.tokens.input_cache_write, 1);
-  assertEquals(otherRecord.tokens.input_cache_read, 6);
-  assertEquals(otherRecord.tokens.input_cache_write, 2);
+  assertEquals(body[0].tokens.input_cache_read, 4);
+  assertEquals(body[0].tokens.input_cache_write, 1);
 });
 
-test('/api/token-usage can include all key metadata for stable dashboard color slots', async () => {
+test('/api/token-usage in self-by-key mode includes per-key metadata for the actor only', async () => {
   const { repo, apiKey } = await setupAppTest();
+  // Add a second key under the same user; they should both surface.
   await repo.apiKeys.save({
-    id: 'key_other',
-    name: 'Other key',
-    key: 'raw_other_key',
+    id: 'key_actor_secondary',
+    userId: apiKey.userId,
+    name: 'Actor secondary',
+    key: 'raw_actor_secondary',
     createdAt: '2026-03-16T00:00:00.000Z',
     upstreamIds: null,
+    deletedAt: null,
   });
   await repo.usage.set({
-    keyId: 'key_other',
+    keyId: 'key_actor_secondary',
     model: 'gpt-5',
     upstream: null,
     modelKey: 'gpt-5',
@@ -257,30 +167,44 @@ test('/api/token-usage can include all key metadata for stable dashboard color s
   assertEquals(response.status, 200);
   const body = await response.json();
   assertEquals(body.records.length, 1);
-  assertEquals(body.keyColorOrder, [
-    '46360b74-2457-4a38-a116-7afdb2894632',
-    '4969165b-3412-436c-87d9-3fd4770164b5',
-    '541128df-ee71-4fc1-9cc7-6855ca1e7fcc',
-    'e694733c-370e-4b9a-9331-57eefd12a8cc',
-    '5a4481c9-0230-481c-bd17-49fc2bda6f02',
-    'future-1',
-    '3f2fe5b9-2991-4bb8-bc04-2852f58150ca',
-    'future-3',
-    'future-2',
-    'future-4',
-  ]);
+  assertEquals(body.records[0].keyId, 'key_actor_secondary');
   assertEquals(body.keys, [
-    {
-      id: apiKey.id,
-      name: apiKey.name,
-      createdAt: apiKey.createdAt,
-    },
-    {
-      id: 'key_other',
-      name: 'Other key',
-      createdAt: '2026-03-16T00:00:00.000Z',
-    },
+    { id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt },
+    { id: 'key_actor_secondary', name: 'Actor secondary', createdAt: '2026-03-16T00:00:00.000Z' },
   ]);
+});
+
+test('/api/token-usage all-by-user view aggregates across keys per user', async () => {
+  const { repo, adminSession, apiKey } = await setupAppTest();
+  await repo.usage.set({
+    keyId: apiKey.id,
+    model: 'gpt-5',
+    upstream: null,
+    modelKey: 'gpt-5',
+    hour: '2026-03-15T10',
+    requests: 1,
+    tokens: { input: 10, output: 5 },
+    cost: null,
+  });
+
+  const response = await requestApp(
+    '/api/token-usage?start=2026-03-15T00&end=2026-03-16T00&view=all-by-user',
+    { headers: { 'x-floway-session': adminSession } },
+  );
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.length, 1);
+  assertEquals(body[0].userId, apiKey.userId);
+  assertEquals(body[0].tokens.input, 10);
+});
+
+test('/api/token-usage rejects all-by-user from a user without canViewGlobalTelemetry', async () => {
+  const { apiKey } = await setupAppTest();
+  const response = await requestApp(
+    '/api/token-usage?start=2026-03-15T00&end=2026-03-16T00&view=all-by-user',
+    { headers: { 'x-api-key': apiKey.key } },
+  );
+  assertEquals(response.status, 403);
 });
 
 test('/api/token-usage merges Claude variants into backend base model records', async () => {

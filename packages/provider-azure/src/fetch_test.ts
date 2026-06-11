@@ -7,11 +7,11 @@ import {
   azureFetchImagesGenerations,
   azureFetchMessages,
   azureFetchMessagesCountTokens,
-  azureFetchModels,
   azureFetchResponses,
   azureFetchResponsesCompact,
 } from './fetch.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
+import { directFetcher } from '@floway-dev/provider';
 import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
 
 const baseRecord: UpstreamRecord = {
@@ -35,6 +35,7 @@ const baseRecord: UpstreamRecord = {
   state: null,
   flagOverrides: {},
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
 };
 
 test('OpenAI v1 transports apply api-key auth and the canonical paths', async () => {
@@ -52,11 +53,10 @@ test('OpenAI v1 transports apply api-key auth and the canonical paths', async ()
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchChatCompletions(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetchResponses(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetchResponsesCompact(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetchEmbeddings(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) });
-      await azureFetchModels(config, { method: 'GET' });
+      await azureFetchChatCompletions(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) }, { fetcher: directFetcher });
+      await azureFetchResponses(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) }, { fetcher: directFetcher });
+      await azureFetchResponsesCompact(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) }, { fetcher: directFetcher });
+      await azureFetchEmbeddings(config, { method: 'POST', body: JSON.stringify({ model: 'set-by-provider' }) }, { fetcher: directFetcher });
     },
   );
 
@@ -67,16 +67,15 @@ test('OpenAI v1 transports apply api-key auth and the canonical paths', async ()
       'https://example.openai.azure.com/openai/v1/responses',
       'https://example.openai.azure.com/openai/v1/responses/compact',
       'https://example.openai.azure.com/openai/v1/embeddings',
-      'https://example.openai.azure.com/openai/v1/models',
     ],
   );
   assertEquals(
     seen.map(item => item.apiKey),
-    ['az-key', 'az-key', 'az-key', 'az-key', 'az-key'],
+    ['az-key', 'az-key', 'az-key', 'az-key'],
   );
   assertEquals(
     seen.map(item => item.contentType),
-    ['application/json', 'application/json', 'application/json', 'application/json', null],
+    ['application/json', 'application/json', 'application/json', 'application/json'],
   );
   assertEquals(seen[0].body, { model: 'set-by-provider' });
 });
@@ -91,7 +90,7 @@ test('image transports append the Azure preview api-version', async () => {
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchImagesGenerations(config, { method: 'POST', body: '{}' });
+      await azureFetchImagesGenerations(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
@@ -114,7 +113,7 @@ test('endpoint that already includes /openai/v1 routes through unchanged', async
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchResponses(config, { method: 'POST', body: '{}' });
+      await azureFetchResponses(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
@@ -143,7 +142,7 @@ test('Foundry project endpoints route OpenAI v1 calls under the project base', a
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchResponses(config, { method: 'POST', body: '{}' });
+      await azureFetchResponses(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
@@ -172,8 +171,8 @@ test('Foundry project endpoints split OpenAI v1 vs Anthropic surfaces', async ()
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchResponses(config, { method: 'POST', body: '{}' });
-      await azureFetchMessages(config, { method: 'POST', body: '{}' });
+      await azureFetchResponses(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
@@ -205,7 +204,7 @@ test('native Anthropic calls land on the resource Anthropic base when a project 
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchMessages(config, { method: 'POST', body: '{}' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
@@ -240,8 +239,8 @@ test('Azure Foundry Anthropic surface uses x-api-key + anthropic-version', async
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { extraHeaders: { 'anthropic-beta': 'context-1m' } });
-      await azureFetchMessagesCountTokens(config, { method: 'POST', body: '{}' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { extraHeaders: { 'anthropic-beta': 'context-1m' }, fetcher: directFetcher });
+      await azureFetchMessagesCountTokens(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
@@ -285,13 +284,11 @@ test('Foundry Anthropic messages target URI is accepted and splits per surface',
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchMessages(config, { method: 'POST', body: '{}' });
-      await azureFetchModels(config, { method: 'GET' });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );
 
   assertEquals(seen, [
     'https://example.services.ai.azure.com/anthropic/v1/messages',
-    'https://example.services.ai.azure.com/openai/v1/models',
   ]);
 });

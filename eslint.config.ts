@@ -7,6 +7,26 @@ import vueParser from 'vue-eslint-parser';
 
 import type { Linter } from 'eslint';
 
+const projectList = [
+  './apps/platform-cloudflare/tsconfig.json',
+  './apps/platform-node/tsconfig.json',
+  './apps/web/tsconfig.json',
+  './packages/gateway/tsconfig.json',
+  './packages/http/tsconfig.json',
+  './packages/interceptor/tsconfig.json',
+  './packages/platform/tsconfig.json',
+  './packages/protocols/tsconfig.json',
+  './packages/provider/tsconfig.json',
+  './packages/provider-azure/tsconfig.json',
+  './packages/provider-codex/tsconfig.json',
+  './packages/provider-copilot/tsconfig.json',
+  './packages/provider-custom/tsconfig.json',
+  './packages/proxy/tsconfig.json',
+  './packages/test-utils/tsconfig.json',
+  './packages/translate/tsconfig.json',
+  './packages/ui/tsconfig.json',
+];
+
 const commonConfig: Linter.Config = {
   plugins: {
     import: importPlugin,
@@ -136,7 +156,7 @@ const commonConfig: Linter.Config = {
     'import/internal-regex': '^@floway-dev/',
     'import/resolver': {
       typescript: {
-        project: ['./apps/platform-cloudflare/tsconfig.json', './apps/platform-node/tsconfig.json', './apps/web/tsconfig.json', './packages/gateway/tsconfig.json', './packages/interceptor/tsconfig.json', './packages/platform/tsconfig.json', './packages/protocols/tsconfig.json', './packages/provider/tsconfig.json', './packages/provider-azure/tsconfig.json', './packages/provider-codex/tsconfig.json', './packages/provider-copilot/tsconfig.json', './packages/provider-custom/tsconfig.json', './packages/test-utils/tsconfig.json', './packages/translate/tsconfig.json', './packages/ui/tsconfig.json'],
+        project: projectList,
         noWarnOnMultipleProjects: true,
       },
     },
@@ -147,7 +167,7 @@ const parserOptions: Linter.ParserOptions = {
   parser: tsParser,
   ecmaVersion: 'latest',
   sourceType: 'module',
-  project: ['./apps/platform-cloudflare/tsconfig.json', './apps/platform-node/tsconfig.json', './apps/web/tsconfig.json', './packages/gateway/tsconfig.json', './packages/interceptor/tsconfig.json', './packages/platform/tsconfig.json', './packages/protocols/tsconfig.json', './packages/provider/tsconfig.json', './packages/provider-azure/tsconfig.json', './packages/provider-codex/tsconfig.json', './packages/provider-copilot/tsconfig.json', './packages/provider-custom/tsconfig.json', './packages/test-utils/tsconfig.json', './packages/translate/tsconfig.json', './packages/ui/tsconfig.json'],
+  project: projectList,
   noWarnOnMultipleProjects: true,
 };
 
@@ -180,11 +200,51 @@ const config: Linter.Config[] = [
       },
     },
     rules: {
-      // Block-order keeps SFCs predictable; everything else flows through commonConfig.
+      // `{ ...commonConfig, rules: {…} }` shadows the spread `rules` (plain
+      // JS object-spread within a single literal), and .vue files match no
+      // earlier block carrying the common rules — only the **/*.{ts,tsx}
+      // block above does. Re-spread commonConfig.rules so SFCs run
+      // import/order, stylistic, and async-safety alongside the four vue
+      // rules below.
+      ...commonConfig.rules,
       'vue/block-order': ['error', { order: ['script', 'template', 'style'] }],
       'vue/multi-word-component-names': 'off',
       'vue/no-mutating-props': 'error',
       'vue/require-explicit-emits': 'error',
+    },
+  },
+  {
+    // Redefining a single rule replaces its whole option value (the
+    // option array is not deep-merged with the earlier declaration), so
+    // the platform-impl patterns from commonConfig's `no-restricted-imports`
+    // must be re-listed here alongside the proxy-root ban. Other common
+    // rules still apply to apps/web via flat-config's per-rule merge
+    // across matching config objects.
+    files: ['apps/web/**/*.{ts,tsx,vue}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          {
+            group: ['@floway-dev/*/src/**'],
+            message: 'Cross-package deep imports are forbidden. Use the package\'s public exports map.',
+          },
+          {
+            group: [
+              '@floway-dev/platform-cloudflare',
+              '@floway-dev/platform-cloudflare/*',
+              '@floway-dev/platform-node',
+              '@floway-dev/platform-node/*',
+            ],
+            message: 'Platform implementations are deployment-target apps, not libraries. They are reachable only from their own entry.ts via relative imports.',
+          },
+          {
+            // Match the bare specifier only, not the `/url`, `/url-kind`,
+            // etc. subpaths the dashboard is allowed to import.
+            regex: '^@floway-dev/proxy$',
+            message: 'apps/web must reach @floway-dev/proxy only via its /url, /url-kind, /proxy-config, or /constants subpath exports — the root pulls in dialers and userspace TLS.',
+          },
+        ],
+      }],
     },
   },
   {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Card } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
 import type { CopilotQuotaSnapshot, CopilotUpstreamConfig } from '../../api/types.ts';
+import { Card } from '@floway-dev/ui';
 
 const props = defineProps<{
   upstreamId: string;

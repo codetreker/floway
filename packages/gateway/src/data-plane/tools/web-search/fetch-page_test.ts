@@ -1,6 +1,6 @@
 import { beforeEach, test } from 'vitest';
 
-import { fetchPageAndRecordUsage, fetchPageWithoutRecordingUsage } from './fetch-page.ts';
+import { fetchPageAndRecordUsage } from './fetch-page.ts';
 import type { WebSearchFetchPageResult, WebSearchProvider } from './types.ts';
 import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
@@ -61,17 +61,6 @@ test('fetchPageAndRecordUsage records usage even when result is type:error', asy
 
   const records = await repo.searchUsage.listAll();
   assertEquals(records.length, 1);
-});
-
-test('fetchPageWithoutRecordingUsage skips the recorder entirely', async () => {
-  const result = await fetchPageWithoutRecordingUsage({
-    provider: stubProvider(okResult),
-    request: { urls: ['https://a.com'] },
-  });
-
-  assertEquals(result, okResult);
-  const records = await repo.searchUsage.listAll();
-  assertEquals(records, []);
 });
 
 test('fetchPageAndRecordUsage rethrows AND records when provider call throws (try/finally semantics)', async () => {

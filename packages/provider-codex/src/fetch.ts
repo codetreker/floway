@@ -21,21 +21,19 @@ import {
 import type { CodexAccountCredential } from './state.ts';
 import type { ResponsesPayload, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 import { parseResponsesStream } from '@floway-dev/protocols/responses';
-import { streamingProviderCall, type CacheRepo, type ProviderStreamResult, type UpstreamModel } from '@floway-dev/provider';
+import { streamingProviderCall, type CacheRepo, type ProviderStreamResult, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
 
-// Hooks for D1 state transitions, applied with optimistic concurrency. Only
-// refresh-token rotations and terminal-state transitions go through D1;
-// quota and access-token cache writes happen inline below against the
+// Hooks for repo-side state transitions, applied with optimistic concurrency.
+// Only refresh-token rotations and terminal-state transitions go through the
+// repo; quota and access-token cache writes happen inline below against the
 // CacheRepo.
 export interface CodexCallEffects {
   persistRefreshTokenRotation(newRefreshToken: string): Promise<void>;
   persistTerminalState(state: 'session_terminated' | 'refresh_failed', message: string): Promise<void>;
 }
 
-// The transport sees one account at a time. Provider-level code picks the
-// active account out of the pool (currently always accounts[0]) and passes
-// only the credential here, so the transport stays pool-agnostic — a future
-// fan-out adds per-call account selection without touching this module.
+// The transport is account-agnostic — the caller selects the credential
+// and passes it in.
 export interface CallCodexResponsesOptions {
   upstreamId: string;
   account: CodexAccountCredential;
@@ -45,6 +43,12 @@ export interface CallCodexResponsesOptions {
   signal?: AbortSignal;
   cache: CacheRepo;
   effects: CodexCallEffects;
+  // Per-call options; see UpstreamCallOptions for the fetcher /
+  // recordUpstreamLatency contract. The recorder is threaded into the
+  // /responses fetcher's per-attempt wrap; the OAuth refresh hop calls the
+  // fetcher unwrapped because it is the gateway's own auth maintenance,
+  // not part of the user's upstream round-trip.
+  call: UpstreamCallOptions;
 }
 
 // Refresh window: refresh proactively if the cached access_token expires within
@@ -53,18 +57,27 @@ export interface CallCodexResponsesOptions {
 const REFRESH_LEAD_SECONDS = 5 * 60;
 
 export const callCodexResponses = async (opts: CallCodexResponsesOptions): Promise<ProviderStreamResult<ResponsesStreamEvent>> => {
+  // Pre-fetch gates short-circuit before reaching the network. The gateway
+  // recorder still needs the contract observed (it throws on a provider that
+  // returns without ever wrapping), so each synthetic response rides through
+  // `recordUpstreamLatency` once. The captured ~0 ms is never read — the
+  // gateway records `upstream_success` failures as a counter, not a latency.
+  const syntheticReturn = async (response: Response): Promise<ProviderStreamResult<ResponsesStreamEvent>> => ({
+    ok: false,
+    modelKey: opts.model.id,
+    response: await opts.call.recordUpstreamLatency(Promise.resolve(response)),
+  });
+
   if (opts.account.state !== 'active') {
-    return { ok: false, modelKey: opts.model.id, response: synthetic503(`Codex upstream is ${opts.account.state}`) };
+    return await syntheticReturn(synthetic503(`Codex upstream is ${opts.account.state}`));
   }
 
   const now = new Date();
   const quotaSnapshot = await getCodexQuota(opts.cache, opts.upstreamId);
   if (isCodexRateLimited(quotaSnapshot, now)) {
-    return {
-      ok: false,
-      modelKey: opts.model.id,
-      response: synthetic429(`Codex upstream rate-limited until ${quotaSnapshot!.ratelimited_until!}`, quotaSnapshot!.ratelimited_until!, now),
-    };
+    return await syntheticReturn(
+      synthetic429(`Codex upstream rate-limited until ${quotaSnapshot!.ratelimited_until!}`, quotaSnapshot!.ratelimited_until!, now),
+    );
   }
 
   let accessToken: string;
@@ -73,7 +86,7 @@ export const callCodexResponses = async (opts: CallCodexResponsesOptions): Promi
   } catch (err) {
     if (err instanceof CodexOAuthSessionTerminatedError) {
       await opts.effects.persistTerminalState('refresh_failed', err.upstreamMessage);
-      return { ok: false, modelKey: opts.model.id, response: synthetic503(`Codex refresh failed: ${err.upstreamMessage}`) };
+      return await syntheticReturn(synthetic503(`Codex refresh failed: ${err.upstreamMessage}`));
     }
     throw err;
   }
@@ -91,7 +104,7 @@ const ensureAccessToken = async (opts: CallCodexResponsesOptions, now: Date): Pr
 };
 
 const refreshAndCache = async (opts: CallCodexResponsesOptions): Promise<string> => {
-  const tokens = await refreshCodexAccessToken(opts.account.refresh_token);
+  const tokens = await refreshCodexAccessToken(opts.account.refresh_token, opts.call.fetcher);
   const newCache: CodexAccessTokenCache = {
     access_token: tokens.access_token,
     expires_at: Math.floor(Date.now() / 1000) + tokens.expires_in,
@@ -101,12 +114,12 @@ const refreshAndCache = async (opts: CallCodexResponsesOptions): Promise<string>
   // Persist the refresh-token rotation through the caller's CAS hook. We
   // await rather than fire-and-forget on purpose: under concurrent rotations
   // (two parallel data-plane requests both refreshing), each call's rotated
-  // token must reach D1 deterministically; otherwise an unhandled rejection
-  // can swallow the new refresh_token and the upstream eventually returns
-  // app_session_terminated hours later. Cost is one row UPDATE on the request
-  // path (~5ms on D1). A losing CAS is fine — that path's `expectedState`
-  // mismatched a concurrent operator re-import or sibling rotation, and the
-  // already-persisted newer state supersedes ours.
+  // token must reach the persistence hook deterministically; otherwise an
+  // unhandled rejection can swallow the new refresh_token and the upstream
+  // eventually returns app_session_terminated hours later. Cost is one row
+  // UPDATE on the request path. A losing CAS is fine — that path's
+  // `expectedState` mismatched a concurrent operator re-import or sibling
+  // rotation, and the already-persisted newer state supersedes ours.
   await opts.effects.persistRefreshTokenRotation(tokens.refresh_token);
   return tokens.access_token;
 };
@@ -126,23 +139,26 @@ const performUpstreamCall = async (
     'content-type': 'application/json',
   };
 
-  const upstreamFetch = fetch(`${CODEX_BACKEND_BASE}${CODEX_RESPONSES_PATH}`, {
+  const upstreamFetch = opts.call.fetcher(`${CODEX_BACKEND_BASE}${CODEX_RESPONSES_PATH}`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ...opts.body, model: opts.model.id, store: false, stream: true }),
     signal: opts.signal,
-  }).then(async response => {
+  }, opts.call.recordUpstreamLatency).then(async response => {
     if (response.ok) {
       const responseNow = new Date();
       const snapshot = parseCodexQuotaHeaders(response.headers, { now: responseNow, isRateLimited: false });
-      void putCodexQuota(opts.cache, opts.upstreamId, snapshot, computeCodexQuotaTtlMs(snapshot, responseNow));
+      // Quota cache is best-effort — getCodexQuota already treats missing
+      // entries as null, so a KV write failure is recoverable noise rather
+      // than something to crash the request on.
+      putCodexQuota(opts.cache, opts.upstreamId, snapshot, computeCodexQuotaTtlMs(snapshot, responseNow)).catch(() => {});
       return ensureSseContentType(response);
     }
 
     if (response.status === 429) {
       const responseNow = new Date();
       const snapshot = parseCodexQuotaHeaders(response.headers, { now: responseNow, isRateLimited: true });
-      void putCodexQuota(opts.cache, opts.upstreamId, snapshot, computeCodexQuotaTtlMs(snapshot, responseNow));
+      putCodexQuota(opts.cache, opts.upstreamId, snapshot, computeCodexQuotaTtlMs(snapshot, responseNow)).catch(() => {});
       return response;
     }
 

@@ -1,7 +1,7 @@
 import type { CopilotUpstreamConfig } from './config.ts';
 import { copilotFetchModels } from './fetch.ts';
 import type { CopilotModelsResponse } from './types.ts';
-import { ProviderModelsUnavailableError } from '@floway-dev/provider';
+import { fetchUpstreamModels, type Fetcher } from '@floway-dev/provider';
 
 const isCopilotModelsResponse = (value: unknown): value is CopilotModelsResponse => {
   const response = value as CopilotModelsResponse;
@@ -19,38 +19,15 @@ const isCopilotModelsResponse = (value: unknown): value is CopilotModelsResponse
 // motivation is semantic alignment with VSCode's wire shape.
 //
 // Reference (caozhiyuan/copilot-api uses the same split):
-// https://github.com/caozhiyuan/copilot-api/blob/main/src/lib/api-config.ts
+// https://github.com/caozhiyuan/copilot-api/blob/dc3d4aaf249d534bc66d5f1cb221ac29489b9753/src/lib/api-config.ts
 const MODELS_HEADER_OVERRIDES: Record<string, string> = {
   'openai-intent': 'model-access',
   'x-interaction-type': 'model-access',
   'content-type': '',
 };
 
-export const fetchCopilotModels = async (config: Pick<CopilotUpstreamConfig, 'githubToken' | 'accountType'>): Promise<CopilotModelsResponse> => {
-  let response: Response;
-  try {
-    response = await copilotFetchModels(config, { method: 'GET' }, { extraHeaders: MODELS_HEADER_OVERRIDES });
-  } catch (cause) {
-    throw new ProviderModelsUnavailableError(null, cause);
-  }
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new ProviderModelsUnavailableError({
-      status: response.status,
-      headers: new Headers(response.headers),
-      body,
-    });
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = await response.json();
-  } catch (cause) {
-    throw new ProviderModelsUnavailableError(null, cause);
-  }
-  if (!isCopilotModelsResponse(parsed)) {
-    throw new ProviderModelsUnavailableError(null, new Error('Invalid /models response shape'));
-  }
-  return parsed;
-};
+export const fetchCopilotModels = (config: Pick<CopilotUpstreamConfig, 'githubToken' | 'accountType'>, fetcher: Fetcher): Promise<CopilotModelsResponse> =>
+  fetchUpstreamModels(
+    () => copilotFetchModels(config, { method: 'GET' }, { extraHeaders: MODELS_HEADER_OVERRIDES, fetcher }),
+    v => (isCopilotModelsResponse(v) ? v : null),
+  );

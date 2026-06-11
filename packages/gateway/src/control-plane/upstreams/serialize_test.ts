@@ -16,6 +16,7 @@ const custom: UpstreamRecord = {
   updatedAt: timestamp,
   flagOverrides: { 'vendor-deepseek': true },
   disabledPublicModelIds: [],
+  proxyFallbackList: [],
   config: {
     baseUrl: 'https://api.example.com',
     bearerToken: 'sk-secret-token-12345',

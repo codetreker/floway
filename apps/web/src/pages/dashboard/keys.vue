@@ -1,29 +1,5 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
-
-import { callApi as callApiForLoader, useApi as useApiForLoader } from '../../api/client.ts';
-import type { ApiKey as LoaderApiKey } from '../../api/types.ts';
-import { useModelsStore as useModelsStoreForLoader } from '../../composables/useModels.ts';
-import { useUpstreamsStore as useUpstreamsStoreForLoader } from '../../composables/useUpstreams.ts';
-import { useAuthStore as useAuthStoreForLoader } from '../../stores/auth.ts';
-
-export const useKeysPageData = defineBasicLoader(async () => {
-  const api = useApiForLoader();
-  const auth = useAuthStoreForLoader();
-  const [keysRes] = await Promise.all([
-    callApiForLoader<LoaderApiKey[]>(() => api.api.keys.$get()),
-    auth.isAdmin ? useUpstreamsStoreForLoader().load() : Promise.resolve(),
-    useModelsStoreForLoader().load(),
-  ]);
-  return {
-    keys: keysRes.data ?? [],
-    error: keysRes.error?.message ?? null,
-  };
-});
-</script>
-
-<script setup lang="ts">
-import { Button, Code, Input, Spinner } from '@floway-dev/ui';
 import { computed, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
@@ -32,17 +8,32 @@ import CliSnippet from '../../components/keys/CliSnippet.vue';
 import EditKeyDialog from '../../components/keys/EditKeyDialog.vue';
 import KeysTable from '../../components/keys/KeysTable.vue';
 import { useModelsStore } from '../../composables/useModels.ts';
-import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
-import { useAuthStore } from '../../stores/auth.ts';
+import { useUpstreamOptionsStore } from '../../composables/useUpstreamOptions.ts';
+import { Button, Input } from '@floway-dev/ui';
+
+export const useKeysPageData = defineBasicLoader(async () => {
+  const api = useApi();
+  const upstreamOptions = useUpstreamOptionsStore();
+  const [keysRes] = await Promise.all([
+    callApi<ApiKey[]>(() => api.api.keys.$get()),
+    upstreamOptions.load(),
+    useModelsStore().load(),
+  ]);
+  return {
+    keys: keysRes.error ? [] : keysRes.data,
+    error: keysRes.error?.message ?? upstreamOptions.error.value,
+  };
+});
+</script>
+
+<script setup lang="ts">
 
 const api = useApi();
-const auth = useAuthStore();
-const upstreamsStore = useUpstreamsStore();
+const upstreamOptionsStore = useUpstreamOptionsStore();
 const modelsStore = useModelsStore();
 const initialData = useKeysPageData();
 
 const keys = ref<ApiKey[]>(initialData.data.value.keys);
-const loading = ref(false);
 const error = ref<string | null>(initialData.data.value.error);
 const newName = ref('');
 const creating = ref(false);
@@ -52,19 +43,17 @@ const selectedKeyId = ref<string>('');
 const copied = ref<string | null>(null);
 
 const loadAll = async () => {
-  loading.value = true;
   error.value = null;
   const [keysRes] = await Promise.all([
     callApi<ApiKey[]>(() => api.api.keys.$get()),
-    auth.isAdmin ? upstreamsStore.load() : Promise.resolve(),
+    upstreamOptionsStore.load(),
     modelsStore.load(),
   ]);
-  loading.value = false;
   if (keysRes.error) {
     error.value = keysRes.error.message;
     return;
   }
-  keys.value = keysRes.data ?? [];
+  keys.value = keysRes.data;
 };
 
 const create = async () => {
@@ -111,14 +100,13 @@ const copyToClipboard = async (text: string, tag: string) => {
     await navigator.clipboard.writeText(text);
     copied.value = tag;
     window.setTimeout(() => { if (copied.value === tag) copied.value = null; }, 1500);
-  } catch {
-    // Clipboard may be denied; fall back to no feedback rather than throw.
-  }
+  } catch { /* */ }
 };
 
 const selectedKey = computed(() => keys.value.find(k => k.id === selectedKeyId.value));
-const configurationKey = computed(() => selectedKey.value?.key ?? (auth.isAdmin ? '<your-api-key>' : (auth.authKey ?? keys.value[0]?.key ?? '')));
+const configurationKey = computed(() => selectedKey.value?.key ?? keys.value[0]?.key ?? '<your-api-key>');
 const modelsForSnippets = computed(() => modelsStore.models.value ?? []);
+const upstreamOptions = computed(() => upstreamOptionsStore.options.value);
 </script>
 
 <template>
@@ -126,7 +114,7 @@ const modelsForSnippets = computed(() => modelsStore.models.value ?? []);
     <div class="glass-card p-5 sm:p-6 mb-6 animate-in">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">API Keys</span>
-        <div v-if="auth.isAdmin" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Input
             v-model="newName"
             size="sm"
@@ -152,9 +140,7 @@ const modelsForSnippets = computed(() => modelsStore.models.value ?? []);
 
       <KeysTable
         :keys="keys"
-        :loading="loading"
-        :is-admin="auth.isAdmin"
-        :upstreams="upstreamsStore.upstreams.value ?? []"
+        :upstreams="upstreamOptions"
         :selected-id="selectedKeyId"
         :copied="copied"
         @select="id => selectedKeyId = id"
@@ -183,9 +169,10 @@ const modelsForSnippets = computed(() => modelsStore.models.value ?? []);
     </div>
 
     <EditKeyDialog
+      v-if="editTarget"
       v-model:open="editOpen"
       :api-key="editTarget"
-      :upstreams="upstreamsStore.upstreams.value ?? []"
+      :upstreams="upstreamOptions"
       @saved="loadAll"
     />
   </div>

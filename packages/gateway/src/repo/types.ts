@@ -1,16 +1,40 @@
 import type { HistogramBucket } from '../shared/performance-histogram.ts';
 import type { WebSearchProviderName } from '../shared/web-search-providers.ts';
 import type { BillingDimension, ModelPricing } from '@floway-dev/protocols/common';
-import type { PerformanceApiName, UpstreamRecord } from '@floway-dev/provider';
+import type { UpstreamRecord } from '@floway-dev/provider';
 
 export interface ApiKey {
   id: string;
+  userId: number;
   name: string;
   key: string;
   createdAt: string;
   lastUsedAt?: string;
   // null = inherit global upstream order; array = whitelist + priority order.
   upstreamIds: string[] | null;
+  deletedAt: string | null;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  // null = the row is not a credential — sign-in is only possible through
+  // the ADMIN_KEY backdoor.
+  passwordHash: string | null;
+  isAdmin: boolean;
+  // null = unrestricted at the user level; an array intersects with the
+  // per-key whitelist when both are present.
+  upstreamIds: string[] | null;
+  canViewGlobalTelemetry: boolean;
+  createdAt: string;
+  deletedAt: string | null;
+}
+
+export interface Session {
+  id: string;
+  userId: number;
+  createdAt: string;
+  lastSeenAt: string;
 }
 
 export interface UsageRecord {
@@ -52,8 +76,6 @@ export interface PerformanceDimensions {
   model: string;
   upstream: string | null;
   modelKey: string;
-  sourceApi: PerformanceApiName;
-  targetApi: PerformanceApiName;
   stream: boolean;
   runtimeLocation: string;
 }
@@ -73,10 +95,44 @@ export interface PerformanceTelemetryRecord extends PerformanceDimensions {
 
 export interface ApiKeyRepo {
   list(): Promise<ApiKey[]>;
+  // Includes soft-deleted rows so the user_id behind a historical key stays
+  // resolvable after the owner rotates or deletes it.
+  listIncludingDeleted(): Promise<ApiKey[]>;
+  listByUserId(userId: number): Promise<ApiKey[]>;
+  // Includes the user's own soft-deleted keys so a rotated key's name still
+  // resolves when attributing past usage.
+  listByUserIdIncludingDeleted(userId: number): Promise<ApiKey[]>;
   findByRawKey(rawKey: string): Promise<ApiKey | null>;
   getById(id: string): Promise<ApiKey | null>;
+  idsByUserIdIncludingDeleted(userId: number): Promise<string[]>;
   save(key: ApiKey): Promise<void>;
-  delete(id: string): Promise<boolean>;
+  softDelete(id: string): Promise<boolean>;
+  softDeleteByUserId(userId: number): Promise<number>;
+  deleteAll(): Promise<void>;
+}
+
+export interface UsersRepo {
+  list(): Promise<User[]>;
+  listIncludingDeleted(): Promise<User[]>;
+  getById(id: number): Promise<User | null>;
+  findByUsername(username: string): Promise<User | null>;
+  // Atomic insert that allocates id = MAX(id) + 1 in a single statement so two
+  // concurrent admin creates can't compute the same id and silently overwrite
+  // each other.
+  createNewUser(template: Omit<User, 'id'>): Promise<User>;
+  // Throws when the username is already taken by another active row, so
+  // duplicate-username races surface instead of silently overwriting state.
+  save(user: User): Promise<void>;
+  softDelete(id: number): Promise<boolean>;
+  deleteAll(): Promise<void>;
+}
+
+export interface SessionsRepo {
+  getByIdAndTouch(id: string): Promise<Session | null>;
+  create(userId: number): Promise<Session>;
+  deleteById(id: string): Promise<boolean>;
+  deleteByUserId(userId: number): Promise<number>;
+  deleteByUserIdExcept(userId: number, exceptId: string): Promise<number>;
   deleteAll(): Promise<void>;
 }
 
@@ -88,8 +144,7 @@ export interface UsageRepo {
   record(record: UsageRecord): Promise<void>;
   query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]>;
   listAll(): Promise<UsageRecord[]>;
-  // Replacement upsert (counts and cost both overwritten from the record).
-  // Used by import/restore flows.
+  // Replacement upsert: counts and cost are both overwritten from the record.
   set(record: UsageRecord): Promise<void>;
   deleteAll(): Promise<void>;
 }
@@ -134,6 +189,56 @@ export interface UpstreamRepo {
   // options.expectedState at write time. On updated:false the caller re-reads
   // and decides whether to retry or drop the update.
   saveState(id: string, newState: unknown, options: { expectedState: unknown }): Promise<{ updated: boolean }>;
+}
+
+export interface ProxyRecord {
+  id: string;
+  name: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  // Operator-set per-proxy override of the dial-stage deadline (seconds).
+  // null falls back to the gateway-wide dial-stage default.
+  dialTimeoutSeconds: number | null;
+}
+
+export interface ProxyRepo {
+  list(): Promise<ProxyRecord[]>;
+  getById(id: string): Promise<ProxyRecord | null>;
+  insert(input: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<ProxyRecord>;
+  // Returns the updated record alongside the bit `url` actually changed by
+  // this patch so callers that react to URL edits (e.g. wiping outstanding
+  // backoff rows) don't need a redundant getById round-trip.
+  patch(id: string, patch: { name?: string; url?: string; dialTimeoutSeconds?: number | null }): Promise<{ record: ProxyRecord; urlChanged: boolean } | null>;
+  // Upsert: an id collision overwrites the configurable columns (name, url,
+  // dial_timeout_seconds) and refreshes updated_at; created_at belongs to the
+  // local deployment and is preserved.
+  save(record: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<void>;
+  delete(id: string): Promise<boolean>;
+  deleteAll(): Promise<void>;
+  findUpstreamsReferencing(proxyId: string): Promise<string[]>;
+}
+
+export interface BackoffRow {
+  proxyId: string;
+  upstreamId: string;
+  failCount: number;
+  // Unix seconds.
+  expiresAt: number;
+  lastError: string | null;
+  lastErrorAt: number | null;
+}
+
+export interface ProxyBackoffRepo {
+  recordDialFailure(proxyId: string, upstreamId: string, errorMessage: string): Promise<void>;
+  recordDialSuccess(proxyId: string, upstreamId: string): Promise<void>;
+  listForUpstream(upstreamId: string): Promise<BackoffRow[]>;
+  listForProxy(proxyId: string): Promise<BackoffRow[]>;
+  listAll(): Promise<BackoffRow[]>;
+  resetForProxy(proxyId: string): Promise<void>;
+  resetForUpstream(upstreamId: string): Promise<void>;
+  reset(proxyId: string, upstreamId: string): Promise<void>;
+  deleteAll(): Promise<void>;
 }
 
 export interface StoredResponsesItem {
@@ -192,12 +297,16 @@ export interface ResponsesSnapshotsRepo {
 
 export interface Repo {
   apiKeys: ApiKeyRepo;
+  users: UsersRepo;
+  sessions: SessionsRepo;
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
   performance: PerformanceRepo;
   cache: CacheRepo;
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
+  proxies: ProxyRepo;
+  proxyBackoffs: ProxyBackoffRepo;
   responsesItems: ResponsesItemsRepo;
   responsesSnapshots: ResponsesSnapshotsRepo;
 }

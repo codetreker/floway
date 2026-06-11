@@ -2,10 +2,10 @@
 // Identity + state + quota summary for one Codex account in an upstream's
 // pool. Pure presentational card — no API calls live here.
 
-import { Badge, Card } from '@floway-dev/ui';
 import { computed } from 'vue';
 
 import type { CodexAccountCredentialState, CodexAccountIdentity, CodexUpstreamConfig, CodexUpstreamState, UpstreamRecord } from '../../api/types.ts';
+import { Badge, Card } from '@floway-dev/ui';
 
 const props = defineProps<{
   record: UpstreamRecord;
@@ -36,8 +36,6 @@ const formatPercent = (n: number | undefined): string => {
   return `${Math.max(0, Math.min(100, Math.round(n)))}%`;
 };
 
-// Severity ordering: credential health failures dominate (red), then an active
-// 429 (red), then heavy usage warnings (amber). Otherwise the account is green.
 const badge = computed<{ tone: 'rose' | 'amber' | 'emerald'; label: string; detail?: string }>(() => {
   const c = credential.value;
   if (c?.state === 'session_terminated') {

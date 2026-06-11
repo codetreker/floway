@@ -12,6 +12,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@floway-dev/proxy": "workspace:*",
     "@floway-dev/ui": "workspace:*",
     "@vueuse/core": "^14.1.0",
     "@vueuse/integrations": "^14.3.0",

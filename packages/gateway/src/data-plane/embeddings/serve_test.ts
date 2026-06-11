@@ -129,13 +129,9 @@ test('/v1/embeddings records usage under request model when upstream omits model
   const upstreamSuccess = performanceRows.find(row => row.metricScope === 'upstream_success');
   assertExists(requestTotal);
   assertExists(upstreamSuccess);
-  assertEquals(requestTotal.sourceApi, 'embeddings');
-  assertEquals(requestTotal.targetApi, 'embeddings');
   assertEquals(requestTotal.model, 'text-embedding-real');
   assertEquals(requestTotal.requests, 1);
   assertEquals(requestTotal.errors, 0);
-  assertEquals(upstreamSuccess.sourceApi, 'embeddings');
-  assertEquals(upstreamSuccess.targetApi, 'embeddings');
   assertEquals(upstreamSuccess.model, 'text-embedding-real');
   assertEquals(upstreamSuccess.requests, 1);
   assertEquals(upstreamSuccess.errors, 0);
@@ -198,8 +194,6 @@ test('/v1/embeddings records request and upstream performance', async () => {
     assertEquals(record.model, 'text-embedding-real');
     assertEquals(record.upstream, copilotUpstream.id);
     assertEquals(record.modelKey, 'text-embedding-real');
-    assertEquals(record.sourceApi, 'embeddings');
-    assertEquals(record.targetApi, 'embeddings');
     assertEquals(record.stream, false);
     assertEquals(record.requests, 1);
     assertEquals(record.errors, 0);

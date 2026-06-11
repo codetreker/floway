@@ -8,7 +8,7 @@ import type { ResponsesInvocation } from '../types.ts';
 import { eventFrame } from '@floway-dev/protocols/common';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { EventResult, ExecuteResult } from '@floway-dev/provider';
+import { directFetcher, type EventResult, type ExecuteResult } from '@floway-dev/provider';
 import { assert, assertEquals } from '@floway-dev/test-utils';
 
 // Dirty integration harness: mock the model registry so the image backend is a
@@ -40,17 +40,17 @@ vi.mock('../../../../providers/registry.ts', () => ({
         upstreamModel: { id: 'gpt-image-2', endpoints: { imagesGenerations: {}, imagesEdits: {} } },
         provider: {
           getPricingForModelKey: () => null,
-          callImagesGenerations: async (_model: unknown, body: Record<string, unknown>) => {
+          callImagesGenerations: async (_model: unknown, body: Record<string, unknown>, _signal: unknown, _headers: unknown, opts: { recordUpstreamLatency: <T>(p: Promise<T>) => Promise<T> }) => {
             stub.generationsCalls.push(body);
             const response = stub.nextGenerations.shift();
             if (response === undefined) throw new Error('test did not enqueue a generations response');
-            return { response, modelKey: 'gpt-image-2' };
+            return { response: await opts.recordUpstreamLatency(Promise.resolve(response)), modelKey: 'gpt-image-2' };
           },
-          callImagesEdits: async (_model: unknown, form: FormData) => {
+          callImagesEdits: async (_model: unknown, form: FormData, _signal: unknown, _headers: unknown, opts: { recordUpstreamLatency: <T>(p: Promise<T>) => Promise<T> }) => {
             stub.editsForms.push(form);
             const response = stub.nextEdits.shift();
             if (response === undefined) throw new Error('test did not enqueue an edits response');
-            return { response, modelKey: 'gpt-image-2' };
+            return { response: await opts.recordUpstreamLatency(Promise.resolve(response)), modelKey: 'gpt-image-2' };
           },
         },
       }],
@@ -121,9 +121,10 @@ const makeCtx = (input: unknown[], action: 'generate' | 'edit' | 'auto' = 'auto'
     binding: {
       enabledFlags: new Set<string>(['responses-image-generation-shim']),
     } as never,
+    fetcher: directFetcher,
   },
   store: new LayeredStatefulResponsesStore({
-    apiKeyId: null,
+    apiKeyId: 'test-key',
     reads: [new MemoryStatefulResponsesBacking()],
     itemWrites: [],
     snapshotWrites: [],
@@ -133,9 +134,10 @@ const makeCtx = (input: unknown[], action: 'generate' | 'edit' | 'auto' = 'auto'
   headers: {},
 });
 const gatewayCtx = (): GatewayCtx => ({
-  apiKeyId: null,
-  apiKeyUpstreamIds: null,
+  apiKeyId: 'test-key',
+  upstreamIds: null,
   wantsStream: true,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
 });
@@ -147,8 +149,33 @@ const drain = async (result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>)
   return out;
 };
 
-beforeEach(() => {
-  initRepo(new InMemoryRepo());
+beforeEach(async () => {
+  const repo = new InMemoryRepo();
+  // resolveImageBinding still calls createPerRequestFetcher to satisfy the
+  // production code path. Seed the in-memory repo with the mocked binding's
+  // upstream id so the fetcher mapper resolves it instead of throwing
+  // "unknown upstream id: u".
+  await repo.upstreams.save({
+    id: 'u',
+    provider: 'custom',
+    name: 'mock-image',
+    enabled: true,
+    sortOrder: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    flagOverrides: {},
+    disabledPublicModelIds: [],
+    proxyFallbackList: [],
+    config: {
+      baseUrl: 'https://unused.example.com',
+      bearerToken: 'unused',
+      endpoints: { imagesGenerations: {}, imagesEdits: {} },
+      modelsFetch: { enabled: false, endpoint: '/models' },
+      models: [],
+    },
+    state: null,
+  });
+  initRepo(repo);
   stub.generationsCalls = [];
   stub.editsForms = [];
   stub.nextGenerations = [];

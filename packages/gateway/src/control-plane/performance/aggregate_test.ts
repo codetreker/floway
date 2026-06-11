@@ -11,8 +11,6 @@ const record = (overrides: Partial<PerformanceTelemetryRecord>): PerformanceTele
   model: 'claude-opus-4-7',
   upstream: 'copilot:1',
   modelKey: 'claude-opus-4.7',
-  sourceApi: 'messages',
-  targetApi: 'responses',
   stream: true,
   runtimeLocation: 'unknown',
   requests: 1,
