@@ -10,15 +10,16 @@ import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-comp
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ProviderCallResult, ProviderStreamResult } from '@floway-dev/provider';
-import { assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
+import { directFetcher, type ProviderCallResult, type ProviderStreamResult } from '@floway-dev/provider';
+import { assertEquals, assertExists, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_messages_attempt_test';
 
 const makeGatewayCtx = (): GatewayCtx => ({
   apiKeyId: API_KEY_ID,
-  apiKeyUpstreamIds: null,
+  upstreamIds: null,
   wantsStream: true,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
 });
@@ -92,6 +93,7 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi,
+    fetcher: directFetcher,
   };
 };
 
@@ -194,4 +196,45 @@ test('countTokens refuses a non-messages candidate', async () => {
   }
   if (!(thrown instanceof Error)) throw new Error('expected an Error to be thrown');
   assertEquals(thrown.message.includes("targetApi='messages'"), true);
+});
+
+test('generate attaches the performance context and records upstream_success', async () => {
+  const repo = installRepo();
+  const background: Promise<void>[] = [];
+  const ctx: GatewayCtx = {
+    ...makeGatewayCtx(),
+    runtimeLocation: 'SJC',
+    scheduleBackground: fn => { background.push(Promise.resolve(fn())); },
+  };
+  const callMessages = vi.fn(async (): Promise<ProviderStreamResult<MessagesStreamEvent>> => ({
+    ok: true, events: makeProtocolFrames(makeMessagesEvents()), modelKey: 'gpt-test',
+  }));
+
+  const result = await messagesAttempt.generate({
+    payload: makePayload(),
+    ctx,
+    store: createNonResponsesSourceStore(API_KEY_ID),
+    candidate: makeCandidate({ upstream: 'up_perf', callMessages }),
+  });
+
+  assertEquals(result.type, 'events');
+  if (result.type !== 'events') throw new Error('unreachable');
+  // The full performance dimension set rides every LLM result so both
+  // telemetry scopes record.
+  assertExists(result.performance);
+  assertEquals(result.performance.keyId, API_KEY_ID);
+  assertEquals(result.performance.model, 'test-model');
+  assertEquals(result.performance.upstream, 'up_perf');
+  assertEquals(result.performance.modelKey, 'gpt-test');
+  assertEquals(result.performance.stream, true);
+  assertEquals(result.performance.runtimeLocation, 'SJC');
+
+  // Draining the wrapped stream to its terminal frame records the
+  // upstream_success scope from inside withUpstreamTelemetry.
+  await collectEvents(result.events);
+  await Promise.all(background);
+  const upstreamSamples = await repo.performance.query({ metricScope: 'upstream_success', start: '0000', end: '9999' });
+  assertEquals(upstreamSamples.length, 1);
+  assertEquals(upstreamSamples[0]?.upstream, 'up_perf');
+  assertEquals(upstreamSamples[0]?.requests, 1);
 });

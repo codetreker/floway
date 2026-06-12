@@ -1,21 +1,12 @@
 <script setup lang="ts">
-// Codex provider panel for the upstream-edit workbench. Drives the entire
-// codex import flow — both create and re-import — so the page-level Save
-// button stays out of the codex path (matching CopilotConfigPanel's
-// device-flow ownership). Edit mode wraps the same import form in an
-// account card + buttons row, and gates the form behind a "Re-import
-// credential" toggle so the operator only sees the paste UI when they
-// explicitly request it.
-
-import { Button, Spinner } from '@floway-dev/ui';
 import { computed, ref, watch } from 'vue';
 
-import { callApi, useApi } from '../../api/client.ts';
-import type { UpstreamRecord } from '../../api/types.ts';
-
+import type { CodexImportTab, CodexPkceStartResult } from './codex-import-types.ts';
 import CodexAccountCard from './CodexAccountCard.vue';
 import CodexImportTabs from './CodexImportTabs.vue';
-import type { CodexImportTab, CodexPkceStartResult } from './codex-import-types.ts';
+import { callApi, useApi } from '../../api/client.ts';
+import type { UpstreamRecord } from '../../api/types.ts';
+import { Button, Spinner } from '@floway-dev/ui';
 
 const props = defineProps<{
   mode: 'create' | 'edit';
@@ -23,9 +14,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  // Bubbled up after a successful create / re-import / refresh-now. The
-  // parent re-routes to /dashboard/upstreams/:id so the loader picks up
-  // the freshly-rotated state.
   imported: [record: UpstreamRecord];
   error: [message: string];
 }>();
@@ -37,8 +25,6 @@ const draft = ref<{ activeTab: CodexImportTab; authJsonText: string; callbackUrl
 );
 const submitting = ref(false);
 const refreshing = ref(false);
-// In edit mode the import form is collapsed by default — operators don't
-// need the paste UI in their face every time they edit a codex row.
 const reimportOpen = ref(false);
 
 const pkce = ref<CodexPkceStartResult | null>(null);
@@ -54,15 +40,11 @@ const fetchPkceStart = async () => {
   );
   pkceLoading.value = false;
   if (error) { pkceError.value = error.message; return; }
-  pkce.value = data ?? null;
+  pkce.value = data;
 };
 
 const importFormVisible = computed(() => props.mode === 'create' || reimportOpen.value);
 
-// Lazy: fetch the PKCE handshake the first time the operator surfaces the
-// callback tab while the import form is visible. fetchPkceStart short-circuits
-// if a fetch is already in flight or done, so a rapid reimportOpen toggle is
-// safely idempotent.
 watch([importFormVisible, () => draft.value.activeTab], ([visible, tab]) => {
   if (visible && tab === 'callback') void fetchPkceStart();
 }, { immediate: true });
@@ -72,8 +54,7 @@ const buildBody = (): { ok: true; value: { auth_json?: unknown; callback?: { cal
     const text = draft.value.authJsonText.trim();
     if (!text) return { ok: false, error: 'Paste the contents of ~/.codex/auth.json' };
     let parsed: unknown;
-    try { parsed = JSON.parse(text); }
-    catch (e) { return { ok: false, error: `auth.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}` }; }
+    try { parsed = JSON.parse(text); } catch (e) { return { ok: false, error: `auth.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}` }; }
     return { ok: true, value: { auth_json: parsed } };
   }
   const url = draft.value.callbackUrlText.trim();
@@ -81,10 +62,6 @@ const buildBody = (): { ok: true; value: { auth_json?: unknown; callback?: { cal
   return { ok: true, value: { callback: { callback_url: url } } };
 };
 
-// Single submit entry point shared by create and re-import. The endpoint
-// dispatch is the only meaningful difference: /codex-import for create
-// (the server synthesizes a default name from the imported identity, like
-// the copilot device flow does), /:id/codex-reimport for re-import.
 const submit = async () => {
   const body = buildBody();
   if (!body.ok) { emit('error', body.error); return; }
@@ -92,29 +69,27 @@ const submit = async () => {
   submitting.value = true;
   const result = props.mode === 'create'
     ? await callApi<UpstreamRecord>(
-      () => api.api.upstreams['codex-import'].$post({ json: body.value }),
-    )
+        () => api.api.upstreams['codex-import'].$post({ json: body.value }),
+      )
     : await callApi<UpstreamRecord>(
-      () => api.api.upstreams[':id']['codex-reimport'].$post({ param: { id: props.record!.id }, json: body.value }),
-    );
+        () => api.api.upstreams[':id']['codex-reimport'].$post({ param: { id: props.record!.id }, json: body.value }),
+      );
   submitting.value = false;
   if (result.error) { emit('error', result.error.message); return; }
-  if (result.data) emit('imported', result.data);
-  // Reset draft + PKCE so a subsequent edit / re-open starts clean.
+  emit('imported', result.data);
   draft.value = { activeTab: 'auth_json', authJsonText: '', callbackUrlText: '' };
   pkce.value = null;
   reimportOpen.value = false;
 };
 
 const refreshTokenNow = async () => {
-  if (!props.record) return;
   refreshing.value = true;
   const { data, error } = await callApi<UpstreamRecord>(
     () => api.api.upstreams[':id']['codex-refresh-now'].$post({ param: { id: props.record!.id }, json: {} }),
   );
   refreshing.value = false;
   if (error) { emit('error', error.message); return; }
-  if (data) emit('imported', data);
+  emit('imported', data);
 };
 </script>
 
@@ -135,8 +110,6 @@ const refreshTokenNow = async () => {
       </div>
     </template>
 
-    <!-- One import form drives both flows; only the surrounding chrome and
-         the submit button label differ. -->
     <template v-if="importFormVisible">
       <p v-if="mode === 'create'" class="text-xs text-gray-500">
         Codex credentials come from the official Codex CLI. Paste

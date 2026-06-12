@@ -5,18 +5,19 @@ import {
   CODEX_OAUTH_USER_AGENT,
   CODEX_REDIRECT_URI,
 } from '../constants.ts';
+import { directFetcher, type Fetcher } from '@floway-dev/provider';
 
 export interface CodexOAuthTokens {
   access_token: string;
   refresh_token: string;
   id_token: string;
-  // Lifetime in seconds; the server's clock + this number define expires_at.
+  // Lifetime in seconds, relative to the server's clock at issue time.
   expires_in: number;
 }
 
-// Terminal error: refresh_token is dead, operator must re-import. Distinct from
-// generic OAuth 4xx so the request lifecycle can mark the upstream
-// `refresh_failed` instead of merely surfacing the upstream message.
+// Terminal error: refresh_token is dead, operator must re-import. Distinct
+// from generic OAuth 4xx so callers can react to session-termination
+// separately from a transient upstream message.
 export class CodexOAuthSessionTerminatedError extends Error {
   constructor(public readonly upstreamMessage: string) {
     super(`Codex OAuth session terminated: ${upstreamMessage}`);
@@ -24,8 +25,12 @@ export class CodexOAuthSessionTerminatedError extends Error {
   }
 }
 
-const codexTokenRequest = async (body: URLSearchParams, terminalCodes: ReadonlySet<string>): Promise<CodexOAuthTokens> => {
-  const response = await fetch(CODEX_OAUTH_TOKEN_URL, {
+const codexTokenRequest = async (
+  body: URLSearchParams,
+  terminalCodes: ReadonlySet<string>,
+  fetcher: Fetcher,
+): Promise<CodexOAuthTokens> => {
+  const response = await fetcher(CODEX_OAUTH_TOKEN_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
@@ -82,6 +87,8 @@ const codexTokenRequest = async (body: URLSearchParams, terminalCodes: ReadonlyS
   };
 };
 
+// PKCE exchange has no upstream context yet — the upstream is minted from
+// this response.
 export const exchangeCodexAuthorizationCode = async (opts: { code: string; codeVerifier: string }): Promise<CodexOAuthTokens> => {
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -94,10 +101,13 @@ export const exchangeCodexAuthorizationCode = async (opts: { code: string; codeV
   // exchange typically means the operator pasted a stale or wrong callback
   // URL, which is recoverable by restarting the PKCE flow rather than
   // re-importing.
-  return await codexTokenRequest(body, new Set(['app_session_terminated']));
+  return await codexTokenRequest(body, new Set(['app_session_terminated']), directFetcher);
 };
 
-export const refreshCodexAccessToken = async (refreshToken: string): Promise<CodexOAuthTokens> => {
+// `fetcher` is required because the refresh has an associated upstream
+// and must flow through that upstream's proxy-aware fallback chain rather
+// than direct egress.
+export const refreshCodexAccessToken = async (refreshToken: string, fetcher: Fetcher): Promise<CodexOAuthTokens> => {
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
@@ -110,5 +120,5 @@ export const refreshCodexAccessToken = async (refreshToken: string): Promise<Cod
   // The error text varies ("Your refresh token has already been used to
   // generate a new access token", "Token is no longer valid", etc.); the code
   // is the stable signal.
-  return await codexTokenRequest(body, new Set(['app_session_terminated', 'invalid_grant']));
+  return await codexTokenRequest(body, new Set(['app_session_terminated', 'invalid_grant']), fetcher);
 };

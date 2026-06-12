@@ -8,6 +8,7 @@ import { InMemoryRepo } from '../../../repo/memory.ts';
 import type { StoredResponsesItem } from '../../../repo/types.ts';
 import type { ProviderCandidate } from '../shared/candidates.ts';
 import type { ResponsesPayload } from '@floway-dev/protocols/responses';
+import { directFetcher } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel, assertEquals } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_routing_test';
@@ -36,6 +37,8 @@ const candidate = (upstream: string): ProviderCandidate => {
       supportsResponsesItemReference: true,
     },
     targetApi: 'responses',
+
+    fetcher: directFetcher,
   };
 };
 

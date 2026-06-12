@@ -1,11 +1,6 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "strict": true,
-    "skipLibCheck": true,
     "types": ["node"]
   },
   "include": ["entry.ts", "dev-proxy-loader.ts", "vitest.config.ts", "src/**/*.ts"]

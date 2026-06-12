@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { UpstreamProviderKind } from '../../api/types.ts';
 import ProviderCard from './ProviderCard.vue';
+import type { UpstreamProviderKind } from '../../api/types.ts';
 
 const active = defineModel<UpstreamProviderKind>({ required: true });
 </script>

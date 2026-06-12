@@ -89,7 +89,7 @@ export const prepareResponsesServePlan = async (args: {
   const { payload, ctx, store, pickTarget } = args;
   const prepared = await expandPreviousResponseId(payload, store);
   const { candidates, sawModel } = await enumerateProviderCandidates({
-    apiKeyUpstreamIds: ctx.apiKeyUpstreamIds,
+    upstreamIds: ctx.upstreamIds,
     model: prepared.model,
     pickTarget,
   });

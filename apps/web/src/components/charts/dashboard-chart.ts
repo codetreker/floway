@@ -11,16 +11,22 @@ export interface DashboardRangeQuery {
   bucket: 'hour' | '4h' | 'day';
 }
 
+// Color allocation algorithm: entities are sorted by stable id (user.id ASC
+// for users; key.createdAt ASC for keys), and the chart color slot is the
+// entity's index in that sorted list (mod palette length). This palette order
+// is the one-time tuning that makes prod's user.id-sorted users land on the
+// colors they had under the original by-key chart — so renaming an account
+// or adding a new one no longer reshuffles the dashboard.
 export const DASHBOARD_CHART_PALETTE = [
-  '#00e5ff',
   '#00e676',
-  '#ffd740',
+  '#00e5ff',
   '#ff5252',
+  '#ffd740',
   '#7c4dff',
-  '#ff6e40',
   '#64ffda',
-  '#eeff41',
+  '#ff6e40',
   '#40c4ff',
+  '#eeff41',
   '#ea80fc',
 ];
 
@@ -55,10 +61,10 @@ const shortMonthDay = (date: Date): string => date.toLocaleDateString('en-US', {
 
 const toUtcHourParam = (date: Date): string => date.toISOString().slice(0, 13);
 
-const build4hBuckets = (count: number): DashboardBuckets => {
+const build4hBuckets = (count: number, nowMs: number): DashboardBuckets => {
   const keys: string[] = [];
   const labels: string[] = [];
-  const start = local4hBucketStart(new Date());
+  const start = local4hBucketStart(new Date(nowMs));
   let previousDateKey: string | null = null;
   for (let i = count - 1; i >= 0; i--) {
     const date = new Date(start.getTime() - i * 4 * 3_600_000);
@@ -73,10 +79,13 @@ const build4hBuckets = (count: number): DashboardBuckets => {
   return { keys, labels };
 };
 
-export const dashboardBuckets = (range: DashboardRange): DashboardBuckets => {
-  const now = new Date();
+// Pure functions of (range, nowMs). The "now" is taken explicitly so callers
+// can derive a buckets snapshot reactively from a `loadedAt` ref — without
+// that, a `new Date()` inside the function would be an invisible non-reactive
+// read and the chart axis would never shift past the page-open moment.
+export const dashboardBuckets = (range: DashboardRange, nowMs: number): DashboardBuckets => {
   if (range === 'today') {
-    const current = new Date(now);
+    const current = new Date(nowMs);
     current.setMinutes(0, 0, 0);
     const keys: string[] = [];
     const labels: string[] = [];
@@ -88,12 +97,12 @@ export const dashboardBuckets = (range: DashboardRange): DashboardBuckets => {
     }
     return { keys, labels };
   }
-  if (range === '7d') return build4hBuckets(42);
+  if (range === '7d') return build4hBuckets(42, nowMs);
 
   const keys: string[] = [];
   const labels: string[] = [];
   for (let i = 29; i >= 0; i--) {
-    const date = new Date(now);
+    const date = new Date(nowMs);
     date.setDate(date.getDate() - i);
     date.setHours(0, 0, 0, 0);
     keys.push(localDateKey(date));
@@ -102,8 +111,8 @@ export const dashboardBuckets = (range: DashboardRange): DashboardBuckets => {
   return { keys, labels };
 };
 
-export const dashboardRangeQuery = (range: DashboardRange): DashboardRangeQuery => {
-  const now = new Date();
+export const dashboardRangeQuery = (range: DashboardRange, nowMs: number): DashboardRangeQuery => {
+  const now = new Date(nowMs);
   const start = new Date(now);
   if (range === 'today') {
     start.setTime(now.getTime() - 23 * 3_600_000);

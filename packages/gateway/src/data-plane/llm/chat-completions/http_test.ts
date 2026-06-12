@@ -6,7 +6,7 @@ import { InMemoryRepo } from '../../../repo/memory.ts';
 import type { ProviderCandidate } from '../shared/candidates.ts';
 import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
-import type { ProviderStreamResult } from '@floway-dev/provider';
+import { directFetcher, type ProviderStreamResult } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const candidatesQueue: { readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean }[] = [];
@@ -38,13 +38,16 @@ const installRepo = (): InMemoryRepo => {
 
 interface AuthVars {
   apiKeyId: string;
-  apiKeyUpstreamIds: readonly string[];
+  apiKeyUpstreamIds: readonly string[] | null;
+  userUpstreamIds: readonly string[] | null;
 }
 
 const makeApp = (middleware?: (c: Context) => void): Hono<{ Variables: AuthVars }> => {
   const app = new Hono<{ Variables: AuthVars }>();
   app.use('*', async (c, next) => {
     c.set('apiKeyId', API_KEY_ID);
+    c.set('apiKeyUpstreamIds', null);
+    c.set('userUpstreamIds', null);
     middleware?.(c);
     await next();
   });
@@ -95,6 +98,8 @@ const makeCandidate = (overrides: {
       supportsResponsesItemReference: true,
     },
     targetApi: 'chat-completions',
+
+    fetcher: directFetcher,
   };
 };
 

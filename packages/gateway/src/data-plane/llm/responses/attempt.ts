@@ -5,6 +5,7 @@ import { normalizeAssistantInputText } from './items/normalize-assistant-content
 import { drainAsync, syntheticEventsFromResult, wrapResponsesOutputForStorage } from './items/output.ts';
 import { rewriteResponsesItemsForCandidate, type RewrittenResponsesPayload } from './items/rewrite.ts';
 import type { ResponsesSnapshotMode, StatefulResponsesStore } from './items/store.ts';
+import { recordPerformanceLatency } from '../../shared/telemetry/performance.ts';
 import { chatCompletionsAttempt } from '../chat-completions/attempt.ts';
 import { messagesAttempt } from '../messages/attempt.ts';
 import { providerStreamResultToExecuteResult, telemetryModelIdentity } from '../shared/attempt-helpers.ts';
@@ -12,6 +13,7 @@ import type { ProviderCandidate } from '../shared/candidates.ts';
 import { tryCatchLlmServeFailure } from '../shared/errors.ts';
 import type { GatewayCtx } from '../shared/gateway-ctx.ts';
 import { traverseTranslation } from '../shared/translate-traverse.ts';
+import { createUpstreamLatencyRecorder, recordUpstreamHttpFailure, upstreamPerformanceContext } from '../shared/upstream-telemetry.ts';
 import { collectResponsesProtocolEventsToResult } from './events/to-result.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
@@ -29,8 +31,9 @@ export interface ResponsesAttemptGenerateArgs {
   // 'none' so the outer source owns snapshot persistence.
   readonly snapshotMode: ResponsesSnapshotMode;
   // Optional invocation-headers inheritance from a source attempt that
-  // translated INTO responses. Source-side interceptors write trace headers
-  // into the source invocation; passing them in here keeps them on the wire.
+  // translated INTO this target protocol. Source-side interceptors write
+  // trace headers into the source invocation; passing them in here keeps
+  // them on the wire for the translated upstream call.
   readonly inheritedInvocationHeaders?: Record<string, string>;
 }
 
@@ -182,13 +185,15 @@ const dispatchResponses = async (
 ): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
   if (candidate.targetApi === 'responses') {
     const { model: _model, ...body } = payload;
+    const recorder = createUpstreamLatencyRecorder();
     const providerResult = await candidate.binding.provider.callResponses(
       candidate.binding.upstreamModel,
       body,
       ctx.abortSignal,
       invocationHeaders,
+      { fetcher: candidate.fetcher, recordUpstreamLatency: recorder.record },
     );
-    return await providerStreamResultToExecuteResult(providerResult, candidate);
+    return await providerStreamResultToExecuteResult(providerResult, candidate, ctx, recorder.durationMs());
   }
   if (candidate.targetApi === 'messages') {
     return await traverseTranslation(
@@ -228,15 +233,23 @@ const callResponsesCompactAsExecuteResult = async (
   invocationHeaders: Record<string, string>,
 ): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
   const { model: _model, stream: _stream, store: _store, ...body } = payload;
+  const recorder = createUpstreamLatencyRecorder();
   const providerResult = await candidate.binding.provider.callResponsesCompact(
     candidate.binding.upstreamModel,
     body,
     ctx.abortSignal,
     invocationHeaders,
+    { fetcher: candidate.fetcher, recordUpstreamLatency: recorder.record },
   );
-  if (!providerResult.ok) return await readUpstreamError(providerResult.response);
+  const context = upstreamPerformanceContext(ctx, candidate, providerResult.modelKey);
+  if (!providerResult.ok) {
+    recordUpstreamHttpFailure(ctx, context);
+    return { ...(await readUpstreamError(providerResult.response)), performance: context };
+  }
+  ctx.scheduleBackground(() => recordPerformanceLatency(context, 'upstream_success', recorder.durationMs()));
   return eventResult(
     syntheticEventsFromResult(providerResult.result),
     telemetryModelIdentity(candidate, providerResult.modelKey),
+    context,
   );
 };

@@ -1,31 +1,51 @@
 // Data transfer routes — export/import operator-managed database data as JSON.
 // Ephemeral stored Responses state is omitted from exports and cleared on
 // replace imports; clients can regenerate it through normal Responses use.
+//
+// The export contains every credential the gateway holds — provider API keys,
+// GitHub tokens, Codex refresh tokens, and proxy URIs that embed passwords /
+// UUIDs / PSKs. The endpoint is admin-only via x-api-key; operators are
+// responsible for handling the dumped file with the same care as a DB backup.
 
 import { parseSearchConfigDefault, parseSearchConfigStrict } from '../../data-plane/tools/web-search/search-config.ts';
 import type { SearchConfig } from '../../data-plane/tools/web-search/types.ts';
 import { type CtxWithJson, type CtxWithQuery } from '../../middleware/zod-validator.ts';
 import { parseDisabledPublicModelIdsWire } from '../../repo/disabled-public-models.ts';
 import { getRepo } from '../../repo/index.ts';
-import type { ApiKey, PerformanceMetricScope, PerformanceTelemetryRecord, SearchUsageRecord, TokenUsage, UsageRecord } from '../../repo/types.ts';
+import { DIRECT_PROXY_ID, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
+import type { ApiKey, PerformanceMetricScope, PerformanceTelemetryRecord, SearchUsageRecord, TokenUsage, UsageRecord, User } from '../../repo/types.ts';
+import { PASSWORD_HASH_SCHEME } from '../../shared/passwords.ts';
 import { isWebSearchProviderName } from '../../shared/web-search-providers.ts';
 import { parseUpstreamIdsValue } from '../api-keys/upstream-ids.ts';
-import type { exportQuery, importBody } from '../schemas.ts';
+import { USERNAME_PATTERN, type exportQuery, type importBody } from '../schemas.ts';
+import { copilotConfigField, isRecord, nonEmptyStringField } from '../shared/field-validators.ts';
 import { type SerializedUpstreamRecord, upstreamRecordToFullJson } from '../upstreams/serialize.ts';
-import type { BillingDimension, ModelPricing } from '@floway-dev/protocols/common';
+import { BILLING_DIMENSIONS, type ModelPricing } from '@floway-dev/protocols/common';
 import { invalidateModelsStore, parseFlagOverridesWire } from '@floway-dev/provider';
-import type { PerformanceApiName, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import { assertAzureUpstreamRecord } from '@floway-dev/provider-azure';
 import { assertCodexUpstreamRecord, assertCodexUpstreamState } from '@floway-dev/provider-codex';
-import { isCopilotAccountType } from '@floway-dev/provider-copilot';
 import { assertCustomUpstreamRecord } from '@floway-dev/provider-custom';
+import { parseProxyUri } from '@floway-dev/proxy';
+
+// Wire shape of a proxy entry in the export/import payload. The backoff rows
+// are deliberately excluded — they describe what this deployment saw, not
+// what the operator configured.
+interface SerializedProxy {
+  id: string;
+  name: string;
+  url: string;
+  dial_timeout_seconds: number | null;
+}
 
 interface ExportPayload {
-  version: 3;
+  version: 6;
   exportedAt: string;
   data: {
+    users: User[];
     apiKeys: ApiKey[];
     upstreams: SerializedUpstreamRecord[];
+    proxies: SerializedProxy[];
     usage: UsageRecord[];
     searchUsage: SearchUsageRecord[];
     performance?: PerformanceTelemetryRecord[];
@@ -34,54 +54,19 @@ interface ExportPayload {
   };
 }
 
-const EXPORT_VERSION = 3;
+const EXPORT_VERSION = 6;
 const SEARCH_USAGE_HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
 const PERFORMANCE_METRIC_SCOPES = new Set<PerformanceMetricScope>(['request_total', 'upstream_success']);
-const PERFORMANCE_API_NAMES = new Set<PerformanceApiName>(['messages', 'responses', 'chat-completions', 'gemini', 'embeddings', 'images_generations', 'images_edits']);
 const UPSTREAM_PROVIDERS = new Set<UpstreamProviderKind>(['custom', 'azure', 'copilot', 'codex']);
 const LEGACY_UPSTREAM_PREFIXES = ['openai:', 'copilot:'];
 
 const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
 const isLegacyUpstreamIdentity = (value: string): boolean => LEGACY_UPSTREAM_PREFIXES.some(prefix => value.startsWith(prefix));
 
-const nonEmptyString = (value: unknown, field: string): string => {
-  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${field} must be a non-empty string`);
-  return value.trim();
-};
+const importErrorBuilder = (field: string, expected: string) => new Error(`${field} must be ${expected}`);
 
-const stringField = (value: unknown, field: string): string => {
-  if (typeof value !== 'string') throw new Error(`${field} must be a string`);
-  return value;
-};
-
-const nullableStringField = (value: unknown, field: string): string | null => {
-  if (value !== null && typeof value !== 'string') throw new Error(`${field} must be a string or null`);
-  return value;
-};
-
-const safeIntegerField = (value: unknown, field: string): number => {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`${field} must be an integer`);
-  return value;
-};
-
-const copilotConfigField = (value: unknown): unknown => {
-  if (!isRecord(value)) throw new Error('config must be an object');
-  if (!isCopilotAccountType(value.accountType)) throw new Error('config.accountType must be one of individual, business, enterprise');
-  if (!isRecord(value.user)) throw new Error('config.user must be an object');
-  return {
-    githubToken: nonEmptyString(value.githubToken, 'config.githubToken'),
-    accountType: value.accountType,
-    user: {
-      login: stringField(value.user.login, 'config.user.login'),
-      avatar_url: stringField(value.user.avatar_url, 'config.user.avatar_url'),
-      name: nullableStringField(value.user.name, 'config.user.name'),
-      id: safeIntegerField(value.user.id, 'config.user.id'),
-    },
-  };
-};
+const nonEmptyString = (value: unknown, field: string): string => nonEmptyStringField(value, field, importErrorBuilder);
 
 const normalizeUpstreamConfig = (record: UpstreamRecord): unknown => {
   if (record.provider === 'custom') return assertCustomUpstreamRecord(record).config;
@@ -90,7 +75,7 @@ const normalizeUpstreamConfig = (record: UpstreamRecord): unknown => {
     assertCodexUpstreamRecord(record);
     return record.config;
   }
-  return copilotConfigField(record.config);
+  return copilotConfigField(record.config, importErrorBuilder);
 };
 
 // State is persisted only for providers that own autonomous runtime state. Codex
@@ -107,6 +92,15 @@ const normalizeUpstreamState = (provider: UpstreamProviderKind, value: unknown):
   return value;
 };
 
+const parseProxyFallbackListField = (value: unknown): string[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('proxy_fallback_list must be an array');
+  for (const entry of value) {
+    if (typeof entry !== 'string') throw new Error('proxy_fallback_list entries must be strings');
+  }
+  return normalizeProxyFallbackList(value as string[]);
+};
+
 const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRecord[] } | { type: 'invalid'; index: number; error: string } => {
   if (!Array.isArray(value)) return { type: 'invalid', index: -1, error: 'upstreams must be an array' };
 
@@ -116,7 +110,7 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
       const item = value[i];
       if (!isRecord(item)) throw new Error('record must be an object');
       if (hasOwn(item, 'enabled_fixes')) {
-        throw new Error("legacy 'enabled_fixes' field is no longer supported; this export predates the flag_overrides refactor — re-export with current code");
+        throw new Error("legacy 'enabled_fixes' field is no longer supported; re-export with current code");
       }
       if (typeof item.provider !== 'string' || !UPSTREAM_PROVIDERS.has(item.provider as UpstreamProviderKind)) {
         throw new Error('provider must be one of custom, azure, copilot, codex');
@@ -138,6 +132,7 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
         updatedAt: nonEmptyString(item.updated_at, 'updated_at'),
         flagOverrides: parseFlagOverridesWire(item.flag_overrides),
         disabledPublicModelIds: parseDisabledPublicModelIdsWire(item.disabled_public_model_ids),
+        proxyFallbackList: parseProxyFallbackListField(item.proxy_fallback_list),
         config: item.config,
         state: normalizeUpstreamState(provider, item.state),
       };
@@ -150,6 +145,75 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
   return { type: 'ok', records };
 };
 
+const parseProxyRecords = (value: unknown): { type: 'ok'; records: SerializedProxy[] } | { type: 'invalid'; index: number; error: string } => {
+  // Proxies are optional in the import contract: an absent or empty array
+  // means "the source deployment had no proxies". The cross-reference check
+  // later still fails the import if upstreams point at ids this array
+  // doesn't carry, so a dangling reference cannot slip through silently.
+  if (value === undefined) return { type: 'ok', records: [] };
+  if (!Array.isArray(value)) return { type: 'invalid', index: -1, error: 'proxies must be an array' };
+
+  const records: SerializedProxy[] = [];
+  for (let i = 0; i < value.length; i++) {
+    try {
+      const item = value[i];
+      if (!isRecord(item)) throw new Error('record must be an object');
+      const id = nonEmptyString(item.id, 'id');
+      if (id === DIRECT_PROXY_ID) throw new Error(`id must not be the reserved '${DIRECT_PROXY_ID}' sentinel`);
+      const name = nonEmptyString(item.name, 'name');
+      const url = nonEmptyString(item.url, 'url');
+      try {
+        parseProxyUri(url);
+      } catch (err) {
+        throw new Error(`url did not parse: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const dialTimeoutSeconds = item.dial_timeout_seconds;
+      if (dialTimeoutSeconds !== null && (typeof dialTimeoutSeconds !== 'number' || !Number.isInteger(dialTimeoutSeconds) || dialTimeoutSeconds < 1)) {
+        throw new Error('dial_timeout_seconds must be null or a positive integer');
+      }
+      records.push({ id, name, url, dial_timeout_seconds: dialTimeoutSeconds });
+    } catch (error) {
+      return { type: 'invalid', index: i, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  return { type: 'ok', records };
+};
+
+const validateProxyIdentities = (records: readonly SerializedProxy[]): string | null => {
+  const seen = new Map<string, number>();
+  for (let i = 0; i < records.length; i++) {
+    const prior = seen.get(records[i].id);
+    if (prior !== undefined) return `duplicate proxies id ${records[i].id} at indexes ${prior} and ${i}`;
+    seen.set(records[i].id, i);
+  }
+  return null;
+};
+
+// Every entry in every upstream's proxy_fallback_list must resolve to a proxy
+// id that will exist after the import completes — that is, an imported proxy,
+// an existing local proxy (merge mode only; replace mode wipes them first),
+// or the 'direct' sentinel. A dangling reference would silently disable that
+// fallback in the dial layer, which is exactly the silent-truncation
+// behavior the import contract is supposed to prevent.
+const validateProxyFallbackReferences = (
+  upstreams: readonly UpstreamRecord[],
+  proxies: readonly SerializedProxy[],
+  existingProxyIds: readonly string[],
+): string | null => {
+  const knownIds = new Set<string>(proxies.map(p => p.id));
+  for (const id of existingProxyIds) knownIds.add(id);
+  knownIds.add(DIRECT_PROXY_ID);
+  for (const upstream of upstreams) {
+    for (const ref of upstream.proxyFallbackList) {
+      if (!knownIds.has(ref)) {
+        return `upstream ${upstream.id} references unknown proxy ${ref}`;
+      }
+    }
+  }
+  return null;
+};
+
 const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } | { type: 'invalid'; index: number; error: string } => {
   if (!Array.isArray(value)) return { type: 'invalid', index: -1, error: 'apiKeys must be an array' };
 
@@ -157,18 +221,25 @@ const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } |
   for (let i = 0; i < value.length; i++) {
     const record = value[i];
     if (!isRecord(record)) return { type: 'invalid', index: i, error: 'record must be an object' };
-    // Older exports omit the field; treat as Default.
-    const upstreamIdsRaw = record.upstreamIds === undefined ? null : record.upstreamIds;
-    const upstreamIdsParsed = parseUpstreamIdsValue(upstreamIdsRaw);
-    if (!upstreamIdsParsed.ok) return { type: 'invalid', index: i, error: upstreamIdsParsed.error };
     try {
+      const upstreamIdsParsed = parseUpstreamIdsValue(record.upstreamIds);
+      if (!upstreamIdsParsed.ok) throw new Error(upstreamIdsParsed.error);
+
+      if (typeof record.userId !== 'number' || !Number.isInteger(record.userId) || record.userId < 1) {
+        throw new Error('userId must be a positive integer');
+      }
+      if (record.deletedAt !== null && typeof record.deletedAt !== 'string') {
+        throw new Error('deletedAt must be null or an ISO string');
+      }
       records.push({
         id: nonEmptyString(record.id, 'id'),
+        userId: record.userId,
         name: nonEmptyString(record.name, 'name'),
         key: nonEmptyString(record.key, 'key'),
         createdAt: nonEmptyString(record.createdAt, 'createdAt'),
         ...(record.lastUsedAt !== undefined ? { lastUsedAt: nonEmptyString(record.lastUsedAt, 'lastUsedAt') } : {}),
         upstreamIds: upstreamIdsParsed.value,
+        deletedAt: record.deletedAt,
       });
     } catch (error) {
       return { type: 'invalid', index: i, error: error instanceof Error ? error.message : String(error) };
@@ -178,7 +249,56 @@ const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } |
   return { type: 'ok', records };
 };
 
-const validateApiKeyIdentities = (records: readonly ApiKey[], existing: readonly ApiKey[], mode: string): string | null => {
+const parseUserRecords = (value: unknown): { type: 'ok'; records: User[] } | { type: 'invalid'; index: number; error: string } => {
+  if (!Array.isArray(value)) return { type: 'invalid', index: -1, error: 'users must be an array' };
+
+  const records: User[] = [];
+  const seenIds = new Set<number>();
+  for (let i = 0; i < value.length; i++) {
+    const record = value[i];
+    if (!isRecord(record)) return { type: 'invalid', index: i, error: 'record must be an object' };
+    try {
+      if (typeof record.id !== 'number' || !Number.isInteger(record.id) || record.id < 1) {
+        throw new Error('id must be a positive integer');
+      }
+      if (seenIds.has(record.id)) throw new Error(`duplicate user id ${record.id}`);
+      seenIds.add(record.id);
+
+      if (typeof record.username !== 'string' || !USERNAME_PATTERN.test(record.username)) {
+        throw new Error('username must match ^[a-zA-Z0-9_.-]{1,64}$');
+      }
+      if (record.passwordHash !== null && (typeof record.passwordHash !== 'string' || !record.passwordHash.startsWith(`${PASSWORD_HASH_SCHEME}$`))) {
+        throw new Error(`passwordHash must be null or start with ${PASSWORD_HASH_SCHEME}$`);
+      }
+      if (typeof record.isAdmin !== 'boolean') throw new Error('isAdmin must be a boolean');
+      if (typeof record.canViewGlobalTelemetry !== 'boolean') throw new Error('canViewGlobalTelemetry must be a boolean');
+
+      if (record.upstreamIds === undefined) throw new Error('upstreamIds must be present (null or array)');
+      const upstreamIdsParsed = parseUpstreamIdsValue(record.upstreamIds);
+      if (!upstreamIdsParsed.ok) throw new Error(upstreamIdsParsed.error);
+      if (record.deletedAt !== null && typeof record.deletedAt !== 'string') {
+        throw new Error('deletedAt must be null or an ISO string');
+      }
+
+      records.push({
+        id: record.id,
+        username: record.username,
+        passwordHash: record.passwordHash,
+        isAdmin: record.isAdmin,
+        upstreamIds: upstreamIdsParsed.value,
+        canViewGlobalTelemetry: record.canViewGlobalTelemetry,
+        createdAt: nonEmptyString(record.createdAt, 'createdAt'),
+        deletedAt: record.deletedAt,
+      });
+    } catch (error) {
+      return { type: 'invalid', index: i, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  return { type: 'ok', records };
+};
+
+const validateApiKeyIdentities = (records: readonly ApiKey[], existing: readonly ApiKey[], mode: 'merge' | 'replace'): string | null => {
   const ids = new Map<string, number>();
   const rawKeys = new Map<string, string>();
 
@@ -205,8 +325,6 @@ const validateApiKeyIdentities = (records: readonly ApiKey[], existing: readonly
 
   return null;
 };
-
-const BILLING_DIMENSIONS: readonly BillingDimension[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
 
 const parseImportedCost = (value: unknown): UsageRecord['cost'] => {
   if (value === undefined || value === null) return null;
@@ -268,8 +386,6 @@ const parseUsageRecords = (value: unknown): { type: 'ok'; records: UsageRecord[]
       hour: record.hour,
       requests: record.requests,
       tokens: tokensResult.tokens,
-      // Imported payloads may omit cost (older exports) — null is the
-      // canonical "no pricing recorded" value; aggregation treats it as 0.
       cost: parseImportedCost(record.cost),
     });
   }
@@ -345,8 +461,6 @@ const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: Perform
       (typeof item.upstream === 'string' && isLegacyUpstreamIdentity(item.upstream)) ||
       typeof item.modelKey !== 'string' ||
       item.modelKey.length === 0 ||
-      !isPerformanceApiName(item.sourceApi) ||
-      !isPerformanceApiName(item.targetApi) ||
       typeof item.stream !== 'boolean' ||
       typeof item.runtimeLocation !== 'string' ||
       item.runtimeLocation.length === 0 ||
@@ -375,8 +489,6 @@ const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: Perform
       model: item.model,
       upstream: item.upstream as string | null,
       modelKey: item.modelKey,
-      sourceApi: item.sourceApi,
-      targetApi: item.targetApi,
       stream: item.stream,
       runtimeLocation: item.runtimeLocation,
       requests: item.requests,
@@ -393,28 +505,29 @@ const isNonNegativeSafeInteger = (value: unknown): value is number => typeof val
 
 const isPerformanceMetricScope = (value: unknown): value is PerformanceMetricScope => typeof value === 'string' && PERFORMANCE_METRIC_SCOPES.has(value as PerformanceMetricScope);
 
-const isPerformanceApiName = (value: unknown): value is PerformanceApiName => typeof value === 'string' && PERFORMANCE_API_NAMES.has(value as PerformanceApiName);
-
-/** GET /api/export — dump all data as JSON */
 export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   const repo = getRepo();
   const includePerformance = c.req.valid('query').include_performance === '1';
 
-  const [apiKeys, usage, searchUsage, performance, rawSearchConfig, upstreams] = await Promise.all([
-    repo.apiKeys.list(),
+  const [users, apiKeys, usage, searchUsage, performance, rawSearchConfig, upstreams, proxies] = await Promise.all([
+    repo.users.listIncludingDeleted(),
+    repo.apiKeys.listIncludingDeleted(),
     repo.usage.listAll(),
     repo.searchUsage.listAll(),
     includePerformance ? repo.performance.listAll() : Promise.resolve([]),
     repo.searchConfig.get(),
     repo.upstreams.list(),
+    repo.proxies.list(),
   ]);
 
   const payload: ExportPayload = {
     version: EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
     data: {
+      users,
       apiKeys,
       upstreams: upstreams.map(upstreamRecordToFullJson),
+      proxies: proxies.map(p => ({ id: p.id, name: p.name, url: p.url, dial_timeout_seconds: p.dialTimeoutSeconds })),
       usage,
       searchUsage,
       performanceIncluded: includePerformance,
@@ -426,7 +539,6 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   return c.json(payload);
 };
 
-/** POST /api/import — import data with merge or replace mode */
 export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const body = c.req.valid('json');
   const { mode, data } = body;
@@ -439,6 +551,22 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     return c.json({ error: `invalid apiKeys${location}: ${apiKeysResult.error}` }, 400);
   }
   const apiKeys = apiKeysResult.records;
+
+  const usersResult = parseUserRecords(data.users);
+  if (usersResult.type === 'invalid') {
+    const location = usersResult.index >= 0 ? ` at index ${usersResult.index}` : '';
+    return c.json({ error: `invalid users${location}: ${usersResult.error}` }, 400);
+  }
+  const users = usersResult.records;
+  if (!users.some(u => u.id === 1)) {
+    return c.json({ error: 'invalid users: payload must include user 1 (the seed admin)' }, 400);
+  }
+  const known = new Set(users.map(u => u.id));
+  for (let i = 0; i < apiKeys.length; i++) {
+    if (!known.has(apiKeys[i].userId)) {
+      return c.json({ error: `invalid apiKeys at index ${i}: user_id ${apiKeys[i].userId} does not match any user in the payload` }, 400);
+    }
+  }
 
   const usageResult = parseUsageRecords(data.usage);
   if (usageResult.type === 'invalid') {
@@ -453,6 +581,16 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     return c.json({ error: `invalid upstreams${location}: ${upstreamsResult.error}` }, 400);
   }
   const upstreams = upstreamsResult.records;
+
+  const proxiesResult = parseProxyRecords(data.proxies);
+  if (proxiesResult.type === 'invalid') {
+    const location = proxiesResult.index >= 0 ? ` at index ${proxiesResult.index}` : '';
+    return c.json({ error: `invalid proxies${location}: ${proxiesResult.error}` }, 400);
+  }
+  const proxies = proxiesResult.records;
+
+  const proxyIdentityError = validateProxyIdentities(proxies);
+  if (proxyIdentityError) return c.json({ error: `invalid proxies: ${proxyIdentityError}` }, 400);
 
   const searchUsageResult = parseSearchUsageRecords(data.searchUsage);
   if (searchUsageResult.type === 'invalid') {
@@ -479,8 +617,15 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const performance = performanceResult.records;
 
   const repo = getRepo();
-  const apiKeyIdentityError = validateApiKeyIdentities(apiKeys, mode === 'merge' ? await repo.apiKeys.list() : [], mode);
+  const apiKeyIdentityError = validateApiKeyIdentities(apiKeys, mode === 'merge' ? await repo.apiKeys.listIncludingDeleted() : [], mode);
   if (apiKeyIdentityError) return c.json({ error: `invalid apiKeys: ${apiKeyIdentityError}` }, 400);
+
+  // Merge mode keeps the existing proxies table alongside the imported rows,
+  // so an upstream may reference either set. Replace mode wipes the table
+  // before saving and only the imported ids will exist post-import.
+  const existingProxyIdsForRefs = mode === 'merge' ? (await repo.proxies.list()).map(p => p.id) : [];
+  const fallbackRefError = validateProxyFallbackReferences(upstreams, proxies, existingProxyIdsForRefs);
+  if (fallbackRefError) return c.json({ error: `invalid upstreams: ${fallbackRefError}` }, 400);
 
   if (mode === 'replace') {
     // Replace mode is intentionally non-atomic across repos: D1 binding does not expose multi-repo
@@ -488,12 +633,40 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     // prepared statements. A failure between the deleteAll wave and the per-record save loop
     // leaves the deployment partially wiped. Operators should back up before running replace mode.
     const existingUpstreams = await repo.upstreams.list();
-    const deletes = [repo.apiKeys.deleteAll(), repo.usage.deleteAll(), repo.searchUsage.deleteAll(), repo.upstreams.deleteAll(), repo.responsesSnapshots.deleteAll(), repo.responsesItems.deleteAll()];
+    const deletes: Promise<unknown>[] = [
+      repo.sessions.deleteAll(),
+      repo.apiKeys.deleteAll(),
+      repo.usage.deleteAll(),
+      repo.searchUsage.deleteAll(),
+      repo.upstreams.deleteAll(),
+      repo.proxies.deleteAll(),
+      // proxy_upstream_backoffs is per-deployment runtime state keyed on
+      // proxy_id; replace mode wipes the proxies table, so leaving the
+      // backoff rows behind would cool-down freshly imported proxies that
+      // happen to reuse a deleted id. Same intent as wiping sessions.
+      repo.proxyBackoffs.deleteAll(),
+      repo.responsesSnapshots.deleteAll(),
+      repo.responsesItems.deleteAll(),
+      repo.users.deleteAll(),
+    ];
     if (performanceIncluded) deletes.push(repo.performance.deleteAll());
     await Promise.all(deletes);
     await Promise.all([...existingUpstreams, ...upstreams].map(upstream => invalidateModelsStore(upstream.id)));
   }
 
+  // Users land before api keys so the FK from api_keys.user_id can resolve.
+  // Proxies land before upstreams so any concurrent reader (e.g. a request
+  // resolving an upstream's fallback list) sees the row referenced by an
+  // upstream's proxy_fallback_list as soon as the upstream is visible.
+  for (const user of users) await repo.users.save(user);
+  for (const proxy of proxies) {
+    await repo.proxies.save({
+      id: proxy.id,
+      name: proxy.name,
+      url: proxy.url,
+      dialTimeoutSeconds: proxy.dial_timeout_seconds,
+    });
+  }
   for (const key of apiKeys) await repo.apiKeys.save(key);
   for (const record of usage) await repo.usage.set(record);
   for (const record of searchUsage) await repo.searchUsage.set(record);
@@ -507,8 +680,10 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   return c.json({
     ok: true,
     imported: {
+      users: users.length,
       apiKeys: apiKeys.length,
       upstreams: upstreams.length,
+      proxies: proxies.length,
       usage: usage.length,
       searchUsage: searchUsage.length,
       performance: performance.length,

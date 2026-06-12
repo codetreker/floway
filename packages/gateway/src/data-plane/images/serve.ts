@@ -49,9 +49,9 @@ export const imagesGenerations = async (c: Context): Promise<Response> => {
     sourceApi: 'images_generations',
     model: request.model,
     bindingServesEndpoint: binding => binding.upstreamModel.endpoints.imagesGenerations !== undefined,
-    call: binding => {
+    call: (binding, opts) => {
       const { model: _model, ...body } = request.body;
-      return binding.provider.callImagesGenerations(binding.upstreamModel, body);
+      return binding.provider.callImagesGenerations(binding.upstreamModel, body, undefined, undefined, opts);
     },
     extractUsage: tokenUsageFromImagesResponse,
     noBindingMessage: modelId => `Model ${modelId} does not support the /images/generations endpoint.`,
@@ -79,7 +79,7 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
     sourceApi: 'images_edits',
     model: modelRaw,
     bindingServesEndpoint: binding => binding.upstreamModel.endpoints.imagesEdits !== undefined,
-    call: binding => {
+    call: (binding, opts) => {
       // ModelProvider.callImagesEdits takes ownership of the FormData and
       // appends the upstream-specific model/deployment id; allocate a fresh
       // copy per binding so the contract holds even if cross-binding
@@ -90,7 +90,7 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
         if (name === 'model') continue;
         passthrough.append(name, value);
       }
-      return binding.provider.callImagesEdits(binding.upstreamModel, passthrough);
+      return binding.provider.callImagesEdits(binding.upstreamModel, passthrough, undefined, undefined, opts);
     },
     extractUsage: tokenUsageFromImagesResponse,
     noBindingMessage: modelId => `Model ${modelId} does not support the /images/edits endpoint.`,

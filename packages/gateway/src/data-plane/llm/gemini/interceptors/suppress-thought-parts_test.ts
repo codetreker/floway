@@ -8,9 +8,10 @@ import { type ExecuteResult, eventResult, type GeminiInvocation } from '@floway-
 import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: GatewayCtx = {
-  apiKeyId: null,
-  apiKeyUpstreamIds: null,
+  apiKeyId: 'test-key',
+  upstreamIds: null,
   wantsStream: false,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
 };

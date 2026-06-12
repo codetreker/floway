@@ -46,8 +46,7 @@ const labelFor = (id: string): string => itemByValue.value.get(id)?.label ?? id;
 
 const filteredItems = computed(() => props.items.filter(item =>
   !value.value.includes(item.value)
-  && (contains(item.label, query.value) || contains(item.value, query.value)),
-));
+  && (contains(item.label, query.value) || contains(item.value, query.value))));
 
 watch(value, () => { query.value = ''; }, { deep: true });
 </script>

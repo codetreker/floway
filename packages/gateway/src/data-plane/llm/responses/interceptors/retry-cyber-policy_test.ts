@@ -28,7 +28,7 @@ const makeInvocation = (payload: ResponsesPayload): ResponsesInvocation => ({
   payload,
   candidate: stubProviderCandidate({ targetApi: 'responses', binding: { enabledFlags: new Set(['retry-cyber-policy']) } }),
   store: new LayeredStatefulResponsesStore({
-    apiKeyId: null,
+    apiKeyId: 'test-key',
     reads: [new MemoryStatefulResponsesBacking()],
     itemWrites: [],
     snapshotWrites: [],
@@ -38,9 +38,10 @@ const makeInvocation = (payload: ResponsesPayload): ResponsesInvocation => ({
 });
 
 const stubCtx = (overrides: { abortSignal?: AbortSignal } = {}): GatewayCtx => ({
-  apiKeyId: null,
-  apiKeyUpstreamIds: null,
+  apiKeyId: 'test-key',
+  upstreamIds: null,
   wantsStream: true,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
   ...overrides,
@@ -151,8 +152,6 @@ const performanceFor = (modelKey: string) => ({
   model: 'gpt-test',
   upstream: 'test-upstream',
   modelKey,
-  sourceApi: 'responses' as const,
-  targetApi: 'responses' as const,
   stream: true,
   runtimeLocation: 'test',
 });

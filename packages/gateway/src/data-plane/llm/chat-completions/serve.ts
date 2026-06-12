@@ -18,7 +18,7 @@ export const chatCompletionsServe = {
   generate: async (args: ChatCompletionsServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> => {
     const { payload, ctx, store } = args;
     const { candidates, sawModel } = await enumerateProviderCandidates({
-      apiKeyUpstreamIds: ctx.apiKeyUpstreamIds,
+      upstreamIds: ctx.upstreamIds,
       model: payload.model,
       pickTarget: endpoints =>
         endpoints.chatCompletions ? 'chat-completions'

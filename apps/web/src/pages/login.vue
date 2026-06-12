@@ -1,40 +1,31 @@
 <script setup lang="ts">
-import { Input } from '@floway-dev/ui';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { callApi, useApi } from '../api/client.ts';
 import { useLoading } from '../composables/useLoading.ts';
-import { useAuthStore } from '../stores/auth.ts';
+import { type AuthUser, useAuthStore } from '../stores/auth.ts';
+import { Input } from '@floway-dev/ui';
 
-// Public route — skipped by the auth guard via meta.public. definePage is a
-// compile-time macro and must live in <script setup>; do not import it.
 definePage({ meta: { public: true } });
 
 const api = useApi();
 const router = useRouter();
 const auth = useAuthStore();
 
-const keyInput = ref('');
+const usernameInput = ref('');
+const passwordInput = ref('');
 const errorMessage = ref<string | null>(null);
-
-interface LoginOk {
-  ok: true;
-  isAdmin: boolean;
-  keyId?: string;
-  keyName?: string;
-  keyHint?: string;
-}
 
 const [loading, submit] = useLoading(async () => {
   errorMessage.value = null;
-  if (!keyInput.value.trim()) {
-    errorMessage.value = 'Enter a key to continue.';
+  if (!passwordInput.value) {
+    errorMessage.value = 'Enter a password to continue.';
     return;
   }
 
-  const { data, error } = await callApi<LoginOk>(
-    () => api.auth.login.$post({ json: { key: keyInput.value.trim() } }),
+  const { data, error } = await callApi<{ token: string; user: AuthUser }>(
+    () => api.auth.login.$post({ json: { username: usernameInput.value.trim(), password: passwordInput.value } }),
   );
   if (error) {
     errorMessage.value = error.message;
@@ -42,25 +33,13 @@ const [loading, submit] = useLoading(async () => {
   }
   if (!data) return;
 
-  auth.setAuth({
-    key: keyInput.value.trim(),
-    isAdmin: data.isAdmin,
-    keyId: data.keyId,
-    keyName: data.keyName,
-    keyHint: data.keyHint,
-  });
-  await router.replace(data.isAdmin ? '/dashboard/settings' : '/dashboard/keys');
+  auth.setAuth({ token: data.token, user: data.user });
+  await router.replace('/dashboard/settings');
 });
-
-const onSubmit = (e: Event) => {
-  e.preventDefault();
-  void submit();
-};
 </script>
 
 <template>
   <main class="flex min-h-screen items-center justify-center p-4">
-    <!-- Ambient cyan glow behind the card, identical to the prerender login. -->
     <div class="pointer-events-none fixed left-1/2 top-0 h-[400px] w-[600px] -translate-x-1/2 rounded-full bg-accent-cyan/5 blur-[120px]" />
 
     <div class="w-full max-w-md">
@@ -73,36 +52,47 @@ const onSubmit = (e: Event) => {
           </svg>
         </div>
         <h1 class="text-2xl font-semibold tracking-tight text-white">Floway</h1>
-        <p class="mt-2 text-sm font-light text-gray-500">Enter your key to continue</p>
+        <p class="mt-2 text-sm font-light text-gray-500">Sign in with your account</p>
       </div>
 
       <div class="glass-card glow-cyan p-8">
         <p class="mb-6 text-xs leading-relaxed text-gray-500">
-          Log in with the <span class="text-gray-400">ADMIN_KEY</span> for full dashboard access, or any <span class="whitespace-nowrap text-gray-400">API key</span> for limited access.
+          Leave the username blank and use the deployment's <span class="text-gray-400">ADMIN_KEY</span> to log in as the default admin user.
         </p>
 
-        <form class="space-y-5" @submit="onSubmit">
+        <form class="space-y-5" @submit.prevent="submit">
           <div>
-            <label for="key" class="mb-2 block text-xs font-medium uppercase tracking-widest text-gray-400">Key</label>
+            <label for="username" class="mb-2 block text-xs font-medium uppercase tracking-widest text-gray-400">Username</label>
             <Input
-              id="key"
-              v-model="keyInput"
-              type="password"
-              placeholder="Enter your key..."
-              :invalid="!!errorMessage"
-              autocomplete="current-password"
+              id="username"
+              v-model="usernameInput"
+              type="text"
+              placeholder="(leave blank for ADMIN_KEY login)"
+              autocomplete="username"
               autofocus
             />
           </div>
 
+          <div>
+            <label for="password" class="mb-2 block text-xs font-medium uppercase tracking-widest text-gray-400">Password</label>
+            <Input
+              id="password"
+              v-model="passwordInput"
+              type="password"
+              placeholder="Enter your password..."
+              :invalid="!!errorMessage"
+              autocomplete="current-password"
+            />
+          </div>
+
           <button type="submit" class="btn-primary w-full" :disabled="loading">
-            <span v-if="!loading">Authenticate</span>
+            <span v-if="!loading">Sign in</span>
             <span v-else class="inline-flex items-center justify-center gap-2">
               <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25" />
                 <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" opacity="0.75" />
               </svg>
-              Authenticating...
+              Signing in...
             </span>
           </button>
         </form>

@@ -2,7 +2,7 @@ import type { PerformanceTelemetryRecord } from '../../repo/types.ts';
 import { type HistogramBucket, percentileFromHistogramBuckets } from '../../shared/performance-histogram.ts';
 
 export type PerformanceBucketGranularity = 'hour' | '4h' | '8h' | 'day' | 'all';
-export type PerformanceGroupBy = 'none' | 'keyId' | 'model' | 'sourceApi' | 'targetApi' | 'runtimeLocation';
+export type PerformanceGroupBy = 'none' | 'keyId' | 'userId' | 'model' | 'runtimeLocation';
 
 export interface PerformanceDisplayRecord {
   bucket: string;
@@ -16,11 +16,21 @@ export interface PerformanceDisplayRecord {
   p99Ms: number | null;
 }
 
-interface AggregateOptions {
-  bucket: PerformanceBucketGranularity;
-  groupBy: PerformanceGroupBy;
-  timezoneOffsetMinutes: number;
-}
+type AggregateOptions =
+  | {
+    bucket: PerformanceBucketGranularity;
+    groupBy: Exclude<PerformanceGroupBy, 'userId'>;
+    timezoneOffsetMinutes: number;
+  }
+  | {
+    bucket: PerformanceBucketGranularity;
+    groupBy: 'userId';
+    timezoneOffsetMinutes: number;
+    // Records whose keyId no longer resolves (operator hard-deleted the key)
+    // collapse into synthetic userId 0; soft-deleted keys still resolve
+    // because keyToUser includes them.
+    keyToUser: ReadonlyMap<string, number>;
+  };
 
 interface MutableAggregate {
   bucket: string;
@@ -37,7 +47,7 @@ export function aggregatePerformanceForDisplay(records: readonly PerformanceTele
 
   for (const record of records) {
     const bucket = displayBucket(record.hour, options);
-    const group = displayGroup(record, options.groupBy);
+    const group = displayGroup(record, options);
     const key = `${bucket}\0${group}`;
     let aggregate = aggregates.get(key);
     if (!aggregate) {
@@ -84,9 +94,13 @@ function displayBucket(hour: string, options: Pick<AggregateOptions, 'bucket' | 
   return `${localIso.slice(0, 11)}${String(aligned).padStart(2, '0')}`;
 }
 
-function displayGroup(record: PerformanceTelemetryRecord, groupBy: PerformanceGroupBy): string {
-  if (groupBy === 'none') return 'all';
-  return String(record[groupBy]);
+function displayGroup(record: PerformanceTelemetryRecord, options: AggregateOptions): string {
+  if (options.groupBy === 'none') return 'all';
+  if (options.groupBy === 'userId') {
+    const userId = options.keyToUser.get(record.keyId) ?? 0;
+    return String(userId);
+  }
+  return String(record[options.groupBy]);
 }
 
 function toDisplayRecord(aggregate: MutableAggregate): PerformanceDisplayRecord {

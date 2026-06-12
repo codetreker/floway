@@ -1,0 +1,42 @@
+{
+  "name": "@floway-dev/proxy",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
+    "./constants": {
+      "import": "./src/constants.ts",
+      "types": "./src/constants.ts"
+    },
+    "./url": {
+      "import": "./src/url.ts",
+      "types": "./src/url.ts"
+    },
+    "./url-kind": {
+      "import": "./src/url-kind.ts",
+      "types": "./src/url-kind.ts"
+    },
+    "./proxy-config": {
+      "import": "./src/proxy-config.ts",
+      "types": "./src/proxy-config.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@floway-dev/http": "workspace:*",
+    "@noble/ciphers": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@reclaimprotocol/tls": "0.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251215.0",
+    "@types/node": "^22",
+    "typescript": "^5.9.3"
+  }
+}

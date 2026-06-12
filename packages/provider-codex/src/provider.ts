@@ -74,7 +74,7 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
   const effects: CodexCallEffects = { persistRefreshTokenRotation, persistTerminalState };
 
   const provider: ModelProvider = {
-    getProvidedModels: () =>
+    getProvidedModels: fetcher =>
       inProcessMemo(record.id, MODELS_MEMO_TTL_MS, async () => {
         const cached = await readModelsStore<CodexModelsLedger>(record.id);
         const ledgerFresh = cached !== null && Date.now() - cached.fetchedAt < MODELS_LEDGER_FRESH_MS;
@@ -87,7 +87,7 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
           const access = await getCodexAccessToken(getProviderRepo().cache, record.id);
           if (!access) return fallback();
 
-          const raw = await fetchCodexCatalog({ accessToken: access.access_token, accountId: accountIdentity.chatgptAccountId });
+          const raw = await fetchCodexCatalog({ accessToken: access.access_token, accountId: accountIdentity.chatgptAccountId, fetcher });
           // Surface every model the upstream returns, including ones whose
           // ChatGPT-side `visibility` is `hide` (e.g. codex-auto-review). The
           // operator's gateway is its own surface — they can dispatch to those
@@ -95,7 +95,17 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
           // toggles them per-upstream when needed.
           await writeModelsStore<CodexModelsLedger>(record.id, { fetchedAt: Date.now(), models: raw });
           return raw.map(codexRawToUpstreamModel);
-        } catch {
+        } catch (err) {
+          // AbortError is a deliberate caller-driven cancellation — propagate
+          // so the data-plane request unwinds cleanly instead of falling back
+          // to a stale ledger and pretending the call succeeded.
+          if (err instanceof Error && err.name === 'AbortError') throw err;
+          // Falling back to a stale-but-fresh-enough ledger is the right
+          // resilience story; falling back to an EMPTY catalog because we
+          // never had a ledger silently turns this upstream into "no
+          // models available" — the operator sees an apparently-healthy
+          // upstream serving zero models. Surface the failure instead.
+          if (!ledgerFresh) throw err;
           return fallback();
         }
       }),
@@ -105,7 +115,7 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
     // public API rates. The table lives in ./pricing.ts.
     getPricingForModelKey: pricingForCodexModelKey,
 
-    callResponses: async (model, body, signal, headers) => {
+    callResponses: async (model, body, signal, headers, opts) => {
       const ctx: ResponsesBoundaryCtx = {
         payload: { ...body, model: model.id },
         headers: { ...(headers ?? {}) },
@@ -124,12 +134,13 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
             signal,
             cache: getProviderRepo().cache,
             effects,
+            call: opts,
           });
         },
       );
     },
 
-    callResponsesCompact: async (model, body, signal, headers) => {
+    callResponsesCompact: async (model, body, signal, headers, opts) => {
       const ctx: ResponsesBoundaryCtx = {
         payload: { ...body, model: model.id },
         headers: { ...(headers ?? {}) },
@@ -148,14 +159,14 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
             signal,
             cache: getProviderRepo().cache,
             effects,
+            call: opts,
           });
         },
       );
     },
 
-    // Codex serves only /responses; getProvidedModels advertises that single
-    // endpoint, so the data plane translates Messages / ChatCompletions /
-    // Gemini through `responsesAttempt` and never calls the methods below.
+    // Codex upstream only exposes /responses; getProvidedModels advertises
+    // that single endpoint and no other entry point is reachable.
     callMessages: () => Promise.reject(new Error('Codex provider does not implement callMessages')),
     callChatCompletions: () => Promise.reject(new Error('Codex provider does not implement callChatCompletions')),
     callMessagesCountTokens: () => Promise.reject(new Error('Codex provider does not implement callMessagesCountTokens')),

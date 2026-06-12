@@ -1,8 +1,9 @@
+import { shortId } from '../../../../../shared/short-id.ts';
 import { normalizeDomainEntry, normalizeDomainList } from '../../../../tools/web-search/domain-normalize.ts';
-import { fetchPageAndRecordUsage, fetchPageWithoutRecordingUsage } from '../../../../tools/web-search/fetch-page.ts';
+import { fetchPageAndRecordUsage } from '../../../../tools/web-search/fetch-page.ts';
 import { resolveConfiguredWebSearchProvider } from '../../../../tools/web-search/provider.ts';
 import { loadSearchConfig } from '../../../../tools/web-search/search-config.ts';
-import { searchWebAndRecordUsage, searchWebWithoutRecordingUsage } from '../../../../tools/web-search/search.ts';
+import { searchWebAndRecordUsage } from '../../../../tools/web-search/search.ts';
 import type { ConfiguredWebSearchProvider, WebSearchProvider, WebSearchProviderName } from '../../../../tools/web-search/types.ts';
 import { truncatePreservingCodePoints } from '../../../shared/text.ts';
 import { type ServerToolLoopState, type ServerToolOutputItem, type ServerToolRegistration } from '../server-tool-shim.ts';
@@ -19,7 +20,7 @@ export const WEB_SEARCH_HOSTED_TYPES: ReadonlySet<string> = new Set<string>(WEB_
 // uses the underscored form of the model's training-time `web.run`.
 export const SHIM_TOOL_NAME = 'web_search';
 
-export interface ShimToolFilters {
+interface ShimToolFilters {
   allowedDomains?: string[];
   blockedDomains?: string[];
   userLocation?: { city?: string; region?: string; country?: string; timezone?: string };
@@ -34,7 +35,7 @@ export interface ShimToolFilters {
 // or sends an explicit `'medium'`, we still pass the corresponding
 // maxResults so providers don't fall back to their own (smaller)
 // default count.
-export const CONTEXT_SIZE_TO_MAX_RESULTS: Record<'low' | 'medium' | 'high', number> = {
+const CONTEXT_SIZE_TO_MAX_RESULTS: Record<'low' | 'medium' | 'high', number> = {
   low: 10,
   medium: 20,
   high: 40,
@@ -42,7 +43,7 @@ export const CONTEXT_SIZE_TO_MAX_RESULTS: Record<'low' | 'medium' | 'high', numb
 
 const DEFAULT_SEARCH_CONTEXT_SIZE: keyof typeof CONTEXT_SIZE_TO_MAX_RESULTS = 'medium';
 
-export const isValidSearchContextSize = (v: unknown): v is keyof typeof CONTEXT_SIZE_TO_MAX_RESULTS =>
+const isValidSearchContextSize = (v: unknown): v is keyof typeof CONTEXT_SIZE_TO_MAX_RESULTS =>
   typeof v === 'string' && v in CONTEXT_SIZE_TO_MAX_RESULTS;
 
 // The hosted tool's `user_location` must surface to the model, not just
@@ -151,14 +152,14 @@ const extractFilters = (tool: ResponsesHostedTool): ShimToolFilters => {
   return out;
 };
 
-export interface PrepareToolsError {
-  /** Human-readable error message; goes into the 400 envelope's `error.message`. */
+interface PrepareToolsError {
+  /** Human-readable error message. */
   message: string;
-  /** JSON-Pointer-style location inside `tools[]`; goes into `error.param`. */
+  /** JSON-Pointer-style location inside `tools[]`. */
   param: string;
 }
 
-export type PrepareToolsResult =
+type PrepareToolsResult =
   | { ok: true; filters: ShimToolFilters }
   | { ok: false; error: PrepareToolsError };
 
@@ -245,22 +246,14 @@ const validateHostedEntry = (tool: ResponsesHostedTool): PrepareToolsError | nul
 export const prepareToolsForShim = (
   tools: ResponsesTool[],
 ): PrepareToolsResult => {
-  let hostedSeen = false;
   let lastHostedFilters: ShimToolFilters = {};
   for (const tool of tools) {
     if (isHostedWebSearchTool(tool)) {
       const reject = validateHostedEntry(tool);
       if (reject !== null) return { ok: false, error: reject };
-      hostedSeen = true;
       lastHostedFilters = extractFilters(tool);
-      continue;
     }
   }
-
-  if (!hostedSeen) {
-    return { ok: true, filters: {} };
-  }
-
   return { ok: true, filters: lastHostedFilters };
 };
 
@@ -434,14 +427,13 @@ export const parseShimOperations = (args: Record<string, unknown> | null): Parse
   };
 };
 
-// Safety cap; see usage in `planShimSlots`.
-export const ITERATION_CAP = 30;
+const ITERATION_CAP = 30;
 
 // One web_search backend op's result data: the action shape downstream
 // references and the result list the renderer formats. Thin DTO — the
 // wsc id and `status: 'completed'` live on the dispatcher's slot, not
 // in here.
-export interface WebSearchCallIR {
+interface WebSearchCallIR {
   action: ResponsesWebSearchAction;
   results: ResponsesWebSearchResult[];
 }
@@ -451,7 +443,8 @@ export interface WebSearchCallIR {
  * function_call corresponds to exactly one wsc and one op — multi-op
  * shim calls (multi-kind mix or multi-instance same-kind) are rejected at
  * dispatch with an `ambiguous` error, so there is never an array to
- * denormalize. The row id IS the wsc id, so we don't repeat it inside.
+ * denormalize. The persisted-payload key IS the wsc id, so we don't repeat
+ * it inside.
  *
  * - `functionCallItem` is the upstream's literal function_call from the
  *   originating turn, with `arguments` replaced by the
@@ -490,13 +483,11 @@ const isWebSearchCallPrivatePayload = (value: unknown): value is WebSearchCallPr
   return irObj.action !== undefined && Array.isArray(irObj.results);
 };
 
-export const synthesizeWebSearchCallId = (): string =>
-  `ws_gw_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+export const synthesizeWebSearchCallId = (): string => shortId('ws_gw');
 
 // Distinct id namespace (cc_replay_*) from synthesized wsc ids (ws_gw_*)
 // so a replay call_id never reads as a wsc id in logs.
-const synthesizeReplayCallId = (): string =>
-  `cc_replay_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+const synthesizeReplayCallId = (): string => shortId('cc_replay');
 
 const searchIr = (
   query: string,
@@ -748,7 +739,7 @@ interface PageCacheEntry {
   title?: string;
 }
 
-export interface ShimState {
+interface ShimState {
   filters: ShimToolFilters;
   // Per-request cache shared across `open` and `find` so a find op can
   // reuse a body the model already opened without a second fetch.
@@ -759,9 +750,7 @@ export interface ShimState {
   // tool emission) never call this, so an unconfigured search provider
   // does not 500 the request.
   getProvider: () => Promise<ConfiguredWebSearchProvider>;
-  // `undefined` for keyless requests (admin playground); usage
-  // recording is skipped in that case.
-  apiKeyId: string | undefined;
+  apiKeyId: string;
   // Set when the client passed `include: ["web_search_call.results"]` on
   // the request. Native Responses gates the `results` field on this
   // include token; the shim follows suit on the wire item — but the IR
@@ -944,17 +933,12 @@ const runOneSearchQuery = async (
       userLocation: state.filters.userLocation,
       ...(state.downstreamAbortSignal !== undefined ? { signal: state.downstreamAbortSignal } : {}),
     };
-    const result = state.apiKeyId !== undefined
-      ? await searchWebAndRecordUsage({
-          provider: active.provider,
-          providerName: active.providerName,
-          keyId: state.apiKeyId,
-          request: searchRequest,
-        })
-      : await searchWebWithoutRecordingUsage({
-          provider: active.provider,
-          request: searchRequest,
-        });
+    const result = await searchWebAndRecordUsage({
+      provider: active.provider,
+      providerName: active.providerName,
+      keyId: state.apiKeyId,
+      request: searchRequest,
+    });
 
     if (result.type === 'error') {
       const msg = result.message ?? result.errorCode;
@@ -1002,17 +986,12 @@ const runBatchFetch = async (
       urls: needFetch,
       ...(state.downstreamAbortSignal !== undefined ? { signal: state.downstreamAbortSignal } : {}),
     };
-    const result = state.apiKeyId !== undefined
-      ? await fetchPageAndRecordUsage({
-          provider: active.provider,
-          providerName: active.providerName,
-          keyId: state.apiKeyId,
-          request: fetchRequest,
-        })
-      : await fetchPageWithoutRecordingUsage({
-          provider: active.provider,
-          request: fetchRequest,
-        });
+    const result = await fetchPageAndRecordUsage({
+      provider: active.provider,
+      providerName: active.providerName,
+      keyId: state.apiKeyId,
+      request: fetchRequest,
+    });
 
     if (result.type === 'error') {
       const msg = result.message ?? result.errorCode;
@@ -1325,7 +1304,7 @@ export const webSearchServerTool: ServerToolRegistration = (invocation, gatewayC
       configuredProvider ??= loadSearchConfig().then(cfg => resolveConfiguredWebSearchProvider(cfg));
       return configuredProvider;
     },
-    apiKeyId: gatewayCtx.apiKeyId ?? undefined,
+    apiKeyId: gatewayCtx.apiKeyId,
     includeSearchResults: includeArray.includes('web_search_call.results'),
     includeSearchActionSources: includeArray.includes('web_search_call.action.sources'),
     ...(gatewayCtx.abortSignal !== undefined ? { downstreamAbortSignal: gatewayCtx.abortSignal } : {}),

@@ -86,8 +86,10 @@ Open the deployed URL (or `http://localhost:8788` for Node), log in with
 3. Copy the Claude Code or Codex CLI snippet from the API Keys panel into the
    agent config.
 
-Import/export of upstreams, keys, and search config is in Settings; it uses the
-latest `version: 3` payload shape.
+Import/export of upstreams, keys, and search config is in Settings. The
+payload format is tied to the running deployment, so import only accepts a
+file produced by a deployment at the same version — re-export from the
+current deployment before importing.
 
 ## Server Tools
 
@@ -128,27 +130,8 @@ pnpm run dev           # parallel wrangler dev (8788) + Vite SPA dev server (517
 pnpm run dev:node      # Node.js entry (tsx apps/platform-node/entry.ts)
 ```
 
-The repo is a pnpm workspace.
-
-- `packages/protocols` and `packages/translate` are pure libraries for
-  protocol type defs and cross-protocol translation.
-- `packages/interceptor` is the generic interceptor framework.
-- `packages/provider` plus per-vendor `packages/provider-{azure,codex,copilot,custom}`
-  hold the upstream-side adapters.
-- `packages/platform` exposes the runtime contracts (`FileProvider`,
-  `ImageProcessor`, `SqlDatabase`, etc.) and a few portable helpers.
-- `packages/gateway` is the runtime-agnostic gateway core: Hono app, all
-  control- and data-plane routes, the Repo interface and impls, middleware,
-  and the migrations SQL.
-- `apps/platform-cloudflare` ships the Cloudflare implementations
-  (R2, Images + KV, D1) and the Worker entry; `apps/platform-node` ships
-  the Node implementations (sharp, node:sqlite, fs) and the
-  `@hono/node-server` entry. Each platform-target app is the only place
-  its runtime's symbols appear; ESLint forbids importing them from
-  anywhere else in the workspace.
-- `apps/web` is the Vue/Vite SPA dashboard, served by Vite in dev and by
-  Workers Static Assets from `apps/web/dist` after build (Cloudflare
-  deployment only).
+The repo is a pnpm workspace; see [AGENTS.md](./AGENTS.md) for the full
+package map and the strict dependency direction it enforces.
 
 `wrangler.example.jsonc` keeps API/data-plane routes Worker-first and lets
 other direct browser routes fall through to the SPA's `index.html`. It also

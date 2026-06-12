@@ -19,8 +19,6 @@ const testPerformanceContext: PerformanceTelemetryContext = {
   model: 'claude-test',
   upstream: 'copilot:1',
   modelKey: 'claude-test-raw',
-  sourceApi: 'messages',
-  targetApi: 'messages',
   stream: true,
   runtimeLocation: 'SJC',
 };
@@ -28,7 +26,7 @@ const testPerformanceContext: PerformanceTelemetryContext = {
 interface Harness {
   repo: InMemoryRepo;
   background: Promise<unknown>[];
-  ctx: (overrides?: { apiKeyId?: string | null; requestStartedAt?: number }) => GatewayCtx;
+  ctx: (overrides?: { apiKeyId?: string; requestStartedAt?: number }) => GatewayCtx;
 }
 
 const setup = (): Harness => {
@@ -39,9 +37,10 @@ const setup = (): Harness => {
     repo,
     background,
     ctx: (overrides = {}) => ({
-      apiKeyId: overrides.apiKeyId === undefined ? 'key_a' : overrides.apiKeyId,
-      apiKeyUpstreamIds: null,
+      apiKeyId: overrides.apiKeyId ?? 'key_a',
+      upstreamIds: null,
       wantsStream: true,
+      runtimeLocation: 'test',
       scheduleBackground: fn => { background.push(Promise.resolve(fn())); },
       requestStartedAt: overrides.requestStartedAt ?? 0,
     }),
@@ -129,13 +128,6 @@ test('recordPerformance records an error when failed', async () => {
   assertEquals(rows[0].requests, 0);
 });
 
-test('recordPerformance skips when apiKeyId is null', async () => {
-  recordPerformance(harness.ctx({ apiKeyId: null }), testPerformanceContext, false);
-  await Promise.all(harness.background);
-
-  assertEquals(await harness.repo.performance.listAll(), []);
-});
-
 test('recordPerformance skips when performance context is absent', async () => {
   recordPerformance(harness.ctx(), undefined, true);
   await Promise.all(harness.background);
@@ -163,12 +155,6 @@ test('recordUsage is a no-op when usage is null', async () => {
 
 test('recordUsage is a no-op when usage carries no billable dimensions', async () => {
   await recordUsage(harness.ctx(), testTelemetryModelIdentity, {});
-
-  assertEquals(await harness.repo.usage.listAll(), []);
-});
-
-test('recordUsage is a no-op when apiKeyId is missing', async () => {
-  await recordUsage(harness.ctx({ apiKeyId: null }), testTelemetryModelIdentity, { input: 10 });
 
   assertEquals(await harness.repo.usage.listAll(), []);
 });

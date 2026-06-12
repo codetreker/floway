@@ -5,10 +5,10 @@ import { requestApp, setupAppTest } from '../../test-helpers.ts';
 import { assertEquals, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
 test('/api/search-config GET returns the default disabled config for admin', async () => {
-  const { adminKey } = await setupAppTest();
+  const { adminSession } = await setupAppTest();
 
   const response = await requestApp('/api/search-config', {
-    headers: { 'x-api-key': adminKey },
+    headers: { 'x-floway-session': adminSession },
   });
 
   assertEquals(response.status, 200);
@@ -16,7 +16,7 @@ test('/api/search-config GET returns the default disabled config for admin', asy
 });
 
 test('/api/search-config PUT persists config and POST /test returns preview', async () => {
-  const { adminKey } = await setupAppTest();
+  const { adminSession } = await setupAppTest();
 
   await withMockedFetch(
     request => {
@@ -58,14 +58,14 @@ test('/api/search-config PUT persists config and POST /test returns preview', as
 
       const putResponse = await requestApp('/api/search-config', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', 'x-api-key': adminKey },
+        headers: { 'content-type': 'application/json', 'x-floway-session': adminSession },
         body: JSON.stringify(config),
       });
       assertEquals(putResponse.status, 200);
 
       const testResponse = await requestApp('/api/search-config/test', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': adminKey },
+        headers: { 'content-type': 'application/json', 'x-floway-session': adminSession },
         body: JSON.stringify(config),
       });
 

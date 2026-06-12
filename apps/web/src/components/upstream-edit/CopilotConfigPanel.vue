@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { CopilotQuotaSnapshot, CopilotUpstreamConfig, UpstreamRecord } from '../../api/types.ts';
 
 import CopilotDeviceFlow from './CopilotDeviceFlow.vue';
 import CopilotInfo from './CopilotInfo.vue';
+import type { CopilotQuotaSnapshot, CopilotUpstreamConfig, UpstreamRecord } from '../../api/types.ts';
 
 defineProps<{
   record: UpstreamRecord | null;

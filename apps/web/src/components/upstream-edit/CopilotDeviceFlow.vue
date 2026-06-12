@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Button, Code, Spinner } from '@floway-dev/ui';
 import { onUnmounted, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
 import type { DeviceFlowPoll, DeviceFlowStart, UpstreamRecord } from '../../api/types.ts';
+import { Button, Code, Spinner } from '@floway-dev/ui';
 
 const emit = defineEmits<{ completed: [upstream: UpstreamRecord | undefined] }>();
 

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { Spinner } from '@floway-dev/ui';
-
+import UpstreamRow from './UpstreamRow.vue';
 import { callApi, useApi } from '../../api/client.ts';
 import type { ControlPlaneModel, UpstreamRecord } from '../../api/types.ts';
-import UpstreamRow from './UpstreamRow.vue';
+import { Spinner } from '@floway-dev/ui';
 
 const props = defineProps<{
   loading: boolean;
@@ -40,8 +39,7 @@ const persistReorder = async (next: UpstreamRecord[]) => {
   if (patches.length === 0) return;
   const results = await Promise.all(
     patches.map(({ id, newOrder }) =>
-      callApi(() => api.api.upstreams[':id'].$patch({ param: { id }, json: { sort_order: newOrder } })),
-    ),
+      callApi(() => api.api.upstreams[':id'].$patch({ param: { id }, json: { sort_order: newOrder } }))),
   );
   const failed = results.find(r => r.error);
   if (failed?.error) window.alert(`Reorder failed: ${failed.error.message}`);

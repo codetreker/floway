@@ -4,6 +4,7 @@ import { codexAccessTokenKey } from './access-token-cache.ts';
 import { callCodexResponsesCompact } from './compaction.ts';
 import type { CodexAccountCredential } from './state.ts';
 import type { CacheRepo, UpstreamModel } from '@floway-dev/provider';
+import { noopUpstreamCallOptions } from '@floway-dev/test-utils';
 
 const makeMemoryCache = (): CacheRepo & { _store: Map<string, string> } => {
   const store = new Map<string, string>();
@@ -49,7 +50,7 @@ describe('callCodexResponsesCompact', () => {
     const result = await callCodexResponsesCompact({
       upstreamId: 'up', account: activeAccount, model,
       body: { input: [{ type: 'message', role: 'user', content: 'hello' }] },
-      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} },
+      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -82,7 +83,7 @@ describe('callCodexResponsesCompact', () => {
     await expect(callCodexResponsesCompact({
       upstreamId: 'up', account: activeAccount, model,
       body: { input: [{ type: 'message', role: 'user', content: 'hi' }] },
-      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} },
+      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, call: noopUpstreamCallOptions,
     })).rejects.toThrow(/compaction/);
   });
 
@@ -94,7 +95,7 @@ describe('callCodexResponsesCompact', () => {
     const result = await callCodexResponsesCompact({
       upstreamId: 'up', account: activeAccount, model,
       body: { input: [{ type: 'message', role: 'user', content: 'hi' }] },
-      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} },
+      cache, headers: {}, effects: { persistRefreshTokenRotation: async () => {}, persistTerminalState: async () => {} }, call: noopUpstreamCallOptions,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(500);

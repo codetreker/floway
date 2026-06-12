@@ -1,144 +1,163 @@
-import { Hono } from 'hono';
 import { test } from 'vitest';
 
-import { searchUsage } from './routes.ts';
-import { zValidator } from '../../middleware/zod-validator.ts';
-import { initRepo } from '../../repo/index.ts';
-import { InMemoryRepo } from '../../repo/memory.ts';
-import type { ApiKey, SearchUsageRecord } from '../../repo/types.ts';
-import { searchUsageQuery } from '../schemas.ts';
+import { requestApp, setupAppTest } from '../../test-helpers.ts';
 import { assertEquals } from '@floway-dev/test-utils';
 
-const KEY_A: ApiKey = {
-  id: 'key-aaa',
-  name: 'Alice',
-  key: 'raw-key-aaa',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  upstreamIds: null,
+const seedSearchUsage = async (repo: import('../../repo/memory.ts').InMemoryRepo, primaryKeyId: string) => {
+  await repo.apiKeys.save({
+    id: 'key_other',
+    userId: 1,
+    name: 'Other key',
+    key: 'raw_other_key',
+    createdAt: '2026-03-15T00:00:00.000Z',
+    upstreamIds: null,
+    deletedAt: null,
+  });
+
+  await repo.searchUsage.set({ provider: 'tavily', keyId: primaryKeyId, action: 'search', hour: '2026-03-15T10', requests: 2 });
+  await repo.searchUsage.set({ provider: 'tavily', keyId: primaryKeyId, action: 'fetch_page', hour: '2026-03-15T10', requests: 3 });
+  await repo.searchUsage.set({ provider: 'microsoft-grounding', keyId: 'key_other', action: 'search', hour: '2026-03-15T11', requests: 4 });
 };
 
-const KEY_B: ApiKey = {
-  id: 'key-bbb',
-  name: 'Bob',
-  key: 'raw-key-bbb',
-  createdAt: '2026-02-01T00:00:00.000Z',
-  upstreamIds: null,
-};
+test('/api/search-usage scopes to the actor\'s keys when called with an API key', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await seedSearchUsage(repo, apiKey.id);
 
-const SEARCH_USAGE_A: SearchUsageRecord = {
-  provider: 'tavily',
-  keyId: KEY_A.id,
-  action: 'search',
-  hour: '2026-03-15T10',
-  requests: 2,
-};
+  const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00', {
+    headers: { 'x-api-key': apiKey.key },
+  });
 
-const SEARCH_USAGE_A_FETCH: SearchUsageRecord = {
-  provider: 'tavily',
-  keyId: KEY_A.id,
-  action: 'fetch_page',
-  hour: '2026-03-15T10',
-  requests: 3,
-};
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  // Non-admin actor sees only their own key's rows; the other user's row is excluded.
+  assertEquals(body, [
+    {
+      provider: 'tavily',
+      keyId: apiKey.id,
+      hour: '2026-03-15T10',
+      requests: 5,
+    },
+  ]);
+});
 
-const SEARCH_USAGE_B: SearchUsageRecord = {
-  provider: 'microsoft-grounding',
-  keyId: KEY_B.id,
-  action: 'search',
-  hour: '2026-03-15T11',
-  requests: 4,
-};
-
-const setup = async () => {
-  const repo = new InMemoryRepo();
-  initRepo(repo);
-  const app = new Hono();
-  app.get('/api/search-usage', zValidator('query', searchUsageQuery), searchUsage);
-
-  await repo.apiKeys.save(KEY_A);
-  await repo.apiKeys.save(KEY_B);
-  await repo.searchUsage.set(SEARCH_USAGE_A);
-  await repo.searchUsage.set(SEARCH_USAGE_A_FETCH);
-  await repo.searchUsage.set(SEARCH_USAGE_B);
-
-  return { app, repo };
-};
-
-test('/api/search-usage sums requests across actions and includes key metadata', async () => {
-  // The dashboard sees one row per (provider, keyId, hour) with
-  // search and fetch_page request counts summed. KEY_A has both a `search`
-  // (2 req) and a `fetch_page` (3 req) record at the same hour; the
-  // aggregated row exposes 5.
-  const { app, repo } = await setup();
+test('/api/search-usage in self-by-key mode includes per-key metadata for the actor only', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await seedSearchUsage(repo, apiKey.id);
   await repo.searchConfig.save({
     provider: 'microsoft-grounding',
     tavily: { apiKey: 'tvly-test' },
     microsoftGrounding: { apiKey: 'ms-test' },
   });
 
-  const response = await app.request('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&include_key_metadata=1');
+  const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&include_key_metadata=1', {
+    headers: { 'x-api-key': apiKey.key },
+  });
 
   assertEquals(response.status, 200);
   const body = await response.json();
   assertEquals(body.activeProvider, 'microsoft-grounding');
-  assertEquals(Array.isArray(body.keyColorOrder), true);
   assertEquals(body.keys, [
-    { id: KEY_A.id, name: KEY_A.name, createdAt: KEY_A.createdAt },
-    { id: KEY_B.id, name: KEY_B.name, createdAt: KEY_B.createdAt },
+    { id: apiKey.id, name: apiKey.name, createdAt: apiKey.createdAt },
   ]);
   assertEquals(body.records, [
     {
       provider: 'tavily',
-      keyId: KEY_A.id,
+      keyId: apiKey.id,
       hour: '2026-03-15T10',
       requests: 5,
-      keyName: KEY_A.name,
-      keyCreatedAt: KEY_A.createdAt,
-    },
-    {
-      provider: 'microsoft-grounding',
-      keyId: KEY_B.id,
-      hour: '2026-03-15T11',
-      requests: 4,
-      keyName: KEY_B.name,
-      keyCreatedAt: KEY_B.createdAt,
+      keyName: apiKey.name,
+      keyCreatedAt: apiKey.createdAt,
     },
   ]);
 });
 
-test('/api/search-usage filters by provider and rejects invalid provider', async () => {
-  const { app } = await setup();
+test('/api/search-usage all-by-user view aggregates across keys per user', async () => {
+  const { repo, adminSession, apiKey } = await setupAppTest();
+  await seedSearchUsage(repo, apiKey.id);
 
-  // Without include_key_metadata=1 the response is the bare aggregated
-  // records — no per-record keyName/keyCreatedAt enrichment and no
-  // apiKeys.list() round-trip.
-  const filtered = await app.request('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&provider=tavily');
+  const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&view=all-by-user', {
+    headers: { 'x-floway-session': adminSession },
+  });
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  // Two distinct rows: tavily/user2 (apiKey.userId === 2) and microsoft-grounding/user1.
+  // Aggregation summed both actions for the tavily row. Sort order is hour, userId, provider.
+  assertEquals(body, [
+    { provider: 'tavily', userId: 2, hour: '2026-03-15T10', requests: 5 },
+    { provider: 'microsoft-grounding', userId: 1, hour: '2026-03-15T11', requests: 4 },
+  ]);
+});
+
+test('/api/search-usage all-by-user view with include_user_metadata=1 includes user listing', async () => {
+  const { adminSession } = await setupAppTest();
+
+  const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&view=all-by-user&include_user_metadata=1', {
+    headers: { 'x-floway-session': adminSession },
+  });
+
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(Array.isArray(body.records), true);
+  assertEquals(Array.isArray(body.users), true);
+  assertEquals(body.users.length >= 2, true);
+  // Both seed users surface in the metadata listing.
+  assertEquals(body.users.find((u: { id: number }) => u.id === 1).username, 'admin');
+  assertEquals(body.users.find((u: { id: number }) => u.id === 2).username, 'tester');
+});
+
+test('/api/search-usage rejects all-by-user from a user without canViewGlobalTelemetry', async () => {
+  const { apiKey } = await setupAppTest();
+  const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&view=all-by-user', {
+    headers: { 'x-api-key': apiKey.key },
+  });
+  assertEquals(response.status, 403);
+});
+
+test('/api/search-usage filters by provider and rejects invalid provider', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await seedSearchUsage(repo, apiKey.id);
+
+  const filtered = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&provider=tavily', {
+    headers: { 'x-api-key': apiKey.key },
+  });
   assertEquals(filtered.status, 200);
   assertEquals(await filtered.json(), [
-    {
-      provider: 'tavily',
-      keyId: KEY_A.id,
-      hour: '2026-03-15T10',
-      requests: 5,
-    },
+    { provider: 'tavily', keyId: apiKey.id, hour: '2026-03-15T10', requests: 5 },
   ]);
 
-  const invalid = await app.request('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&provider=disabled');
+  const invalid = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&provider=disabled', {
+    headers: { 'x-api-key': apiKey.key },
+  });
   assertEquals(invalid.status, 400);
 });
 
 test('/api/search-usage requires start and end', async () => {
-  const { app } = await setup();
+  const { apiKey } = await setupAppTest();
 
-  const missingStart = await app.request('/api/search-usage?end=2026-03-16T00');
+  const missingStart = await requestApp('/api/search-usage?end=2026-03-16T00', { headers: { 'x-api-key': apiKey.key } });
   assertEquals(missingStart.status, 400);
-  assertEquals(await missingStart.json(), {
-    error: 'start and end query parameters are required (e.g. 2026-03-09T00)',
+  assertEquals(await missingStart.json(), { error: 'start and end query parameters are required (e.g. 2026-03-09T00)' });
+
+  const missingEnd = await requestApp('/api/search-usage?start=2026-03-15T00', { headers: { 'x-api-key': apiKey.key } });
+  assertEquals(missingEnd.status, 400);
+  assertEquals(await missingEnd.json(), { error: 'start and end query parameters are required (e.g. 2026-03-09T00)' });
+});
+
+test('/api/search-usage all-by-user attributes soft-deleted keys to their original owner', async () => {
+  const { repo, adminSession, apiKey } = await setupAppTest();
+  // Seed a usage row, then soft-delete the originating key. The aggregator
+  // must still resolve the row to apiKey.userId — not the synthetic userId 0
+  // it falls back to when the key→user lookup misses.
+  await repo.searchUsage.set({ provider: 'tavily', keyId: apiKey.id, action: 'search', hour: '2026-03-15T10', requests: 7 });
+  await repo.apiKeys.softDelete(apiKey.id);
+
+  const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&view=all-by-user', {
+    headers: { 'x-floway-session': adminSession },
   });
 
-  const missingEnd = await app.request('/api/search-usage?start=2026-03-15T00');
-  assertEquals(missingEnd.status, 400);
-  assertEquals(await missingEnd.json(), {
-    error: 'start and end query parameters are required (e.g. 2026-03-09T00)',
-  });
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), [
+    { provider: 'tavily', userId: apiKey.userId, hour: '2026-03-15T10', requests: 7 },
+  ]);
 });

@@ -65,6 +65,8 @@ export const respondChatCompletions = async (
       const metadata = await eventResultMetadata(result);
       try {
         await recordUsage(ctx, metadata.modelIdentity, state.usage);
+      } catch (error) {
+        console.error('Failed to record Chat Completions usage:', error);
       } finally {
         recordPerformance(ctx, metadata.performance, state.failedAfter(completion));
       }

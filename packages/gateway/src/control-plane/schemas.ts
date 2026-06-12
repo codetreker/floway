@@ -2,8 +2,7 @@
 // body or non-trivial query string. Two purposes:
 //
 // 1. Runtime guard — zValidator rejects malformed input before it reaches a
-//    handler, with a 400 + `{ error: msg }` response matching the pre-existing
-//    hand-written validation shape.
+//    handler, with a 400 + `{ error: msg }` response.
 //
 // 2. Type inference for the Hono RPC client — `hc<AppType>(...)` reads the
 //    schemas attached to each route to type `$post({ json })`, `$patch({ json })`,
@@ -26,9 +25,8 @@ import { OPTIONAL_FLAGS, parseFlagOverridesWire } from '@floway-dev/provider';
 const knownFlagIds = new Set<string>(OPTIONAL_FLAGS.map(f => f.id));
 
 // Reuse the runtime parseFlagOverridesWire so unknown-id and type errors
-// produce the same messages the dashboard already surfaces. z.unknown() →
-// transform keeps the schema-validated output typed as Record<string, boolean>
-// for the RPC client.
+// carry the canonical messages. z.unknown() → transform keeps the
+// schema-validated output typed as Record<string, boolean> for the RPC client.
 const flagOverridesSchema = z.unknown().transform((value, ctx): Record<string, boolean> => {
   try {
     return parseFlagOverridesWire(value);
@@ -92,17 +90,15 @@ const upstreamModelSchema = z.object({
 
 const customConfigSchema = z.object({
   baseUrl: z.string().min(1),
-  // Records written before authStyle existed default to bearer; the runtime
-  // parser in shared/upstream/custom.ts uses the same default, so accept
-  // omitted authStyle here for parity with import/legacy payloads.
+  // authStyle is optional; the runtime parser defaults omitted values to
+  // bearer, so the schema accepts the same.
   authStyle: z.enum(['bearer', 'anthropic']).optional(),
-  // Structured capability map (one concept, all endpoints) — the runtime parser
-  // permits an empty map for an upstream serving only kind-derived models.
+  // Structured capability map — the runtime parser permits an empty map for
+  // an upstream serving only kind-derived models.
   endpoints: modelEndpointsSchema,
   bearerToken: z.string().optional(),
   // PATCH passes `null` to explicitly clear pathOverrides; nullable() keeps
-  // that escape hatch. The `/models` path no longer lives here — it is part of
-  // the modelsFetch toggle below.
+  // that escape hatch.
   pathOverrides: z.record(z.string(), z.string()).nullable().optional(),
   // Live upstream /models fetch. `endpoint` parsing happens in the runtime.
   modelsFetch: z.object({ enabled: z.boolean(), endpoint: z.string().optional() }).optional(),
@@ -129,23 +125,59 @@ const copilotConfigSchema = z.object({
 
 // --- auth ---
 
+// Cap PBKDF2 input length: 1024 bytes — well above any real passphrase. The
+// CPU cost dependency on length is sub-linear past SHA-256's 64-byte block
+// (oversize keys are pre-hashed once before the iteration loop), but the
+// JSON-parse + zod + pre-hash work is still worth bounding.
+const passwordSchema = z.string().min(1).max(1024);
+
+// Username is allowed empty so the ADMIN_KEY-only login path passes
+// validation; the login handler dispatches on the empty value.
 export const authLoginBody = z.object({
-  key: z.string().min(1),
+  username: z.string().regex(/^[a-zA-Z0-9_.\-]{0,64}$/, 'username must be 0-64 chars of [A-Za-z0-9_.-] (empty for ADMIN_KEY login)'),
+  password: passwordSchema,
+});
+
+// --- users ---
+
+export const USERNAME_PATTERN = /^[a-zA-Z0-9_.\-]{1,64}$/;
+
+const usernameSchema = z.string().regex(USERNAME_PATTERN, 'username must be 1-64 chars of [A-Za-z0-9_.-]');
+
+// upstream_ids: null = inherit global order, non-empty unique string[] = whitelist.
+// Empty array is rejected because zero upstreams cannot serve any model.
+const upstreamIdsValueSchema = z.array(z.string().min(1))
+  .min(1, 'Select at least one upstream, or turn off the override to allow all.')
+  .refine(arr => new Set(arr).size === arr.length, { message: 'upstreamIds contains duplicates' })
+  .nullable();
+
+export const createUserBody = z.object({
+  username: usernameSchema,
+  password: passwordSchema,
+  isAdmin: z.boolean().optional(),
+  upstreamIds: upstreamIdsValueSchema.optional(),
+  canViewGlobalTelemetry: z.boolean().optional(),
+});
+
+export const updateUserBody = z.object({
+  username: usernameSchema.optional(),
+  password: passwordSchema.optional(),
+  isAdmin: z.boolean().optional(),
+  upstreamIds: upstreamIdsValueSchema.optional(),
+  canViewGlobalTelemetry: z.boolean().optional(),
+});
+
+export const changeOwnPasswordBody = z.object({
+  currentPassword: passwordSchema,
+  newPassword: passwordSchema,
 });
 
 // --- api keys ---
 
 export const createKeyBody = z.object({
   name: z.string().min(1),
+  upstream_ids: upstreamIdsValueSchema.optional(),
 });
-
-// upstream_ids: null = inherit global order, non-empty unique string[] = whitelist.
-// Empty array is rejected because a key that allows zero upstreams cannot serve
-// any model and the UI has no affordance to express that intent.
-const upstreamIdsValueSchema = z.array(z.string().min(1))
-  .min(1, 'upstream_ids must contain at least one upstream id; use null for Default mode')
-  .refine(arr => new Set(arr).size === arr.length, { message: 'upstream_ids contains duplicates' })
-  .nullable();
 
 export const updateKeyBody = z.object({
   name: z.string().min(1).optional(),
@@ -154,25 +186,32 @@ export const updateKeyBody = z.object({
 
 // --- upstreams ---
 
+// Per-upstream proxy fallback list. Each entry is either a proxy id known to
+// the proxies repo or the literal `'direct'` sentinel meaning "dial without a
+// proxy". The handler validates the ids against the proxies repo; the schema
+// only enforces the wire shape.
+const proxyFallbackListSchema = z.array(z.string().min(1));
+
 const upstreamBaseFields = {
   name: z.string().min(1),
   enabled: z.boolean().optional(),
   sort_order: z.number().int().optional(),
   flag_overrides: flagOverridesSchema.optional(),
   disabled_public_model_ids: disabledPublicModelIdsSchema.optional(),
+  proxy_fallback_list: proxyFallbackListSchema.optional(),
 };
 
-// Create accepts a discriminated union on `provider` so frontends get
-// shape-specific autocomplete on `config`. Copilot upstreams normally
-// originate from the device-flow poll endpoint, but POST also accepts them
-// for the import flow. `enabled` and `sort_order` are optional — the handler
-// defaults them to `true` and `nextSortOrder()` respectively when omitted.
+// Create accepts a discriminated union on `provider` for per-provider config
+// validation. Copilot upstreams normally originate from the device-flow poll
+// endpoint, but POST also accepts them for the import flow. `enabled` and
+// `sort_order` are optional — the handler defaults them to `true` and
+// `nextSortOrder()` respectively when omitted.
 //
 // `codex` is listed here so the handler can return the canonical
 // "use POST /api/upstreams/codex-import" 400 instead of the cryptic zod
 // "invalid discriminator value" message. The `config` slot is `unknown()`
 // because the real Codex config is derived from the OAuth/`auth.json` flow,
-// not from anything the dashboard would post against this endpoint.
+// not from anything posted against this endpoint.
 export const createUpstreamBody = z.discriminatedUnion('provider', [
   z.object({ provider: z.literal('custom'), ...upstreamBaseFields, config: customConfigSchema }),
   z.object({ provider: z.literal('azure'), ...upstreamBaseFields, config: azureConfigSchema }),
@@ -196,13 +235,14 @@ export const updateUpstreamBody = z.object({
   sort_order: z.number().int().optional(),
   flag_overrides: flagOverridesSchema.optional(),
   disabled_public_model_ids: disabledPublicModelIdsSchema.optional(),
+  proxy_fallback_list: proxyFallbackListSchema.optional(),
   config: z.unknown().optional(),
 });
 
-// Draft /models browse: the editor sends an in-progress (possibly unsaved)
-// custom config to fetch the upstream's live model list before saving. `id`
-// is present in edit mode so the handler can substitute the stored secret
-// when the bearerToken field is left blank ("keep the stored secret").
+// Draft /models browse: accepts an in-progress custom config so callers can
+// fetch the upstream's live model list before saving. `id` is present in
+// edit mode so the handler can substitute the stored secret when bearerToken
+// is left blank ("keep the stored secret").
 export const fetchModelsBody = z.object({
   id: z.string().optional(),
   config: customConfigSchema,
@@ -262,6 +302,57 @@ export const codexReimportBody = z.object({
 
 export const codexRefreshNowBody = z.object({});
 
+// --- proxies ---
+//
+// Proxy URLs accept the URI schemes parsed by `parseProxyUri` in
+// @floway-dev/proxy: http, https, socks5, ss, trojan, vless. `ss://`
+// carries both the legacy AEAD-2018 and 2022-blake3 ciphersuites
+// (disambiguated by userinfo shape), and `vless://?security=reality` routes
+// to REALITY. We don't pre-validate the URI shape in zod — the handler runs
+// `parseProxyUri` and returns its error message verbatim so the operator
+// sees the canonical "unsupported scheme" / "missing password" feedback.
+
+// Per-proxy dial-stage timeout. Capped at 600s (10min): an operator
+// override beyond that would let a single dead proxy stall the fallback
+// chain past any reasonable client deadline. nullable so the operator can
+// clear it back to the gateway-wide default; absent vs. null is meaningful
+// in PATCH.
+const dialTimeoutSecondsSchema = z.number().int().min(1).max(600);
+
+export const createProxyBody = z.object({
+  name: z.string().min(1).max(200),
+  url: z.string().min(1),
+  dial_timeout_seconds: dialTimeoutSecondsSchema.nullable().optional(),
+});
+
+export const updateProxyBody = z.object({
+  name: z.string().min(1).max(200).optional(),
+  url: z.string().min(1).optional(),
+  dial_timeout_seconds: dialTimeoutSecondsSchema.nullable().optional(),
+});
+
+// `url` carries the live URL the operator currently has in the editor so the
+// test runs against the in-progress form before any persistence; the endpoint
+// validates the URL parses but does not load a stored row. `anchor` names a
+// known IP-echo HTTPS service — three distinct anchors (ipify, AWS checkip,
+// ident.me v6-only) so an operator debugging "wrong egress IP" or "v4 vs v6
+// routing" can rerun the test against a different anchor without needing to
+// teach the gateway a new endpoint.
+export const testProxyBody = z.object({
+  url: z.string().min(1),
+  dial_timeout_seconds: dialTimeoutSecondsSchema.nullable().optional(),
+  anchor: z.enum(['ipify', 'aws', 'ident.me-v6']).optional(),
+});
+
+// `upstream_id` narrows the reset to a single (proxy, upstream) pair; without
+// it the handler clears every backoff row for the proxy. `min(1)` rejects
+// `""` at the boundary — the handler treats undefined as "clear all" and
+// would otherwise read the empty string as a real id, deleting nothing and
+// reporting success on malformed input.
+export const resetBackoffBody = z.object({
+  upstream_id: z.string().min(1).optional(),
+});
+
 // --- search config ---
 
 export const searchConfigSchema = z.object({
@@ -273,7 +364,7 @@ export const searchConfigSchema = z.object({
 // --- data transfer ---
 
 export const importBody = z.object({
-  version: z.literal(3, { error: 'version must be 3' }),
+  version: z.literal(6, { error: 'version must be 6 — older export formats are not supported; re-export from the current deployment' }),
   mode: z.enum(['merge', 'replace'], { error: "mode must be 'merge' or 'replace'" }),
   data: z.unknown().optional(),
 });
@@ -295,6 +386,8 @@ const usageBaseQuery = {
   end: z.string().optional(),
   key_id: z.string().optional(),
   include_key_metadata: z.string().optional(),
+  include_user_metadata: z.string().optional(),
+  view: z.enum(['all-by-user', 'self-by-key']).optional(),
 };
 
 export const tokenUsageQuery = z.object(usageBaseQuery);
@@ -306,7 +399,7 @@ export const searchUsageQuery = z.object({
 export const performanceQuery = z.object({
   ...usageBaseQuery,
   metric_scope: z.enum(['request_total', 'upstream_success']).optional(),
-  group_by: z.enum(['none', 'keyId', 'model', 'sourceApi', 'targetApi', 'runtimeLocation']).optional(),
+  group_by: z.enum(['none', 'keyId', 'userId', 'model', 'runtimeLocation']).optional(),
   bucket: z.enum(['hour', '4h', '8h', 'day', 'all']).optional(),
   timezone_offset_minutes: z.string().optional(),
 });

@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { Input, Switch, TagCombobox } from '@floway-dev/ui';
-
-import type { CopilotQuotaSnapshot, FlagDef, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import { onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 
 import AzureConfigPanel from './AzureConfigPanel.vue';
 import CodexConfigPanel from './CodexConfigPanel.vue';
 import CopilotConfigPanel from './CopilotConfigPanel.vue';
-import CustomConfigPanel from './CustomConfigPanel.vue';
 import type { AzureDraft, CustomDraft } from './customConfig.ts';
+import CustomConfigPanel from './CustomConfigPanel.vue';
 import FlagOverridesEditor from './FlagOverridesEditor.vue';
 import ProviderPicker from './ProviderPicker.vue';
+import ProxyFallbackListPanel from './ProxyFallbackListPanel.vue';
+import type { CopilotQuotaSnapshot, FlagDef, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import { Input, Switch, TagCombobox } from '@floway-dev/ui';
 
 const activeProvider = defineModel<UpstreamProviderKind>('provider', { required: true });
 const name = defineModel<string>('name', { required: true });
@@ -18,6 +19,7 @@ const flagOverrides = defineModel<Record<string, boolean>>('flagOverrides', { re
 const disabledIds = defineModel<string[]>('disabledIds', { required: true });
 const customDraft = defineModel<CustomDraft>('custom', { required: true });
 const azureDraft = defineModel<AzureDraft>('azure', { required: true });
+const proxyFallbackList = defineModel<string[]>('proxyFallbackList', { required: true });
 
 defineProps<{
   mode: 'create' | 'edit';
@@ -28,11 +30,6 @@ defineProps<{
   fetchLoading: boolean;
   fetchError: string | null;
   fetchStatus: string | null;
-  // Public ids currently surfaced in the model grid — fed to the
-  // disabled-models combobox as autocomplete suggestions. Orphan ids in
-  // `disabledIds` (no longer present in the catalog) still render as
-  // removable chips because TagCombobox falls back to the raw id when an
-  // entry is not in the items map.
   availableModelItems: { value: string; label: string }[];
   initialCopilotQuota?: CopilotQuotaSnapshot | null;
   initialCopilotQuotaError?: string | null;
@@ -54,11 +51,56 @@ const providerBadgeClass = (kind: UpstreamProviderKind) => {
   default: return 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber';
   }
 };
+
+// Intrinsic floor for the aside: smallest height at which every
+// non-flag-editor section is fully laid out AND the flag editor still has
+// its declared min-h-[16rem]. Drives `min-h` on the aside so the rail
+// grows past its (right-pane-driven) max-h cap when the rest of the form
+// would otherwise overflow.
+const FLAG_SECTION_MIN_PX = 16 * 16;
+const contentRef = useTemplateRef<HTMLElement>('contentRef');
+const flagSectionRef = useTemplateRef<HTMLElement>('flagSectionRef');
+const headerRef = useTemplateRef<HTMLElement>('headerRef');
+const intrinsicFloorPx = ref(0);
+let floorObserver: ResizeObserver | undefined;
+const measureFloor = () => {
+  const content = contentRef.value;
+  const flag = flagSectionRef.value;
+  const header = headerRef.value;
+  if (!content) return;
+  const cs = getComputedStyle(content);
+  const padTop = parseFloat(cs.paddingTop) || 0;
+  const padBottom = parseFloat(cs.paddingBottom) || 0;
+  const gap = parseFloat(cs.rowGap) || 0;
+  const children = Array.from(content.children) as HTMLElement[];
+  let h = padTop + padBottom;
+  if (children.length > 1) h += gap * (children.length - 1);
+  for (const child of children) {
+    h += child === flag ? FLAG_SECTION_MIN_PX : child.scrollHeight;
+  }
+  if (header) h += header.getBoundingClientRect().height;
+  intrinsicFloorPx.value = h;
+};
+watch([contentRef, flagSectionRef, headerRef, activeProvider], () => {
+  floorObserver?.disconnect();
+  const content = contentRef.value;
+  if (!content) return;
+  floorObserver = new ResizeObserver(measureFloor);
+  for (const child of Array.from(content.children) as HTMLElement[]) {
+    floorObserver.observe(child);
+  }
+  if (headerRef.value) floorObserver.observe(headerRef.value);
+  measureFloor();
+}, { immediate: true, flush: 'post' });
+onBeforeUnmount(() => floorObserver?.disconnect());
 </script>
 
 <template>
-  <aside class="glass-card flex min-w-0 flex-col">
-    <header class="flex shrink-0 items-center gap-3 border-b border-white/[0.06] px-5 py-4">
+  <aside
+    class="glass-card flex min-w-0 flex-col lg:max-h-[max(calc(100vh-7rem),var(--right-pane-h,0px))]"
+    :style="{ minHeight: `${Math.ceil(intrinsicFloorPx)}px` }"
+  >
+    <header ref="headerRef" class="flex shrink-0 items-center gap-3 border-b border-white/[0.06] px-5 py-4">
       <span
         class="rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
         :class="providerBadgeClass(activeProvider)"
@@ -69,7 +111,7 @@ const providerBadgeClass = (kind: UpstreamProviderKind) => {
       <Switch v-model="enabled" class="ml-auto" />
     </header>
 
-    <div class="flex min-h-0 flex-1 flex-col gap-6 px-5 py-5">
+    <div ref="contentRef" class="flex min-h-0 flex-1 flex-col gap-6 px-5 py-5">
 
       <section v-if="mode === 'create'" class="shrink-0">
         <p class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Provider</p>
@@ -138,7 +180,7 @@ const providerBadgeClass = (kind: UpstreamProviderKind) => {
            always reaches the same bottom as the right pane), but never
            shrinks below 16rem — when the right pane is short, the flag list
            scrolls inside this minimum-height area instead of disappearing. -->
-      <section class="flex min-h-[16rem] flex-1 flex-col gap-2">
+      <section ref="flagSectionRef" class="flex min-h-[16rem] flex-1 flex-col gap-2">
         <p class="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
           Upstream Feature Flags <span class="text-accent-cyan">({{ Object.keys(flagOverrides).length }})</span>
         </p>
@@ -150,6 +192,12 @@ const providerBadgeClass = (kind: UpstreamProviderKind) => {
           class="min-h-0 flex-1"
         />
       </section>
+
+      <ProxyFallbackListPanel
+        v-model="proxyFallbackList"
+        :upstream-id="record?.id ?? null"
+        class="shrink-0"
+      />
 
     </div>
   </aside>

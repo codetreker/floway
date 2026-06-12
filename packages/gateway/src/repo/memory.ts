@@ -1,74 +1,227 @@
-// In-memory repository implementation for testing
-
 import { normalizeDisabledPublicModelIds } from './disabled-public-models.ts';
 import { normalizeFlagOverrides } from './flag-overrides.ts';
+import { normalizeProxyFallbackList } from './proxy-fallback-list.ts';
+import {
+  cloneStoredResponsesItem,
+  cloneStoredResponsesSnapshot,
+  compareResponsesItemsByFreshness,
+  responsesItemStoreKey,
+} from './responses-clone.ts';
 import { RESPONSES_REFRESH_DEBOUNCE_MS } from './responses-payload.ts';
 import type {
   ApiKey,
   ApiKeyRepo,
+  BackoffRow,
   CacheRepo,
   PerformanceDimensions,
   PerformanceErrorSample,
   PerformanceLatencySample,
   PerformanceRepo,
   PerformanceTelemetryRecord,
+  ProxyBackoffRepo,
+  ProxyRecord,
+  ProxyRepo,
   Repo,
   ResponsesItemsRepo,
   ResponsesSnapshotsRepo,
   SearchConfigRepo,
   SearchUsageRecord,
   SearchUsageRepo,
+  Session,
+  SessionsRepo,
   StoredResponsesItem,
   StoredResponsesSnapshot,
   UpstreamRepo,
   UsageRecord,
   UsageRepo,
+  User,
+  UsersRepo,
 } from './types.ts';
 import { serializeStoredState } from './upstream-json.ts';
 import { latencyBucketForMs } from '../shared/performance-histogram.ts';
+import { generateSessionToken } from '../shared/session-tokens.ts';
 import { assertWebSearchProviderName } from '../shared/web-search-providers.ts';
-import { type BillingDimension, type ModelPricing, unitPriceForDimension } from '@floway-dev/protocols/common';
+import { BILLING_DIMENSIONS, type BillingDimension, type ModelPricing, unitPriceForDimension } from '@floway-dev/protocols/common';
 import type { UpstreamRecord } from '@floway-dev/provider';
 
-const BILLING_DIMENSIONS: readonly BillingDimension[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
+const SEED_ADMIN_USER: User = {
+  id: 1,
+  username: 'admin',
+  passwordHash: null,
+  isAdmin: true,
+  upstreamIds: null,
+  canViewGlobalTelemetry: true,
+  createdAt: new Date(0).toISOString(),
+  deletedAt: null,
+};
 
-class MemoryApiKeyRepo implements ApiKeyRepo {
-  private store = new Map<string, ApiKey>();
+// Mirror the SQL `username TEXT COLLATE NOCASE` collation: usernames match
+// case-insensitively for both lookup and uniqueness. `USERNAME_PATTERN`
+// restricts usernames to ASCII, so a plain `toLowerCase()` fold is exactly
+// SQLite's NOCASE.
+const usernamesMatch = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-  list(): Promise<ApiKey[]> {
-    return Promise.resolve([...this.store.values()]);
+class MemoryUsersRepo implements UsersRepo {
+  private users: User[] = [{ ...SEED_ADMIN_USER }];
+
+  list(): Promise<User[]> {
+    return Promise.resolve(this.users.filter(u => u.deletedAt === null).map(u => ({ ...u })));
   }
 
-  findByRawKey(rawKey: string): Promise<ApiKey | null> {
-    for (const key of this.store.values()) {
-      if (key.key === rawKey) return Promise.resolve(key);
-    }
-    return Promise.resolve(null);
+  listIncludingDeleted(): Promise<User[]> {
+    return Promise.resolve(this.users.map(u => ({ ...u })));
   }
 
-  getById(id: string): Promise<ApiKey | null> {
-    return Promise.resolve(this.store.get(id) ?? null);
+  getById(id: number): Promise<User | null> {
+    const u = this.users.find(u => u.id === id && u.deletedAt === null);
+    return Promise.resolve(u ? { ...u } : null);
   }
 
-  save(key: ApiKey): Promise<void> {
-    this.store.set(key.id, { ...key });
-    return Promise.resolve();
+  findByUsername(username: string): Promise<User | null> {
+    const u = this.users.find(u => usernamesMatch(u.username, username) && u.deletedAt === null);
+    return Promise.resolve(u ? { ...u } : null);
   }
 
-  delete(id: string): Promise<boolean> {
-    return Promise.resolve(this.store.delete(id));
+  createNewUser(template: Omit<User, 'id'>): Promise<User> {
+    const collision = this.users.find(u => usernamesMatch(u.username, template.username) && u.deletedAt === null);
+    if (collision) throw new Error(`username taken: ${template.username}`);
+    const id = this.users.reduce((max, u) => Math.max(max, u.id), 0) + 1;
+    const user: User = { ...template, id };
+    this.users.push(user);
+    return Promise.resolve({ ...user });
+  }
+
+  async save(user: User): Promise<void> {
+    // Match SQL's partial unique index `WHERE deleted_at IS NULL`: a clash is
+    // only meaningful when the new row is also active. A soft-deleted import
+    // can carry a username already in use by an active row without colliding.
+    const collision = this.users.find(u => usernamesMatch(u.username, user.username) && u.deletedAt === null && u.id !== user.id);
+    if (collision && user.deletedAt === null) throw new Error(`username taken: ${user.username}`);
+    const i = this.users.findIndex(u => u.id === user.id);
+    if (i >= 0) this.users[i] = { ...user };
+    else this.users.push({ ...user });
+  }
+
+  async softDelete(id: number): Promise<boolean> {
+    const i = this.users.findIndex(u => u.id === id && u.deletedAt === null);
+    if (i < 0) return false;
+    this.users[i] = { ...this.users[i], deletedAt: new Date().toISOString() };
+    return true;
   }
 
   deleteAll(): Promise<void> {
-    this.store.clear();
+    this.users = [];
     return Promise.resolve();
   }
 }
 
-// Mirrors the D1 schema: one entry per (bucket, dimension) with a token count
-// and a per-dimension unit_price snapshot, plus a separate request count per
-// bucket. Records are reassembled into UsageRecord on read, folding the
-// per-dimension unit prices back into a ModelPricing snapshot.
+class MemorySessionsRepo implements SessionsRepo {
+  private sessions: Session[] = [];
+
+  getByIdAndTouch(id: string): Promise<Session | null> {
+    const i = this.sessions.findIndex(s => s.id === id);
+    if (i < 0) return Promise.resolve(null);
+    const now = new Date().toISOString();
+    this.sessions[i] = { ...this.sessions[i], lastSeenAt: now };
+    return Promise.resolve({ ...this.sessions[i] });
+  }
+
+  create(userId: number): Promise<Session> {
+    const now = new Date().toISOString();
+    const session: Session = { id: generateSessionToken(), userId, createdAt: now, lastSeenAt: now };
+    this.sessions.push(session);
+    return Promise.resolve({ ...session });
+  }
+
+  deleteById(id: string): Promise<boolean> {
+    const before = this.sessions.length;
+    this.sessions = this.sessions.filter(s => s.id !== id);
+    return Promise.resolve(this.sessions.length < before);
+  }
+
+  deleteByUserId(userId: number): Promise<number> {
+    const before = this.sessions.length;
+    this.sessions = this.sessions.filter(s => s.userId !== userId);
+    return Promise.resolve(before - this.sessions.length);
+  }
+
+  deleteByUserIdExcept(userId: number, exceptId: string): Promise<number> {
+    const before = this.sessions.length;
+    this.sessions = this.sessions.filter(s => s.userId !== userId || s.id === exceptId);
+    return Promise.resolve(before - this.sessions.length);
+  }
+
+  deleteAll(): Promise<void> {
+    this.sessions = [];
+    return Promise.resolve();
+  }
+}
+
+class MemoryApiKeyRepo implements ApiKeyRepo {
+  private keys: ApiKey[] = [];
+
+  list(): Promise<ApiKey[]> {
+    return Promise.resolve(this.keys.filter(k => k.deletedAt === null).map(k => ({ ...k })));
+  }
+
+  listIncludingDeleted(): Promise<ApiKey[]> {
+    return Promise.resolve(this.keys.map(k => ({ ...k })));
+  }
+
+  listByUserId(userId: number): Promise<ApiKey[]> {
+    return Promise.resolve(this.keys.filter(k => k.userId === userId && k.deletedAt === null).map(k => ({ ...k })));
+  }
+
+  listByUserIdIncludingDeleted(userId: number): Promise<ApiKey[]> {
+    return Promise.resolve(this.keys.filter(k => k.userId === userId).map(k => ({ ...k })));
+  }
+
+  findByRawKey(rawKey: string): Promise<ApiKey | null> {
+    const k = this.keys.find(k => k.key === rawKey && k.deletedAt === null);
+    return Promise.resolve(k ? { ...k } : null);
+  }
+
+  getById(id: string): Promise<ApiKey | null> {
+    const k = this.keys.find(k => k.id === id && k.deletedAt === null);
+    return Promise.resolve(k ? { ...k } : null);
+  }
+
+  idsByUserIdIncludingDeleted(userId: number): Promise<string[]> {
+    return Promise.resolve(this.keys.filter(k => k.userId === userId).map(k => k.id));
+  }
+
+  async save(key: ApiKey): Promise<void> {
+    const i = this.keys.findIndex(k => k.id === key.id);
+    if (i >= 0) this.keys[i] = { ...key };
+    else this.keys.push({ ...key });
+  }
+
+  async softDelete(id: string): Promise<boolean> {
+    const i = this.keys.findIndex(k => k.id === id && k.deletedAt === null);
+    if (i < 0) return false;
+    this.keys[i] = { ...this.keys[i], deletedAt: new Date().toISOString() };
+    return true;
+  }
+
+  softDeleteByUserId(userId: number): Promise<number> {
+    const now = new Date().toISOString();
+    let count = 0;
+    for (let i = 0; i < this.keys.length; i++) {
+      const k = this.keys[i];
+      if (k.userId === userId && k.deletedAt === null) {
+        this.keys[i] = { ...k, deletedAt: now };
+        count += 1;
+      }
+    }
+    return Promise.resolve(count);
+  }
+
+  deleteAll(): Promise<void> {
+    this.keys = [];
+    return Promise.resolve();
+  }
+}
+
 interface UsageBucketIdentity {
   keyId: string;
   model: string;
@@ -86,7 +239,7 @@ interface UsageBucketState extends UsageBucketIdentity {
 class MemoryUsageRepo implements UsageRepo {
   private store = new Map<string, UsageBucketState>();
 
-  private key(r: { keyId: string; model: string; upstream: string | null; modelKey: string; hour: string }): string {
+  private key(r: UsageBucketIdentity): string {
     return [r.keyId, r.model, r.upstream ?? '', r.modelKey, r.hour].join('\0');
   }
 
@@ -124,8 +277,6 @@ class MemoryUsageRepo implements UsageRepo {
     state.requests += record.requests;
     for (const { dimension, tokens, unitPrice } of this.dimensionEntries(record)) {
       state.tokens[dimension] = (state.tokens[dimension] ?? 0) + tokens;
-      // COALESCE(unit_price, excluded.unit_price): keep the existing snapshot
-      // once set, otherwise adopt the incoming price.
       if (state.unitPrices[dimension] === undefined && unitPrice !== null) state.unitPrices[dimension] = unitPrice;
     }
     return Promise.resolve();
@@ -224,11 +375,21 @@ class MemorySearchUsageRepo implements SearchUsageRepo {
   }
 }
 
+const comparePerformanceTelemetryRecords = (a: PerformanceTelemetryRecord, b: PerformanceTelemetryRecord): number =>
+  a.hour.localeCompare(b.hour) ||
+  a.metricScope.localeCompare(b.metricScope) ||
+  a.keyId.localeCompare(b.keyId) ||
+  a.model.localeCompare(b.model) ||
+  (a.upstream ?? '').localeCompare(b.upstream ?? '') ||
+  a.modelKey.localeCompare(b.modelKey) ||
+  Number(a.stream) - Number(b.stream) ||
+  a.runtimeLocation.localeCompare(b.runtimeLocation);
+
 class MemoryPerformanceRepo implements PerformanceRepo {
   private summaries = new Map<string, PerformanceTelemetryRecord>();
 
   private key(r: PerformanceDimensions): string {
-    return [r.hour, r.metricScope, r.keyId, r.model, r.upstream ?? '', r.modelKey, r.sourceApi, r.targetApi, r.stream ? '1' : '0', r.runtimeLocation].join('\0');
+    return [r.hour, r.metricScope, r.keyId, r.model, r.upstream ?? '', r.modelKey, r.stream ? '1' : '0', r.runtimeLocation].join('\0');
   }
 
   private summary(sample: PerformanceDimensions): PerformanceTelemetryRecord {
@@ -242,8 +403,6 @@ class MemoryPerformanceRepo implements PerformanceRepo {
         model: sample.model,
         upstream: sample.upstream ?? null,
         modelKey: sample.modelKey,
-        sourceApi: sample.sourceApi,
-        targetApi: sample.targetApi,
         stream: sample.stream,
         runtimeLocation: sample.runtimeLocation,
         requests: 0,
@@ -305,21 +464,6 @@ class MemoryPerformanceRepo implements PerformanceRepo {
     this.summaries.clear();
     return Promise.resolve();
   }
-}
-
-function comparePerformanceTelemetryRecords(a: PerformanceTelemetryRecord, b: PerformanceTelemetryRecord): number {
-  return (
-    a.hour.localeCompare(b.hour) ||
-    a.metricScope.localeCompare(b.metricScope) ||
-    a.keyId.localeCompare(b.keyId) ||
-    a.model.localeCompare(b.model) ||
-    (a.upstream ?? '').localeCompare(b.upstream ?? '') ||
-    a.modelKey.localeCompare(b.modelKey) ||
-    a.sourceApi.localeCompare(b.sourceApi) ||
-    a.targetApi.localeCompare(b.targetApi) ||
-    Number(a.stream) - Number(b.stream) ||
-    a.runtimeLocation.localeCompare(b.runtimeLocation)
-  );
 }
 
 class MemoryCacheRepo implements CacheRepo {
@@ -397,9 +541,6 @@ class MemoryUpstreamRepo implements UpstreamRepo {
     return Promise.resolve();
   }
 
-  // Mirrors the SQL CAS predicate by comparing the canonical JSON encoding of
-  // the row's current state against the expected one — same encoding the SQL
-  // impl writes, so callers see identical semantics across backends.
   saveState(id: string, newState: unknown, options: { expectedState: unknown }): Promise<{ updated: boolean }> {
     const existing = this.store.get(id);
     if (!existing) return Promise.resolve({ updated: false });
@@ -417,6 +558,7 @@ const cloneUpstreamRecord = (upstream: UpstreamRecord): UpstreamRecord => ({
   state: upstream.state === null || upstream.state === undefined ? null : structuredClone(upstream.state),
   flagOverrides: normalizeFlagOverrides(upstream.flagOverrides),
   disabledPublicModelIds: normalizeDisabledPublicModelIds(upstream.disabledPublicModelIds),
+  proxyFallbackList: normalizeProxyFallbackList(upstream.proxyFallbackList),
 });
 
 class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
@@ -524,11 +666,6 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
   }
 }
 
-const cloneStoredResponsesItem = (item: StoredResponsesItem): StoredResponsesItem => ({
-  ...item,
-  payload: item.payload === null ? null : structuredClone(item.payload),
-});
-
 class MemoryResponsesSnapshotsRepo implements ResponsesSnapshotsRepo {
   private store = new Map<string, StoredResponsesSnapshot>();
 
@@ -566,28 +703,202 @@ class MemoryResponsesSnapshotsRepo implements ResponsesSnapshotsRepo {
   }
 }
 
-const cloneStoredResponsesSnapshot = (snapshot: StoredResponsesSnapshot): StoredResponsesSnapshot => ({
-  ...snapshot,
-  itemIds: [...snapshot.itemIds],
-});
+class MemoryProxyRepo implements ProxyRepo {
+  private store = new Map<string, ProxyRecord>();
 
-const compareResponsesItemsByFreshness = (a: StoredResponsesItem, b: StoredResponsesItem): number =>
-  b.refreshedAt - a.refreshedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+  constructor(private upstreams: UpstreamRepo) {}
 
-const responsesItemStoreKey = (apiKeyId: string | null, id: string): string => `${apiKeyId ?? ''}\0${id}`;
+  list(): Promise<ProxyRecord[]> {
+    return Promise.resolve(
+      [...this.store.values()]
+        .map(cloneProxyRecord)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    );
+  }
+
+  getById(id: string): Promise<ProxyRecord | null> {
+    const found = this.store.get(id);
+    return Promise.resolve(found ? cloneProxyRecord(found) : null);
+  }
+
+  insert(input: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<ProxyRecord> {
+    const now = new Date().toISOString();
+    const record: ProxyRecord = {
+      id: input.id,
+      name: input.name,
+      url: input.url,
+      createdAt: now,
+      updatedAt: now,
+      dialTimeoutSeconds: input.dialTimeoutSeconds,
+    };
+    this.store.set(record.id, record);
+    return Promise.resolve(cloneProxyRecord(record));
+  }
+
+  patch(id: string, patch: { name?: string; url?: string; dialTimeoutSeconds?: number | null }): Promise<{ record: ProxyRecord; urlChanged: boolean } | null> {
+    const existing = this.store.get(id);
+    if (!existing) return Promise.resolve(null);
+
+    const urlChanged = patch.url !== undefined && patch.url !== existing.url;
+    // Distinguish "absent" from "explicit null" — `??` would collapse a
+    // deliberate clear back to the existing value.
+    const nextDialTimeout = Object.hasOwn(patch, 'dialTimeoutSeconds') ? patch.dialTimeoutSeconds! : existing.dialTimeoutSeconds;
+    const updated: ProxyRecord = {
+      ...existing,
+      name: patch.name ?? existing.name,
+      url: patch.url ?? existing.url,
+      dialTimeoutSeconds: nextDialTimeout,
+      updatedAt: new Date().toISOString(),
+    };
+    this.store.set(id, updated);
+    return Promise.resolve({ record: cloneProxyRecord(updated), urlChanged });
+  }
+
+  async delete(id: string): Promise<boolean> {
+    // Mirror the SQL repo's atomic delete: refuse if any upstream's fallback
+    // list still references the row, so an admin race adding the reference
+    // between a prior findUpstreamsReferencing read and this delete is
+    // rejected at the storage layer.
+    const upstreams = await this.upstreams.list();
+    if (upstreams.some(u => u.proxyFallbackList.includes(id))) return false;
+    return this.store.delete(id);
+  }
+
+  deleteAll(): Promise<void> {
+    this.store.clear();
+    return Promise.resolve();
+  }
+
+  save(record: { id: string; name: string; url: string; dialTimeoutSeconds: number | null }): Promise<void> {
+    // Upsert that mirrors the SQL ON CONFLICT path: preserve the existing
+    // row's createdAt on collision so the import never overwrites the
+    // local deployment's first-seen timestamp.
+    const existing = this.store.get(record.id);
+    const now = new Date().toISOString();
+    const next: ProxyRecord = {
+      id: record.id,
+      name: record.name,
+      url: record.url,
+      dialTimeoutSeconds: record.dialTimeoutSeconds,
+      createdAt: existing ? existing.createdAt : now,
+      updatedAt: now,
+    };
+    this.store.set(record.id, next);
+    return Promise.resolve();
+  }
+
+  async findUpstreamsReferencing(proxyId: string): Promise<string[]> {
+    const upstreams = await this.upstreams.list();
+    return upstreams.filter(u => u.proxyFallbackList.includes(proxyId)).map(u => u.id);
+  }
+}
+
+const cloneProxyRecord = (record: ProxyRecord): ProxyRecord => ({ ...record });
+
+class MemoryProxyBackoffRepo implements ProxyBackoffRepo {
+  private rows = new Map<string, BackoffRow>();
+
+  private key(proxyId: string, upstreamId: string): string {
+    return `${proxyId}\0${upstreamId}`;
+  }
+
+  recordDialFailure(proxyId: string, upstreamId: string, errorMessage: string): Promise<void> {
+    const k = this.key(proxyId, upstreamId);
+    const now = Math.floor(Date.now() / 1000);
+    const existing = this.rows.get(k);
+    if (!existing) {
+      this.rows.set(k, {
+        proxyId,
+        upstreamId,
+        failCount: 1,
+        expiresAt: now + 60,
+        lastError: errorMessage,
+        lastErrorAt: now,
+      });
+      return Promise.resolve();
+    }
+    // Mirror the SQL UPSERT schedule (see SqlProxyBackoffRepo.recordDialFailure).
+    // The exponent is clamped at 6 to stay within JS's 32-bit signed shift
+    // semantics — `1 << 31` wraps to negative and would resolve `Math.min`
+    // to a far-past expiresAt, effectively voiding the backoff.
+    const previousFailCount = existing.failCount;
+    this.rows.set(k, {
+      proxyId,
+      upstreamId,
+      failCount: previousFailCount + 1,
+      expiresAt: now + Math.min(60 * (1 << Math.min(previousFailCount, 6)), 3600),
+      lastError: errorMessage,
+      lastErrorAt: now,
+    });
+    return Promise.resolve();
+  }
+
+  recordDialSuccess(proxyId: string, upstreamId: string): Promise<void> {
+    this.rows.delete(this.key(proxyId, upstreamId));
+    return Promise.resolve();
+  }
+
+  listForUpstream(upstreamId: string): Promise<BackoffRow[]> {
+    return Promise.resolve(
+      [...this.rows.values()].filter(r => r.upstreamId === upstreamId).map(cloneBackoffRow),
+    );
+  }
+
+  listForProxy(proxyId: string): Promise<BackoffRow[]> {
+    return Promise.resolve(
+      [...this.rows.values()].filter(r => r.proxyId === proxyId).map(cloneBackoffRow),
+    );
+  }
+
+  listAll(): Promise<BackoffRow[]> {
+    return Promise.resolve([...this.rows.values()].map(cloneBackoffRow));
+  }
+
+  resetForProxy(proxyId: string): Promise<void> {
+    for (const [k, r] of this.rows) {
+      if (r.proxyId === proxyId) this.rows.delete(k);
+    }
+    return Promise.resolve();
+  }
+
+  resetForUpstream(upstreamId: string): Promise<void> {
+    for (const [k, r] of this.rows) {
+      if (r.upstreamId === upstreamId) this.rows.delete(k);
+    }
+    return Promise.resolve();
+  }
+
+  reset(proxyId: string, upstreamId: string): Promise<void> {
+    this.rows.delete(this.key(proxyId, upstreamId));
+    return Promise.resolve();
+  }
+
+  deleteAll(): Promise<void> {
+    this.rows.clear();
+    return Promise.resolve();
+  }
+}
+
+const cloneBackoffRow = (row: BackoffRow): BackoffRow => ({ ...row });
 
 export class InMemoryRepo implements Repo {
   apiKeys: ApiKeyRepo;
+  users: UsersRepo;
+  sessions: SessionsRepo;
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
   performance: PerformanceRepo;
   cache: CacheRepo;
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
+  proxies: ProxyRepo;
+  proxyBackoffs: ProxyBackoffRepo;
   responsesItems: ResponsesItemsRepo;
   responsesSnapshots: ResponsesSnapshotsRepo;
 
   constructor() {
+    this.users = new MemoryUsersRepo();
+    this.sessions = new MemorySessionsRepo();
     this.apiKeys = new MemoryApiKeyRepo();
     this.usage = new MemoryUsageRepo();
     this.searchUsage = new MemorySearchUsageRepo();
@@ -595,6 +906,8 @@ export class InMemoryRepo implements Repo {
     this.cache = new MemoryCacheRepo();
     this.searchConfig = new MemorySearchConfigRepo();
     this.upstreams = new MemoryUpstreamRepo();
+    this.proxies = new MemoryProxyRepo(this.upstreams);
+    this.proxyBackoffs = new MemoryProxyBackoffRepo();
     this.responsesItems = new MemoryResponsesItemsRepo();
     this.responsesSnapshots = new MemoryResponsesSnapshotsRepo();
   }

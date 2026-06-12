@@ -2,7 +2,7 @@ import { test } from 'vitest';
 
 import { fetchCopilotModels } from './fetch-models.ts';
 import { clearCopilotTokenCache } from './index.ts';
-import { ProviderModelsUnavailableError, initProviderRepo } from '@floway-dev/provider';
+import { ProviderModelsUnavailableError, initProviderRepo, directFetcher } from '@floway-dev/provider';
 import { assertEquals, jsonResponse, memoryCacheRepo, withMockedFetch } from '@floway-dev/test-utils';
 
 const installRepoAndConfig = async () => {
@@ -39,7 +39,7 @@ test('fetchCopilotModels returns the parsed response on 2xx', async () => {
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const result = await fetchCopilotModels(config);
+      const result = await fetchCopilotModels(config, directFetcher);
       assertEquals(result.data[0].id, 'cm-1');
     },
   );
@@ -58,7 +58,7 @@ test('fetchCopilotModels throws ProviderModelsUnavailableError with httpResponse
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      try { await fetchCopilotModels(config); } catch (e) { thrown = e; }
+      try { await fetchCopilotModels(config, directFetcher); } catch (e) { thrown = e; }
     },
   );
   if (!(thrown instanceof ProviderModelsUnavailableError)) throw new Error('expected ProviderModelsUnavailableError');
@@ -79,7 +79,7 @@ test('fetchCopilotModels throws ProviderModelsUnavailableError with null httpRes
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      try { await fetchCopilotModels(config); } catch (e) { thrown = e; }
+      try { await fetchCopilotModels(config, directFetcher); } catch (e) { thrown = e; }
     },
   );
   if (!(thrown instanceof ProviderModelsUnavailableError)) throw new Error('expected ProviderModelsUnavailableError');
@@ -102,7 +102,7 @@ test('fetchCopilotModels tags the request with the model-access intent and omits
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      await fetchCopilotModels(config);
+      await fetchCopilotModels(config, directFetcher);
     },
   );
 

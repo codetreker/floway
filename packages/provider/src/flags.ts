@@ -1,19 +1,16 @@
 // Flag catalog. Single source of truth for every admin-toggleable
-// per-upstream behavior flag exposed by the dashboard, validated by the
-// /api/upstreams endpoint, and stored in upstreams.flag_overrides.
+// per-upstream behavior flag.
 //
 // The catalog only describes flags. Interceptor code references a flag by
 // id; the dependency goes interceptor → flag, never the other way. This
 // makes "one flag drives multiple interceptors" trivial and keeps the
 // catalog free of runtime closures.
 //
-// Vendor-style flags (`vendor-deepseek`, `vendor-qwen`, `vendor-kimi`) each
-// own a dedicated last-running interceptor on the api side. That
-// interceptor translates the gateway's OpenAI-canonical request and
-// response shape into the vendor's wire dialect. With no vendor flag set,
-// behavior defaults to the OpenAI standard and no vendor rewrite runs.
-// Vendor flags are mutually exclusive per binding — the dashboard surfaces
-// them as a single radio rather than three independent toggles.
+// Vendor-style flags (`vendor-deepseek`, `vendor-qwen`, `vendor-kimi`) are
+// mutually exclusive per binding: a vendor interceptor translates the
+// gateway's OpenAI-canonical request and response shape into the vendor's
+// wire dialect; with no vendor flag set, behavior defaults to the OpenAI
+// standard and no vendor rewrite runs.
 
 import type { UpstreamProviderKind } from './model.ts';
 
@@ -21,9 +18,7 @@ export interface Flag {
   id: string;
   label: string;
   description: string;
-  // Provider kinds that turn this flag on by default. The dashboard uses this
-  // to render the "Inherit" radio as "Inherit: on" or "Inherit: off". Provider
-  // construction reads `defaultsForProvider(kind)` to seed the resolver.
+  // Provider kinds that turn this flag on by default.
   defaultFor: readonly UpstreamProviderKind[];
 }
 
@@ -86,12 +81,11 @@ export const getFlagCatalog = (): readonly Flag[] => OPTIONAL_FLAGS;
 
 export const isKnownFlagId = (id: string): id is OptionalFlagId => KNOWN_IDS.has(id);
 
-// Provider-default flag set. Computed from the catalog's `defaultFor` field
-// so the dashboard and the runtime resolver share one source of truth.
+// Provider-default flag set. Computed from the catalog's `defaultFor` field.
 //
-// Memoized: Azure's per-deployment `getProvidedModels` loop calls this once
-// per deployment per request to seed the effective-flag resolver. The catalog
-// is module-constant, so cache the frozen result set per provider kind.
+// Memoized because the catalog is module-constant and providers may call
+// this on a per-request hot path; cache the read-only result set per
+// provider kind.
 const DEFAULTS_CACHE = new Map<UpstreamProviderKind, ReadonlySet<string>>();
 export const defaultsForProvider = (kind: UpstreamProviderKind): ReadonlySet<string> => {
   let cached = DEFAULTS_CACHE.get(kind);
@@ -102,10 +96,8 @@ export const defaultsForProvider = (kind: UpstreamProviderKind): ReadonlySet<str
   return cached;
 };
 
-// Wire-form validator shared by every control-plane entrypoint that accepts
-// flag_overrides JSON (upstream CRUD, import). Throws on any malformed
-// shape, returns a sorted, validated Record<OptionalFlagId, boolean>.
-// Callers that need ValidationResult semantics wrap this in try/catch.
+// Validate a wire-form flag_overrides object. Throws on malformed shape;
+// returns a sorted, validated record of known flag ids to booleans.
 export const parseFlagOverridesWire = (value: unknown): Record<string, boolean> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('flag_overrides must be an object of { flagId: boolean }');
@@ -131,6 +123,11 @@ export const parseFlagOverridesWire = (value: unknown): Record<string, boolean> 
 // flags seeded by provider defaults — admins explicitly toggled Off to opt out).
 export type FlagOverrides = Record<string, boolean>;
 
+// Reduce a sequence of override layers atop the provider defaults to the
+// effective enabled set. Layers are applied left-to-right; a later layer's
+// explicit `true` re-enables a previously-off flag, and an explicit `false`
+// overrides any earlier `true` (and any default seed). An `undefined` layer
+// is skipped entirely.
 export const resolveEffectiveFlags = (
   providerDefaults: ReadonlySet<string>,
   layers: readonly (FlagOverrides | undefined)[],

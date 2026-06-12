@@ -1,25 +1,30 @@
 <script lang="ts">
 import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
+import { computed, ref, useTemplateRef } from 'vue';
 
+import { callApi, useApi } from '../../api/client.ts';
+import type { ApiKey, ControlPlaneModel } from '../../api/types.ts';
+import ChatPanel from '../../components/models/ChatPanel.vue';
+import ModelInfoBar from '../../components/models/ModelInfoBar.vue';
 import { useModelsStore } from '../../composables/useModels.ts';
+import { Input, OverlayScrollbars } from '@floway-dev/ui';
 
 export const useModelsPageData = defineBasicLoader(async () => {
-  await useModelsStore().load();
-  return true;
+  const api = useApi();
+  const [keysRes] = await Promise.all([
+    callApi<ApiKey[]>(() => api.api.keys.$get()),
+    useModelsStore().load(),
+  ]);
+  return { keys: keysRes.data ?? [], keysError: keysRes.error?.message ?? null };
 });
 </script>
 
 <script setup lang="ts">
-import { Input, OverlayScrollbars } from '@floway-dev/ui';
-import { computed, ref, useTemplateRef } from 'vue';
+const initialData = useModelsPageData();
+const { models, error: modelsError } = useModelsStore();
 
-import type { ControlPlaneModel } from '../../api/types.ts';
-import ChatPanel from '../../components/models/ChatPanel.vue';
-import ModelInfoBar from '../../components/models/ModelInfoBar.vue';
-
-useModelsPageData();
-
-const { models, error } = useModelsStore();
+// Reactivity is intentionally dropped: the loader never refetches keys here.
+const keys = initialData.data.value.keys;
 
 const modelsSearch = ref('');
 const chatModelId = ref<string>('');
@@ -36,27 +41,50 @@ const chatModelInfo = computed<ControlPlaneModel | undefined>(
   () => (models.value ?? []).find(m => m.id === chatModelId.value),
 );
 
-const selectChatModel = (id: string) => { chatModelId.value = id; };
-
 if (!chatModelId.value && filteredChatModels.value[0]) chatModelId.value = filteredChatModels.value[0].id;
+
+// Playground requires a real per-user API key, not the admin key.
+const selectedKeyId = ref<string | null>(keys[0]?.id ?? null);
+
+const selectedApiKey = computed(() => {
+  const id = selectedKeyId.value;
+  if (!id) return null;
+  return keys.find(k => k.id === id)!.key;
+});
+
+const banner = computed(() => modelsError.value ?? initialData.data.value.keysError);
 </script>
 
 <template>
   <div>
-    <div v-if="error" class="mb-3 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">
-      {{ error }}
+    <div v-if="banner" class="mb-3 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">
+      {{ banner }}
     </div>
 
     <div class="glass-card animate-in flex h-[calc(100dvh-130px)] min-h-[560px] flex-col overflow-hidden lg:h-[calc(100vh-140px)] lg:flex-row">
       <div class="max-h-56 w-full shrink-0 border-b border-white/[0.06] flex flex-col lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r">
-        <div class="p-3 border-b border-white/[0.06]">
-          <Input
-            v-model="modelsSearch"
-            type="search"
-            placeholder="Filter models..."
-            size="sm"
-            class="font-mono !border-transparent !bg-transparent !px-0 hover:!border-transparent focus:!border-transparent focus:!ring-0"
-          />
+        <div class="border-b border-white/[0.06] divide-y divide-white/[0.06]">
+          <div class="p-3">
+            <select
+              v-model="selectedKeyId"
+              :disabled="keys.length === 0"
+              class="w-full bg-transparent border-none text-xs text-gray-200 focus:outline-none disabled:text-gray-500"
+            >
+              <option v-if="keys.length === 0" :value="null">(no API keys — create one in Keys)</option>
+              <option v-for="k in keys" :key="k.id" :value="k.id">
+                {{ k.name }} ({{ k.key.slice(-4) }})
+              </option>
+            </select>
+          </div>
+          <div class="p-3">
+            <Input
+              v-model="modelsSearch"
+              type="search"
+              placeholder="Filter models..."
+              size="sm"
+              class="font-mono !border-transparent !bg-transparent !px-0 hover:!border-transparent focus:!border-transparent focus:!ring-0"
+            />
+          </div>
         </div>
         <OverlayScrollbars class="min-h-0 flex-1" :v-scrollbar-offset="{ x: 2 }">
           <template v-if="models">
@@ -70,23 +98,26 @@ if (!chatModelId.value && filteredChatModels.value[0]) chatModelId.value = filte
                   : 'text-gray-400 hover:bg-white/[0.03] hover:text-gray-200 border-l-transparent',
                 i < filteredChatModels.length - 1 ? 'border-b border-white/[0.03]' : '',
               ]"
-              @click="selectChatModel(m.id)"
+              @click="chatModelId = m.id"
             >
               <div class="text-[13px] truncate" :class="chatModelId === m.id ? 'text-white' : 'text-gray-300'">
                 {{ m.display_name ?? m.id }}
               </div>
               <div class="text-[11px] font-mono truncate mt-0.5 opacity-60">{{ m.id }}</div>
             </button>
-            <div v-if="filteredChatModels.length === 0" class="p-4 text-center text-gray-600 text-xs">No models found</div>
+            <div v-if="filteredChatModels.length === 0" class="p-4 text-center text-gray-600 text-xs">{{ modelsSearch.trim() ? 'No models match your search' : 'No models available' }}</div>
           </template>
-          <div v-else class="p-4 text-center text-gray-600 text-xs">No models found</div>
+          <div v-else class="p-4 text-center text-gray-600 text-xs">No models available</div>
         </OverlayScrollbars>
       </div>
 
       <div class="flex-1 flex flex-col min-w-0 min-h-0">
         <template v-if="chatModelInfo">
           <ModelInfoBar :model="chatModelInfo" @clear="chatPanelRef?.clear()" />
-          <ChatPanel ref="chatPanel" :model-id="chatModelInfo.id" />
+          <ChatPanel v-if="selectedApiKey" ref="chatPanel" :model-id="chatModelInfo.id" :api-key="selectedApiKey" />
+          <div v-else class="flex-1 flex items-center justify-center px-6 text-center text-gray-600 text-sm">
+            Create an API key in the Keys tab to chat with models.
+          </div>
         </template>
         <div v-else class="flex-1 flex items-center justify-center text-gray-600 text-sm">Select a model to begin</div>
       </div>

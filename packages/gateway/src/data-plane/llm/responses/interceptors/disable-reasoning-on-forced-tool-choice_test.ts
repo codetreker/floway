@@ -10,9 +10,10 @@ import { eventResult } from '@floway-dev/provider';
 import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: GatewayCtx = {
-  apiKeyId: null,
-  apiKeyUpstreamIds: null,
+  apiKeyId: 'test-key',
+  upstreamIds: null,
   wantsStream: false,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
 };
@@ -34,7 +35,7 @@ const invocation = (
   payload,
   candidate: stubProviderCandidate({ targetApi: 'responses', binding: { enabledFlags } }),
   store: new LayeredStatefulResponsesStore({
-    apiKeyId: null,
+    apiKeyId: 'test-key',
     reads: [new MemoryStatefulResponsesBacking()],
     itemWrites: [],
     snapshotWrites: [],

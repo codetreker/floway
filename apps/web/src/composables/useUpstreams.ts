@@ -3,10 +3,7 @@ import { ref, shallowRef } from 'vue';
 import { callApi, useApi } from '../api/client.ts';
 import type { FlagDef, UpstreamRecord } from '../api/types.ts';
 
-// Module-scoped reactive list so multiple pages share one cache: editing on
-// Settings reflects on Models without a refetch. Marina's defineRouteData uses
-// the same idea via a scoped store; we keep ours flatter since the dashboard
-// is small.
+// Module-scoped so Settings edits reflect on Models without a refetch.
 const upstreams = shallowRef<UpstreamRecord[] | null>(null);
 const flagCatalog = shallowRef<FlagDef[] | null>(null);
 const loading = ref(false);

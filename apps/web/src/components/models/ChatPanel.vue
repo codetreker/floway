@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { Input, OverlayScrollbars, Textarea, type OverlayScrollbarsInitializedEvent } from '@floway-dev/ui';
 import { nextTick, ref, watch } from 'vue';
 
-import { useAuthStore } from '../../stores/auth.ts';
+import { Input, OverlayScrollbars, Textarea, type OverlayScrollbarsInitializedEvent } from '@floway-dev/ui';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -10,9 +9,7 @@ interface Message {
   imageUrl?: string;
 }
 
-const props = defineProps<{ modelId: string }>();
-
-const auth = useAuthStore();
+const props = defineProps<{ modelId: string; apiKey: string | null }>();
 
 const chatMessages = ref<Message[]>([]);
 const chatInput = ref('');
@@ -65,7 +62,7 @@ const sendChatMessage = async () => {
   if (!text && !img) return;
   if (!props.modelId) return;
 
-  chatMessages.value.push({ role: 'user', text: text || '(image)', imageUrl: img || undefined });
+  chatMessages.value.push({ role: 'user', text, imageUrl: img || undefined });
   chatInput.value = '';
   chatImageUrl.value = '';
   chatShowImage.value = false;
@@ -76,9 +73,8 @@ const sendChatMessage = async () => {
   try {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
-      'x-models-playground': '1',
     };
-    if (auth.authKey) headers['x-api-key'] = auth.authKey;
+    if (props.apiKey) headers['x-api-key'] = props.apiKey;
 
     const resp = await fetch('/v1/chat/completions', {
       method: 'POST',

@@ -2,16 +2,11 @@
 // Top-level upstream editor page. Owns the entire draft state (provider,
 // name, enabled, flag overrides, disabled model ids, plus the
 // provider-specific custom/azure drafts) and the live /models fetch for
-// custom upstreams. Renders the two-column workbench: UpstreamConfigPanel on
-// the left, ModelsPanel on the right.
+// custom upstreams.
 
-import { Button } from '@floway-dev/ui';
 import type { InferRequestType } from 'hono/client';
 import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
-
-import { callApi, useApi } from '../../api/client.ts';
-import type { AzureUpstreamConfig, CopilotQuotaSnapshot, CustomRawModel, CustomUpstreamConfig, FlagDef, ModelEndpoints, UpstreamModelConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
 
 import {
   type AzureDraft,
@@ -23,6 +18,9 @@ import {
 } from './customConfig.ts';
 import ModelsPanel from './ModelsPanel.vue';
 import UpstreamConfigPanel from './UpstreamConfigPanel.vue';
+import { callApi, useApi } from '../../api/client.ts';
+import type { AzureUpstreamConfig, CopilotQuotaSnapshot, CustomRawModel, CustomUpstreamConfig, FlagDef, ModelEndpoints, UpstreamModelConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import { Button } from '@floway-dev/ui';
 
 const props = defineProps<{
   mode: 'create' | 'edit';
@@ -60,6 +58,7 @@ const enabled = ref(true);
 const sortOrder = ref<number>(props.nextSortOrder);
 const flagOverrides = ref<Record<string, boolean>>({});
 const disabledPublicModelIds = ref<string[]>([]);
+const proxyFallbackList = ref<string[]>([]);
 const customDraft = ref<CustomDraft>(blankCustomDraft());
 const azureDraft = ref<AzureDraft>(blankAzureDraft());
 
@@ -76,13 +75,14 @@ const seedFromRecord = (r: UpstreamRecord) => {
   sortOrder.value = r.sort_order;
   flagOverrides.value = { ...r.flag_overrides };
   disabledPublicModelIds.value = [...r.disabled_public_model_ids];
+  proxyFallbackList.value = [...r.proxy_fallback_list];
 
   if (r.provider === 'custom') {
     const cfg = r.config as CustomUpstreamConfig;
     customDraft.value = {
-      baseUrl: cfg.baseUrl ?? '',
-      authStyle: cfg.authStyle ?? 'bearer',
-      endpoints: { ...(cfg.endpoints ?? {}) },
+      baseUrl: cfg.baseUrl,
+      authStyle: cfg.authStyle,
+      endpoints: { ...cfg.endpoints },
       bearerToken: '',
       pathOverrides: seedPathOverrides(cfg.pathOverrides),
       modelsFetch: cfg.modelsFetch
@@ -97,7 +97,7 @@ const seedFromRecord = (r: UpstreamRecord) => {
   } else if (r.provider === 'azure') {
     const cfg = r.config as AzureUpstreamConfig;
     azureDraft.value = {
-      endpoint: cfg.endpoint ?? '',
+      endpoint: cfg.endpoint,
       apiKey: '',
       models: cfg.models ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[]) : [],
     };
@@ -110,6 +110,7 @@ const seedFresh = () => {
   sortOrder.value = props.nextSortOrder;
   flagOverrides.value = {};
   disabledPublicModelIds.value = [];
+  proxyFallbackList.value = [];
   customDraft.value = blankCustomDraft();
   azureDraft.value = blankAzureDraft();
 };
@@ -181,7 +182,7 @@ const fetchModels = async () => {
     // discard the late result rather than repopulating stale auto rows.
     if (!customDraft.value.modelsFetch.enabled) return;
     if (error) { fetchError.value = error.message; return; }
-    fetchedRaw.value = data?.data ?? [];
+    fetchedRaw.value = data.data;
     fetchedAtMs.value = Date.now();
   } finally {
     fetchLoading.value = false;
@@ -238,6 +239,7 @@ const baseFields = () => ({
   sort_order: sortOrder.value,
   flag_overrides: flagOverrides.value,
   disabled_public_model_ids: disabledPublicModelIds.value,
+  proxy_fallback_list: proxyFallbackList.value,
 });
 
 const save = async () => {
@@ -254,15 +256,13 @@ const save = async () => {
       } else if (activeProvider.value === 'azure') {
         body = { provider: 'azure', ...baseFields(), config: buildAzureConfig() };
       } else {
-        // Copilot creates flow through the device-flow panel; codex creates
-        // flow through the codex-import panel. Both hide the Save button in
-        // create mode (see showSaveButton) so this branch is unreachable.
+        // Unreachable: see showSaveButton.
         saveError.value = `${activeProvider.value} upstreams are created through their dedicated panel.`;
         return;
       }
       const { data, error } = await callApi<UpstreamRecord>(() => api.api.upstreams.$post({ json: body }));
       if (error) { saveError.value = error.message; return; }
-      emit('saved', data ?? null);
+      emit('saved', data);
     } else if (props.record) {
       const patch: PatchBody = baseFields();
       if (activeProvider.value === 'custom') patch.config = buildCustomConfig();
@@ -288,9 +288,6 @@ const onCopilotCompleted = async (newRecord: UpstreamRecord | undefined) => {
   if (newRecord) await router.replace(`/dashboard/upstreams/${newRecord.id}`);
 };
 
-// Codex import / re-import / refresh-now all run inside CodexConfigPanel and
-// emit the updated record back to the page. Route to that record's id so the
-// loader re-runs and the page mounts with the freshly-rotated state.
 const onCodexImported = async (newRecord: UpstreamRecord) => {
   emit('saved', newRecord);
   await router.replace(`/dashboard/upstreams/${newRecord.id}`);
@@ -337,6 +334,9 @@ const availableModelItems = computed<{ value: string; label: string }[]>(() => {
   const items: { value: string; label: string }[] = [];
   const collect = (list: UpstreamModelConfig[]) => {
     for (const m of list) {
+      // `||` (not `??`) is intentional: a whitespace-only override should
+      // not shadow the upstream id.
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
       const id = m.publicModelId?.trim() || m.upstreamModelId;
       if (!id || seen.has(id)) continue;
       seen.add(id);
@@ -354,14 +354,11 @@ const availableModelItems = computed<{ value: string; label: string }[]>(() => {
   return items;
 });
 
-// Sum the right pane's children — the Models card + the Model Editor card,
-// each at its own intrinsic height. We deliberately do NOT measure the
-// ModelsPanel root itself, because the grid stretches it to row height (the
-// taller of the two columns), which would feed itself back into the aside's
-// max-h and lock the value high forever — selecting a smaller model would
-// never let it shrink. The children of the panel are NOT stretched, so their
-// summed height is the true intrinsic content height regardless of grid
-// stretch.
+// Measure the right pane's intrinsic content height (sum of its children, not
+// the root, which the grid stretches). The aside caps its max-h at this value
+// so the rail and the editor reach the same bottom; the cap is overridden by
+// the aside's own intrinsic-floor min-h when the rail's children would not
+// otherwise fit (see UpstreamConfigPanel).
 const modelsPanelRef = useTemplateRef<{ $el: HTMLElement } | null>('modelsPanelRef');
 const rightContentH = ref(0);
 let rightObserver: ResizeObserver | undefined;
@@ -405,14 +402,15 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
     <p v-if="saveError" class="mb-4 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">{{ saveError }}</p>
     <p v-if="upstreamModelsError" class="mb-4 rounded-md border border-accent-rose/40 bg-accent-rose/10 px-3 py-2 text-sm text-accent-rose">Failed to fetch upstream model list: {{ upstreamModelsError }}</p>
 
-    <!-- Two-column workbench. Default grid stretch makes both columns reach
-         the same y at the row's bottom. The aside's max-h is the larger of
-         (viewport-bound, right-pane's intrinsic content height) — so a
-         long flag list scrolls inside the rail when the right pane is
-         shorter than the viewport, and grows with the right pane when the
-         editor is taller. The right intrinsic height comes from summing
-         ModelsPanel's children (see measureRight) rather than the root
-         element, which is itself stretched by the grid. -->
+    <!-- Two-column workbench. Default behavior: aside max-h matches the
+         right pane (or viewport, whichever is taller) so the rail and the
+         editor reach the same bottom; flag editor flex-1 + OverlayScrollbars
+         soaks up internal slack. The cap is OVERRIDDEN by the aside's
+         intrinsic-floor min-h (computed inside UpstreamConfigPanel: every
+         non-flag section's height + flag editor's min-h-[16rem]) so when
+         the other sections plus the flag editor's minimum would not fit
+         under the cap, the aside grows past it. The rail itself never
+         clips or scrolls; the page does. -->
     <div :style="workbenchStyle" class="grid grid-cols-1 gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
       <UpstreamConfigPanel
         :provider="activeProvider"
@@ -420,6 +418,7 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         v-model:enabled="enabled"
         v-model:flag-overrides="flagOverrides"
         v-model:disabled-ids="disabledPublicModelIds"
+        v-model:proxy-fallback-list="proxyFallbackList"
         v-model:custom="customDraft"
         v-model:azure="azureDraft"
         :mode="mode"
@@ -433,7 +432,6 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :available-model-items="availableModelItems"
         :initial-copilot-quota="initialCopilotQuota"
         :initial-copilot-quota-error="initialCopilotQuotaError"
-        class="lg:max-h-[max(calc(100vh-7rem),var(--right-pane-h,0px))]"
         @update:provider="setActiveProvider"
         @fetch-models="fetchModels"
         @copilot-completed="onCopilotCompleted"

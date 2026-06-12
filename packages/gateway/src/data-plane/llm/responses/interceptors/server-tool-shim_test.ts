@@ -41,7 +41,7 @@ import type {
   ResponsesStreamEvent,
   ResponsesWebSearchAction,
 } from '@floway-dev/protocols/responses';
-import type { EventResult, ExecuteResult } from '@floway-dev/provider';
+import { directFetcher, type EventResult, type ExecuteResult } from '@floway-dev/provider';
 import { assert, assertEquals, assertFalse } from '@floway-dev/test-utils';
 
 const withResponsesWebSearchShim = withResponsesServerToolShim([webSearchServerTool]);
@@ -323,6 +323,7 @@ const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocatio
     binding: {
       enabledFlags: overrides.enabledFlags ?? new Set<string>(),
     } as never,
+    fetcher: directFetcher,
   },
   store: makeStore(),
   payload: {
@@ -338,10 +339,11 @@ const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocatio
   headers: {},
 });
 
-const makeGatewayCtx = (apiKeyId: string | null = 'k1'): GatewayCtx => ({
+const makeGatewayCtx = (apiKeyId: string = 'k1'): GatewayCtx => ({
   apiKeyId,
-  apiKeyUpstreamIds: null,
+  upstreamIds: null,
   wantsStream: true,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
 });
@@ -4481,8 +4483,9 @@ test('downstream AbortSignal threads through to provider search / fetchPage and 
   const inv = makeInvocation();
   const gatewayCtx: GatewayCtx = {
     apiKeyId: 'k1',
-    apiKeyUpstreamIds: null,
+    upstreamIds: null,
     wantsStream: true,
+    runtimeLocation: 'test',
     scheduleBackground: () => {},
     requestStartedAt: 0,
     abortSignal: controller.signal,

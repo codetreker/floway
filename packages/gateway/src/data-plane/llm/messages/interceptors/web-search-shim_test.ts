@@ -50,10 +50,11 @@ const invocation = (payload: MessagesPayload): MessagesInvocation => ({
   headers: {},
 });
 
-const gatewayCtx = (apiKeyId?: string): GatewayCtx => ({
-  apiKeyId: apiKeyId ?? null,
-  apiKeyUpstreamIds: null,
+const gatewayCtx = (apiKeyId: string = 'test-key'): GatewayCtx => ({
+  apiKeyId,
+  upstreamIds: null,
   wantsStream: false,
+  runtimeLocation: 'test',
   scheduleBackground: () => {},
   requestStartedAt: 0,
 });
@@ -146,10 +147,10 @@ const fakeProviderOk: WebSearchProvider = {
   fetchPage: () => Promise.reject(new Error('fetchPage should not be called from messages shim test')),
 };
 
-const activeProvider = (impl: WebSearchProvider, apiKeyId?: string) => ({
+const activeProvider = (impl: WebSearchProvider, apiKeyId: string = 'test-key') => ({
   providerName: 'tavily' as const,
   impl,
-  ...(apiKeyId ? { apiKeyId } : {}),
+  apiKeyId,
 });
 
 const fakeProviderError =

@@ -2,7 +2,7 @@ import type { MessagesInterceptor } from './types.ts';
 import { isJsonObject } from '../../../../shared/json-helpers.ts';
 import { resolveConfiguredWebSearchProvider } from '../../../tools/web-search/provider.ts';
 import { loadSearchConfig } from '../../../tools/web-search/search-config.ts';
-import { searchWebAndRecordUsage, searchWebWithoutRecordingUsage } from '../../../tools/web-search/search.ts';
+import { searchWebAndRecordUsage } from '../../../tools/web-search/search.ts';
 import type { WebSearchProvider, WebSearchProviderName, WebSearchProviderRequest, WebSearchProviderResult } from '../../../tools/web-search/types.ts';
 import { eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type {
@@ -52,7 +52,7 @@ interface ReplayAwareMessagesWebSearchShimState {
 interface ActiveMessagesWebSearchProvider {
   providerName: WebSearchProviderName;
   impl: WebSearchProvider;
-  apiKeyId?: string;
+  apiKeyId: string;
 }
 
 export type MessagesWebSearchShimState =
@@ -705,9 +705,7 @@ const runWebSearchStopHandler = async function* (
         blockedDomains: state.blockedDomains,
         userLocation: state.userLocation,
       };
-      const providerResult = await (provider.apiKeyId
-        ? searchWebAndRecordUsage({ provider: provider.impl, providerName: provider.providerName, keyId: provider.apiKeyId, request })
-        : searchWebWithoutRecordingUsage({ provider: provider.impl, request }));
+      const providerResult = await searchWebAndRecordUsage({ provider: provider.impl, providerName: provider.providerName, keyId: provider.apiKeyId, request });
       return buildNativeWebSearchResultBlockFromProviderResult(providerResult, block.upstreamToolUseId);
     } catch {
       // TODO: Add gateway-side recent web-search error-log storage so operators can inspect detailed provider/runtime failures even though the client-visible native error intentionally collapses them to `unavailable`.
@@ -879,7 +877,7 @@ const buildSyntheticInvalidRequestUpstreamError = (message: string) => ({
   ),
 });
 
-const resolveActiveMessagesWebSearchProvider = async (apiKeyId: string | undefined): Promise<{ type: 'ok'; provider: ActiveMessagesWebSearchProvider } | ReturnType<typeof internalErrorResult>> => {
+const resolveActiveMessagesWebSearchProvider = async (apiKeyId: string): Promise<{ type: 'ok'; provider: ActiveMessagesWebSearchProvider } | ReturnType<typeof internalErrorResult>> => {
   const searchConfig = await loadSearchConfig();
   const configuredProvider = resolveConfiguredWebSearchProvider(searchConfig);
 
@@ -889,7 +887,7 @@ const resolveActiveMessagesWebSearchProvider = async (apiKeyId: string | undefin
       provider: {
         providerName: configuredProvider.provider,
         impl: configuredProvider.impl,
-        ...(apiKeyId ? { apiKeyId } : {}),
+        apiKeyId,
       },
     };
   }
@@ -933,7 +931,7 @@ export const withMessagesWebSearchShim: MessagesInterceptor = async (ctx, gatewa
     return await run();
   }
 
-  const provider = prepared.state.mode === 'active' ? await resolveActiveMessagesWebSearchProvider(gatewayCtx.apiKeyId ?? undefined) : { type: 'ok' as const, provider: undefined };
+  const provider = prepared.state.mode === 'active' ? await resolveActiveMessagesWebSearchProvider(gatewayCtx.apiKeyId) : { type: 'ok' as const, provider: undefined };
   if (provider.type !== 'ok') return provider;
 
   ctx.payload = prepared.payload;

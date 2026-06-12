@@ -50,9 +50,9 @@ export const embeddings = async (c: Context): Promise<Response> => {
     sourceApi: 'embeddings',
     model: request.model,
     bindingServesEndpoint: binding => binding.upstreamModel.endpoints.embeddings !== undefined,
-    call: async binding => {
+    call: async (binding, opts) => {
       const { model: _model, ...body } = request.body;
-      return await binding.provider.callEmbeddings(binding.upstreamModel, body);
+      return await binding.provider.callEmbeddings(binding.upstreamModel, body, undefined, undefined, opts);
     },
     extractUsage: tokenUsageFromPromptTokenResponse,
     noBindingMessage: modelId => `Model ${modelId} does not support the /embeddings endpoint.`,

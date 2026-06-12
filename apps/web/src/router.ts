@@ -11,9 +11,6 @@ export const router = createRouter({
   routes,
 });
 
-// The auth guard reads two pieces of route meta: `public: true` skips the
-// guard entirely (login + 404), `requiresAdmin: true` redirects API-key users
-// away. Everything else just requires being signed in.
 router.beforeEach(to => {
   const auth = useAuthStore();
   const isPublic = to.meta.public === true;

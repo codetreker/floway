@@ -26,7 +26,7 @@ export const messagesServe = {
   generate: async (args: MessagesServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> => {
     const { payload, ctx, store, anthropicBeta } = args;
     const { candidates, sawModel } = await enumerateProviderCandidates({
-      apiKeyUpstreamIds: ctx.apiKeyUpstreamIds,
+      upstreamIds: ctx.upstreamIds,
       model: payload.model,
       pickTarget: endpoints =>
         endpoints.messages ? 'messages'
@@ -56,7 +56,7 @@ export const messagesServe = {
   countTokens: async (args: MessagesServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>> | PlainResult> => {
     const { payload, ctx, store, anthropicBeta } = args;
     const { candidates, sawModel } = await enumerateProviderCandidates({
-      apiKeyUpstreamIds: ctx.apiKeyUpstreamIds,
+      upstreamIds: ctx.upstreamIds,
       model: payload.model,
       pickTarget: endpoints => endpoints.messages ? 'messages' : null,
     });

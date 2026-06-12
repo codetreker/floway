@@ -28,9 +28,11 @@ import type { Context } from 'hono';
 import { CODEX_AUTO_REVIEW_ALIAS, CODEX_AUTO_REVIEW_TARGET } from './auto-review-alias.ts';
 import { parseCodexVersion, resolveCodexCatalog, type CodexCatalog } from './catalog.ts';
 import { applyContextWindowFromRegistry, type ContextWindowResolver } from './context-window.ts';
-import { apiKeyUpstreamIdsFromContext } from '../../middleware/auth.ts';
+import { createPerRequestFetcher } from '../../dial/per-request.ts';
+import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getInternalModels } from '../providers/registry.ts';
+import type { Fetcher } from '@floway-dev/provider';
 
 // Five minutes is short enough to pick up an upstream catalog change within
 // one or two codex sessions but long enough that an active user only ever
@@ -46,10 +48,14 @@ const cacheKeyFor = (clientVersion: string, upstreamIds: readonly string[] | nul
   return new Request(`https://floway.invalid/codex-models?v=${encodeURIComponent(clientVersion)}&u=${encodeURIComponent(ids)}`);
 };
 
-const computeCatalog = async (userAgent: string | undefined, upstreamIds: readonly string[] | null): Promise<CodexCatalog> => {
+const computeCatalog = async (
+  userAgent: string | undefined,
+  upstreamIds: readonly string[] | null,
+  fetcherForUpstream: (upstreamId: string) => Fetcher,
+): Promise<CodexCatalog> => {
   const [catalog, internalModels] = await Promise.all([
     resolveCodexCatalog(userAgent),
-    getInternalModels(upstreamIds),
+    getInternalModels(upstreamIds, fetcherForUpstream),
   ]);
   const slugContextWindow = new Map<string, number>();
   for (const m of internalModels) {
@@ -65,16 +71,16 @@ const computeCatalog = async (userAgent: string | undefined, upstreamIds: readon
     }),
   };
   // codex-auto-review has no upstream of its own and gets rewritten to
-  // CODEX_AUTO_REVIEW_TARGET (gpt-5.4) at request time, so its catalog
-  // entry should advertise the target's actual window — bundled's value
-  // would otherwise leak the OpenAI 1p limits through the alias.
+  // CODEX_AUTO_REVIEW_TARGET at request time, so its catalog entry should
+  // advertise the target's actual window — bundled's value would otherwise
+  // leak the OpenAI 1p limits through the alias.
   const contextWindowOf: ContextWindowResolver = slug => slugContextWindow.get(slug === CODEX_AUTO_REVIEW_ALIAS ? CODEX_AUTO_REVIEW_TARGET : slug) ?? null;
   return applyContextWindowFromRegistry(filtered, contextWindowOf);
 };
 
 export const codexModels = async (c: Context): Promise<Response> => {
   const userAgent = c.req.header('user-agent');
-  const upstreamIds = apiKeyUpstreamIdsFromContext(c);
+  const upstreamIds = effectiveUpstreamIdsFromContext(c);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default ?? null;
   const cacheKey = cache === null ? null : cacheKeyFor(
     c.req.query('client_version') ?? parseCodexVersion(userAgent) ?? 'unknown',
@@ -86,7 +92,8 @@ export const codexModels = async (c: Context): Promise<Response> => {
     if (hit !== undefined) return hit;
   }
 
-  const response = Response.json(await computeCatalog(userAgent, upstreamIds), {
+  const fetcherForUpstream = await createPerRequestFetcher();
+  const response = Response.json(await computeCatalog(userAgent, upstreamIds, fetcherForUpstream), {
     headers: { 'cache-control': `public, max-age=${CACHE_TTL_SECONDS}` },
   });
   if (cache !== null && cacheKey !== null) {
