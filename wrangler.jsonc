@@ -3,6 +3,7 @@
   "name": "copilot",
   "main": "apps/platform-cloudflare/entry.ts",
   "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
   "account_id": "7d7db4dda3319d23e2cedcf70ea2aa45",
   "routes": [
     {
@@ -30,6 +31,7 @@
       "/embeddings",
       "/images/*",
       "/models",
+      "/azure-api.codex/*",
       "/favicon.ico"
     ]
   },
@@ -61,12 +63,28 @@
       "name": "copilot-staging",
       "workers_dev": true,
       "routes": [],
+      "compatibility_flags": ["nodejs_compat"],
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "copilot-db-staging",
           "database_id": "fd6eef68-ddee-402d-adbf-3b525418fa64",
           "migrations_dir": "packages/gateway/migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "FILES",
+          "bucket_name": "copilot-files"
+        }
+      ],
+      "images": {
+        "binding": "IMAGES"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "KV",
+          "id": "0bd4f3fa818e4109ab7fd2a4988f989a"
         }
       ]
     }
