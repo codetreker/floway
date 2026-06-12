@@ -1,5 +1,28 @@
+import { captureExtras } from '../../../../shared/reassemble-extras.ts';
 import { chatCompletionsErrorPayloadMessage } from '@floway-dev/protocols/chat-completions';
-import type { ChatCompletionsStreamEvent, ChatCompletionsResult, ChatCompletionsReasoningItem, ChatCompletionsChoiceNonStreaming, ChatCompletionsToolCall } from '@floway-dev/protocols/chat-completions';
+import type { ChatCompletionsStreamEvent, ChatCompletionsResult, ChatCompletionsReasoningItem, ChatCompletionsToolCall } from '@floway-dev/protocols/chat-completions';
+
+// Field-fidelity contract: every field a Chat Completions upstream emits must
+// reach the non-streaming client untouched. The stream path achieves this for
+// free (`to-sse.ts` re-serialises each chunk via `JSON.stringify`), but
+// non-streaming clients receive a single result object reassembled here, so
+// any field this code does not explicitly carry over disappears.
+//
+// We split fields into two buckets:
+//  - "known" fields with streaming semantics (string concat, array merge by
+//    index) — handled by the typed accumulators below.
+//  - everything else — captured generically via {@link captureExtras} and
+//    replayed onto the assembled result.
+//
+// `reasoning_content` (the DeepSeek/Kimi dialect for reasoning text on Chat
+// Completions) is the concrete case that motivated this; the goal is that any
+// future field — `audio_prompt_tokens`, `prompt_filter_results`,
+// `this_is_a_non_standard_field_of_reasoning` — survives by default without a
+// gateway code change.
+
+const KNOWN_DELTA_KEYS = new Set(['content', 'role', 'reasoning_text', 'reasoning_opaque', 'reasoning_items', 'tool_calls']);
+const KNOWN_CHOICE_KEYS = new Set(['index', 'delta', 'finish_reason']);
+const KNOWN_CHUNK_KEYS = new Set(['id', 'object', 'created', 'model', 'choices', 'usage']);
 
 export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<ChatCompletionsStreamEvent>): Promise<ChatCompletionsResult> {
   let id = '';
@@ -10,10 +33,14 @@ export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<Chat
   let reasoningOpaque = '';
   let hasReasoningOpaque = false;
   const reasoningItems: ChatCompletionsReasoningItem[] = [];
-  let finishReason: ChatCompletionsChoiceNonStreaming['finish_reason'] = 'stop';
+  let finishReason: ChatCompletionsResult['choices'][number]['finish_reason'] = 'stop';
   let lastUsage: ChatCompletionsResult['usage'] | undefined;
 
   const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+
+  const chunkExtras: Record<string, unknown> = {};
+  const choiceExtras: Record<string, unknown> = {};
+  const messageExtras: Record<string, unknown> = {};
 
   for await (const chunk of chunks) {
     const errorMessage = chatCompletionsErrorPayloadMessage(chunk);
@@ -31,50 +58,56 @@ export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<Chat
       lastUsage = chunk.usage as ChatCompletionsResult['usage'];
     }
 
+    captureExtras(chunk as unknown as Record<string, unknown>, KNOWN_CHUNK_KEYS, chunkExtras);
+
     const choices = chunk.choices as unknown as Array<Record<string, unknown>> | undefined;
     if (!choices) continue;
 
     for (const choice of choices) {
+      captureExtras(choice, KNOWN_CHOICE_KEYS, choiceExtras);
+
       const delta = choice.delta as Record<string, unknown> | undefined;
-      if (!delta) continue;
+      if (delta) {
+        captureExtras(delta, KNOWN_DELTA_KEYS, messageExtras);
 
-      if (typeof delta.content === 'string') {
-        content += delta.content;
-      }
-      if (typeof delta.reasoning_text === 'string') {
-        reasoningText += delta.reasoning_text;
-      }
-      if (typeof delta.reasoning_opaque === 'string') {
-        reasoningOpaque += delta.reasoning_opaque;
-        hasReasoningOpaque = true;
-      }
-      if (Array.isArray(delta.reasoning_items)) {
-        reasoningItems.push(...(delta.reasoning_items as ChatCompletionsReasoningItem[]));
-      }
+        if (typeof delta.content === 'string') {
+          content += delta.content;
+        }
+        if (typeof delta.reasoning_text === 'string') {
+          reasoningText += delta.reasoning_text;
+        }
+        if (typeof delta.reasoning_opaque === 'string') {
+          reasoningOpaque += delta.reasoning_opaque;
+          hasReasoningOpaque = true;
+        }
+        if (Array.isArray(delta.reasoning_items)) {
+          reasoningItems.push(...(delta.reasoning_items as ChatCompletionsReasoningItem[]));
+        }
 
-      if (Array.isArray(delta.tool_calls)) {
-        for (const toolCall of delta.tool_calls as Array<Record<string, unknown>>) {
-          const idx = toolCall.index as number;
-          const existing = toolCallsMap.get(idx);
-          if (!existing) {
-            toolCallsMap.set(idx, {
-              id: (toolCall.id as string) ?? '',
-              name: ((toolCall.function as Record<string, unknown>)?.name as string) ?? '',
-              arguments: ((toolCall.function as Record<string, unknown>)?.arguments as string) ?? '',
-            });
-          } else {
-            if (toolCall.id) existing.id = toolCall.id as string;
-            const fn = toolCall.function as Record<string, unknown> | undefined;
-            if (fn?.name) existing.name = fn.name as string;
-            if (fn?.arguments) {
-              existing.arguments += fn.arguments as string;
+        if (Array.isArray(delta.tool_calls)) {
+          for (const toolCall of delta.tool_calls as Array<Record<string, unknown>>) {
+            const idx = toolCall.index as number;
+            const existing = toolCallsMap.get(idx);
+            if (!existing) {
+              toolCallsMap.set(idx, {
+                id: (toolCall.id as string) ?? '',
+                name: ((toolCall.function as Record<string, unknown>)?.name as string) ?? '',
+                arguments: ((toolCall.function as Record<string, unknown>)?.arguments as string) ?? '',
+              });
+            } else {
+              if (toolCall.id) existing.id = toolCall.id as string;
+              const fn = toolCall.function as Record<string, unknown> | undefined;
+              if (fn?.name) existing.name = fn.name as string;
+              if (fn?.arguments) {
+                existing.arguments += fn.arguments as string;
+              }
             }
           }
         }
       }
 
       if (choice.finish_reason) {
-        finishReason = choice.finish_reason as ChatCompletionsChoiceNonStreaming['finish_reason'];
+        finishReason = choice.finish_reason as ChatCompletionsResult['choices'][number]['finish_reason'];
       }
     }
   }
@@ -90,16 +123,17 @@ export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<Chat
     });
   }
 
-  const message: ChatCompletionsChoiceNonStreaming['message'] = {
-    role: 'assistant',
+  const message = {
+    role: 'assistant' as const,
     content: content || null,
     ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
     ...(reasoningText && { reasoning_text: reasoningText }),
     ...(hasReasoningOpaque ? { reasoning_opaque: reasoningOpaque } : {}),
     ...(reasoningItems.length > 0 && { reasoning_items: reasoningItems }),
+    ...messageExtras,
   };
 
-  const result: ChatCompletionsResult = {
+  return {
     id,
     object: 'chat.completion',
     created,
@@ -109,10 +143,10 @@ export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<Chat
         index: 0,
         message,
         finish_reason: finishReason,
+        ...choiceExtras,
       },
     ],
     ...(lastUsage && { usage: lastUsage }),
-  };
-
-  return result;
+    ...chunkExtras,
+  } as ChatCompletionsResult;
 }

@@ -270,3 +270,92 @@ test('reassembleChatCompletionsEvents appends reasoning_items deltas in order', 
   ]);
   assertEquals(result.choices[0].message.content, 'reply');
 });
+
+test('reassembleChatCompletionsEvents preserves unknown delta fields by concatenating string streams (reasoning_content)', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        id: 'cmpl_1',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'deepseek-v4-pro',
+        choices: [{ index: 0, delta: { role: 'assistant', reasoning_content: 'I will compute ' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_1',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'deepseek-v4-pro',
+        choices: [{ index: 0, delta: { reasoning_content: '17 * 23 = 391.' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_1',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'deepseek-v4-pro',
+        choices: [{ index: 0, delta: { content: '391' }, finish_reason: 'stop' }],
+      },
+    },
+  ]);
+
+  const result = await reassembleChatCompletionsEvents(body);
+  const message = result.choices[0].message as ChatCompletionsResult['choices'][number]['message'] & { reasoning_content?: string };
+  assertEquals(message.content, '391');
+  assertEquals(message.reasoning_content, 'I will compute 17 * 23 = 391.');
+});
+
+test('reassembleChatCompletionsEvents preserves unknown chunk-level fields with last-non-null write wins', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        id: 'cmpl_1',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        prompt_filter_results: [{ prompt_index: 0, content_filter_results: { hate: { filtered: false } } }],
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'hi' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_1',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        prompt_filter_results: null,
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    },
+  ]);
+
+  const result = await reassembleChatCompletionsEvents(body) as ChatCompletionsResult & { prompt_filter_results?: unknown };
+  assertEquals(result.prompt_filter_results, [{ prompt_index: 0, content_filter_results: { hate: { filtered: false } } }]);
+});
+
+test('reassembleChatCompletionsEvents preserves unknown choice-level fields (content_filter_results)', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        id: 'cmpl_1',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        choices: [{
+          index: 0,
+          delta: { role: 'assistant', content: 'ok' },
+          content_filter_results: { hate: { filtered: false, severity: 'safe' } },
+          finish_reason: 'stop',
+        }],
+      },
+    },
+  ]);
+
+  const result = await reassembleChatCompletionsEvents(body) as ChatCompletionsResult & {
+    choices: [{ content_filter_results?: unknown }];
+  };
+  assertEquals(result.choices[0].content_filter_results, { hate: { filtered: false, severity: 'safe' } });
+});

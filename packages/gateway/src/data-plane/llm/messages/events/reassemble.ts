@@ -1,4 +1,5 @@
 import { isJsonObject } from '../../../../shared/json-helpers.ts';
+import { captureExtras } from '../../../../shared/reassemble-extras.ts';
 import type {
   MessagesAssistantContentBlock,
   MessagesRedactedThinkingBlock,
@@ -72,7 +73,21 @@ type MessagesToolUseBlockAccumulator = MessagesToolUseBlock & {
   inputJson: string;
 };
 
-type MessagesBlockAccumulator = MessagesTextBlockAccumulator | MessagesToolUseBlockAccumulator | MessagesServerToolUseBlock | MessagesWebSearchToolResultBlock | MessagesThinkingBlock | MessagesRedactedThinkingBlock;
+type MessagesBlockAccumulator = (MessagesTextBlockAccumulator | MessagesToolUseBlockAccumulator | MessagesServerToolUseBlock | MessagesWebSearchToolResultBlock | MessagesThinkingBlock | MessagesRedactedThinkingBlock) & { extras?: Record<string, unknown> };
+
+// Field-fidelity contract — see {@link captureExtras}. Anything an upstream
+// emits on `message_start.message`, on a `content_block`, or on the assembled
+// result top-level beyond the typed schema below survives by default.
+const KNOWN_MESSAGE_KEYS = new Set(['id', 'type', 'role', 'content', 'model', 'stop_reason', 'stop_sequence', 'usage']);
+const KNOWN_BLOCK_KEYS_BY_TYPE: Record<string, ReadonlySet<string>> = {
+  text: new Set(['type', 'text', 'citations']),
+  tool_use: new Set(['type', 'id', 'name', 'input']),
+  thinking: new Set(['type', 'thinking', 'signature']),
+  redacted_thinking: new Set(['type', 'data']),
+  server_tool_use: new Set(['type', 'id', 'name', 'input']),
+  web_search_tool_result: new Set(['type', 'tool_use_id', 'content']),
+};
+const FALLBACK_BLOCK_KNOWN = new Set(['type']);
 
 const applyMessagesUsage = (usage: MessagesUsage, update: Partial<MessagesUsage> | undefined): void => {
   if (!update) return;
@@ -93,39 +108,45 @@ const applyMessagesUsage = (usage: MessagesUsage, update: Partial<MessagesUsage>
 
 const createBlockAccumulator = (event: Extract<MessagesStreamEvent, { type: 'content_block_start' }>): MessagesBlockAccumulator => {
   const block = event.content_block;
+  const rawBlock = block as unknown as Record<string, unknown>;
+  const knownKeys = KNOWN_BLOCK_KEYS_BY_TYPE[block.type] ?? FALLBACK_BLOCK_KNOWN;
+  const extras: Record<string, unknown> = {};
+  captureExtras(rawBlock, knownKeys, extras);
+  const withExtras = <T extends MessagesBlockAccumulator>(acc: T): T =>
+    Object.keys(extras).length > 0 ? Object.assign(acc, { extras }) : acc;
 
   switch (block.type) {
   case 'text':
-    return {
+    return withExtras({
       type: 'text',
       text: block.text ?? '',
       citations: normalizeMessagesTextCitations(block.citations),
-    };
+    });
   case 'tool_use':
-    return {
+    return withExtras({
       type: 'tool_use',
       id: block.id,
       name: block.name,
       input: {},
       inputJson: '',
-    };
+    });
   case 'server_tool_use':
-    return {
+    return withExtras({
       type: 'server_tool_use',
       id: block.id,
       name: block.name,
       input: block.input,
-    };
+    });
   case 'web_search_tool_result':
-    return {
+    return withExtras({
       type: 'web_search_tool_result',
       tool_use_id: block.tool_use_id,
       content: block.content,
-    };
+    });
   case 'thinking':
-    return { type: 'thinking', thinking: block.thinking ?? '' };
+    return withExtras({ type: 'thinking', thinking: block.thinking ?? '' });
   case 'redacted_thinking':
-    return { type: 'redacted_thinking', data: block.data };
+    return withExtras({ type: 'redacted_thinking', data: block.data });
   }
 };
 
@@ -175,17 +196,23 @@ const finalizeToolUseInput = (block: MessagesBlockAccumulator | undefined): void
 };
 
 const finalizeContentBlock = (block: MessagesBlockAccumulator): MessagesAssistantContentBlock => {
+  const extras = block.extras;
+  const withExtras = <T extends MessagesAssistantContentBlock>(b: T): T =>
+    extras && Object.keys(extras).length > 0 ? ({ ...b, ...extras } as T) : b;
+
   switch (block.type) {
   case 'text': {
-    const { citations, ...textBlock } = block;
-    return citations.length > 0 ? block : textBlock;
+    const { citations, extras: _extras, ...textBlock } = block;
+    return withExtras(citations.length > 0 ? ({ ...textBlock, citations } as MessagesAssistantContentBlock) : (textBlock as MessagesAssistantContentBlock));
   }
   case 'tool_use': {
-    const { inputJson: _inputJson, ...toolUseBlock } = block;
-    return toolUseBlock;
+    const { inputJson: _inputJson, extras: _extras, ...toolUseBlock } = block;
+    return withExtras(toolUseBlock as MessagesAssistantContentBlock);
   }
-  default:
-    return block;
+  default: {
+    const { extras: _extras, ...rest } = block;
+    return withExtras(rest as MessagesAssistantContentBlock);
+  }
   }
 };
 
@@ -200,6 +227,7 @@ export async function reassembleMessagesEvents(events: AsyncIterable<MessagesStr
   let stopSequence: string | null = null;
 
   const blocks: Array<MessagesBlockAccumulator | undefined> = [];
+  const resultExtras: Record<string, unknown> = {};
 
   for await (const event of events) {
     switch (event.type) {
@@ -207,6 +235,7 @@ export async function reassembleMessagesEvents(events: AsyncIterable<MessagesStr
       id = event.message.id;
       model = event.message.model;
       applyMessagesUsage(usage, event.message.usage);
+      captureExtras(event.message as unknown as Record<string, unknown>, KNOWN_MESSAGE_KEYS, resultExtras);
       break;
     case 'content_block_start':
       blocks[event.index] = createBlockAccumulator(event);
@@ -245,5 +274,6 @@ export async function reassembleMessagesEvents(events: AsyncIterable<MessagesStr
     stop_reason: stopReason,
     stop_sequence: stopSequence,
     usage,
-  };
+    ...resultExtras,
+  } as MessagesResult;
 }

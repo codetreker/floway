@@ -1,3 +1,4 @@
+import { captureExtras } from '../../../../shared/reassemble-extras.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiCandidate, GeminiErrorResponse, GeminiResult, GeminiPart, GeminiStreamEvent } from '@floway-dev/protocols/gemini';
 
@@ -8,6 +9,15 @@ export const isGeminiErrorEvent = (event: GeminiStreamEvent): event is GeminiErr
 const isGeminiFinishedEvent = (event: GeminiStreamEvent): boolean => 'candidates' in event && event.candidates?.some(candidate => candidate.finishReason !== undefined) === true;
 
 export const isGeminiTerminalEvent = (event: GeminiStreamEvent): boolean => isGeminiErrorEvent(event) || isGeminiFinishedEvent(event);
+
+// Field-fidelity contract — see {@link captureExtras}. The typed paths above
+// accumulate the fields we understand (parts, role, finishReason, top-level
+// modelVersion / responseId / usageMetadata); the key sets below name those
+// known fields so anything else an upstream emits — `safetyRatings`,
+// `groundingMetadata`, `citationMetadata`, future Gemini extensions, etc. —
+// survives onto the assembled result.
+const KNOWN_RESULT_KEYS = new Set(['candidates', 'modelVersion', 'responseId', 'usageMetadata']);
+const KNOWN_CANDIDATE_KEYS = new Set(['index', 'content', 'finishReason']);
 
 const isMergeableTextPart = (part: GeminiPart): boolean =>
   part.text !== undefined
@@ -30,10 +40,14 @@ const appendPart = (parts: GeminiPart[], part: GeminiPart): void => {
   parts.push({ ...part });
 };
 
-const mergeCandidate = (candidates: Map<number, GeminiCandidate>, incoming: GeminiCandidate): void => {
+interface GeminiCandidateWithExtras extends GeminiCandidate {
+  __extras?: Record<string, unknown>;
+}
+
+const mergeCandidate = (candidates: Map<number, GeminiCandidateWithExtras>, incoming: GeminiCandidate): void => {
   const existing = candidates.get(incoming.index);
   if (!existing) {
-    const candidate: GeminiCandidate = {
+    const candidate: GeminiCandidateWithExtras = {
       index: incoming.index,
       content: {
         ...(incoming.content.role !== undefined ? { role: incoming.content.role } : {}),
@@ -44,6 +58,9 @@ const mergeCandidate = (candidates: Map<number, GeminiCandidate>, incoming: Gemi
     for (const part of incoming.content.parts) {
       appendPart(candidate.content.parts, part);
     }
+    const extras: Record<string, unknown> = {};
+    captureExtras(incoming as unknown as Record<string, unknown>, KNOWN_CANDIDATE_KEYS, extras);
+    if (Object.keys(extras).length > 0) candidate.__extras = extras;
     candidates.set(incoming.index, candidate);
     return;
   }
@@ -57,11 +74,20 @@ const mergeCandidate = (candidates: Map<number, GeminiCandidate>, incoming: Gemi
   if (incoming.finishReason !== undefined) {
     existing.finishReason = incoming.finishReason;
   }
+  const extras = existing.__extras ?? {};
+  captureExtras(incoming as unknown as Record<string, unknown>, KNOWN_CANDIDATE_KEYS, extras);
+  if (Object.keys(extras).length > 0) existing.__extras = extras;
+};
+
+const finalizeCandidate = (candidate: GeminiCandidateWithExtras): GeminiCandidate => {
+  const { __extras: extras, ...rest } = candidate;
+  return extras ? ({ ...rest, ...extras } as GeminiCandidate) : (rest as GeminiCandidate);
 };
 
 export const collectGeminiProtocolEventsToResult = async (frames: AsyncIterable<ProtocolFrame<GeminiStreamEvent>>): Promise<GeminiResult> => {
-  const candidates = new Map<number, GeminiCandidate>();
+  const candidates = new Map<number, GeminiCandidateWithExtras>();
   const result: GeminiResult = {};
+  const resultExtras: Record<string, unknown> = {};
   let completed = false;
 
   for await (const frame of frames) {
@@ -84,6 +110,7 @@ export const collectGeminiProtocolEventsToResult = async (frames: AsyncIterable<
     if (event.modelVersion !== undefined) result.modelVersion = event.modelVersion;
     if (event.responseId !== undefined) result.responseId = event.responseId;
     if (event.usageMetadata !== undefined) result.usageMetadata = event.usageMetadata;
+    captureExtras(event as unknown as Record<string, unknown>, KNOWN_RESULT_KEYS, resultExtras);
 
     if (isGeminiTerminalEvent(event)) {
       completed = true;
@@ -95,8 +122,8 @@ export const collectGeminiProtocolEventsToResult = async (frames: AsyncIterable<
     throw new Error(GEMINI_MISSING_TERMINAL_MESSAGE);
   }
 
-  const mergedCandidates = [...candidates.values()].sort((a, b) => a.index - b.index);
+  const mergedCandidates = [...candidates.values()].sort((a, b) => a.index - b.index).map(finalizeCandidate);
   if (mergedCandidates.length > 0) result.candidates = mergedCandidates;
 
-  return result;
+  return Object.keys(resultExtras).length > 0 ? ({ ...result, ...resultExtras } as GeminiResult) : result;
 };
