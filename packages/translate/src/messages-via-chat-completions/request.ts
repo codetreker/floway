@@ -1,5 +1,6 @@
 import { type ChatCompletionsScalarReasoning, chatCompletionsScalarReasoningFromMessagesBlock } from '../shared/chat-completions-and-messages/reasoning.ts';
 import { openAiJsonSchemaCoreFromMessagesFormat } from '../shared/messages/structured-output.ts';
+import { resolveMessagesReasoningEffort } from '../shared/messages-via/reasoning-effort.ts';
 import { normalizeMessagesToolInputSchema } from '../shared/messages-via/tool-schema.ts';
 import type { ChatCompletionsPayload, ChatCompletionsContentPart, ChatCompletionsMessage, ChatCompletionsTool, ChatCompletionsToolCall } from '@floway-dev/protocols/chat-completions';
 import type {
@@ -255,12 +256,7 @@ export const translateMessagesToChatCompletions = (payload: MessagesPayload): Ch
   const clientTools = getClientTools(payload.tools);
   // Pass effort through verbatim; per-upstream enum acceptance (e.g. some
   // backends rejecting `xhigh`/`max`) is the target interceptor's concern.
-  let reasoningEffort: string | undefined;
-  if (payload.output_config?.effort) {
-    reasoningEffort = payload.output_config.effort;
-  } else if (payload.thinking?.type === 'disabled') {
-    reasoningEffort = 'none';
-  }
+  const reasoningEffort = resolveMessagesReasoningEffort(payload);
   const jsonSchema = openAiJsonSchemaCoreFromMessagesFormat(payload.output_config?.format);
   const responseFormat = jsonSchema ? { type: 'json_schema' as const, json_schema: jsonSchema } : undefined;
 

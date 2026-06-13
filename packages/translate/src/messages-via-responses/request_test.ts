@@ -165,6 +165,30 @@ test('translateMessagesToResponses preserves output_config.effort max at the tra
   assertEquals(result.reasoning, { effort: 'max' });
 });
 
+test('translateMessagesToResponses maps thinking.enabled to reasoning.effort medium regardless of budget_tokens', () => {
+  for (const budget of [undefined, 1024, 16384]) {
+    const result = translateMessagesToResponses({
+      model: 'gpt-test',
+      max_tokens: 4096,
+      thinking: budget === undefined ? { type: 'enabled' } : { type: 'enabled', budget_tokens: budget },
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    assertEquals(result.reasoning, { effort: 'medium' });
+  }
+});
+
+test('translateMessagesToResponses maps thinking.adaptive to reasoning.effort medium', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 4096,
+    thinking: { type: 'adaptive' },
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.reasoning, { effort: 'medium' });
+});
+
 test('translateMessagesToResponses preserves max_tokens at the translation boundary', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
@@ -185,17 +209,6 @@ test('translateMessagesToResponses maps thinking.disabled to reasoning.effort no
 
   assertEquals(result.reasoning, { effort: 'none' });
   assertFalse('include' in result);
-});
-
-test('translateMessagesToResponses ignores non-disabled thinking without output_config.effort', () => {
-  const result = translateMessagesToResponses({
-    model: 'gpt-test',
-    max_tokens: 256,
-    thinking: { type: 'enabled', budget_tokens: 4096 },
-    messages: [{ role: 'user', content: 'hi' }],
-  });
-
-  assertFalse('reasoning' in result);
 });
 
 test('translateMessagesToResponses preserves explicit temperature and omits translated-path defaults', () => {

@@ -47,35 +47,33 @@ export interface ResponsesAttemptCompactArgs {
 export const responsesAttempt = {
   generate: async (args: ResponsesAttemptGenerateArgs): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
     const { payload, ctx, store, candidate, snapshotMode, inheritedInvocationHeaders } = args;
+    // Rewrite + privatePayload seed + assistant-content normalization all run
+    // BEFORE the interceptor chain so source interceptors — most importantly
+    // the web-search server-tool shim — see fully inline-expanded input items
+    // with their original wire ids, and `store.getPrivatePayload(id)` is
+    // ready to hand back the persisted IR. The shim's `transformItems` runs
+    // inside the chain body, before `run()`, so deferring rewrite/seed to
+    // the inner closure would leave the shim looking at the pre-rewrite
+    // wire shape against an empty privatePayload map.
+    const rewritten = await rewriteOrRenderFailure(payload, store, candidate);
+    if (!('payload' in rewritten)) return rewritten.failure;
+    store.beginAttempt(rewritten.references);
+    // Copilot compaction and Azure-native compaction both emit assistant
+    // messages whose content blocks have `type: 'input_text'`, then refuse
+    // the same items echoed back as input on the next turn. Normalising
+    // here, after the rewrite has expanded any `item_reference` items
+    // from the snapshot store, catches both the direct-echo and
+    // store-replay paths in one place.
+    const normalized: ResponsesPayload = { ...rewritten.payload, input: normalizeAssistantInputText(rewritten.payload.input) };
+
     const invocation: ResponsesInvocation = {
-      payload,
+      payload: normalized,
       candidate,
       store,
       headers: { ...(inheritedInvocationHeaders ?? {}) },
     };
-    const chainResult = await runInterceptors(invocation, ctx, responsesInterceptors, async () => {
-      // Rewriting stored items happens inside the chain runner so interceptors
-      // (server-tool shim, vendor normalizers) can adjust the payload first;
-      // the rewrite then resolves item references against the chosen
-      // candidate's upstream.
-      const rewritten = await rewriteOrRenderFailure(invocation.payload, store, candidate);
-      if (!('payload' in rewritten)) return rewritten.failure;
-
-      // Reset per-attempt staged output and re-seed privatePayload from the
-      // rows the rewrite just resolved, so cross-turn shims (e.g. web-search)
-      // can recover real prior-turn results instead of placeholder fallbacks.
-      store.beginAttempt(rewritten.references);
-
-      // Copilot compaction and Azure-native compaction both emit assistant
-      // messages whose content blocks have `type: 'input_text'`, then refuse
-      // the same items echoed back as input on the next turn. Normalising
-      // here, after the rewrite has expanded any `item_reference` items
-      // from the snapshot store, catches both the direct-echo and
-      // store-replay paths in one place.
-      const normalized: ResponsesPayload = { ...rewritten.payload, input: normalizeAssistantInputText(rewritten.payload.input) };
-
-      return await dispatchResponses(normalized, ctx, store, candidate, invocation.headers);
-    });
+    const chainResult = await runInterceptors(invocation, ctx, responsesInterceptors, async () =>
+      await dispatchResponses(invocation.payload, ctx, store, candidate, invocation.headers));
 
     if (chainResult.type !== 'events') return chainResult;
 
@@ -107,15 +105,16 @@ export const responsesAttempt = {
     if (candidate.targetApi !== 'responses') {
       throw new Error(`responsesAttempt.compact requires targetApi='responses', got '${candidate.targetApi}'`);
     }
-    const invocation: ResponsesInvocation = { payload, candidate, store, headers: {} };
+    // Mirrors generate: rewrite + seed + normalize before interceptors so
+    // shims see fully expanded input with privatePayload primed.
+    const rewritten = await rewriteOrRenderFailure(payload, store, candidate);
+    if (!('payload' in rewritten)) return rewritten.failure;
+    store.beginAttempt(rewritten.references);
+    const normalized: ResponsesPayload = { ...rewritten.payload, input: normalizeAssistantInputText(rewritten.payload.input) };
 
-    const chainResult = await runInterceptors(invocation, ctx, responsesInterceptors, async () => {
-      const rewritten = await rewriteOrRenderFailure(invocation.payload, store, candidate);
-      if (!('payload' in rewritten)) return rewritten.failure;
-      store.beginAttempt(rewritten.references);
-      const normalized: ResponsesPayload = { ...rewritten.payload, input: normalizeAssistantInputText(rewritten.payload.input) };
-      return await callResponsesCompactAsExecuteResult(normalized, ctx, candidate, invocation.headers);
-    });
+    const invocation: ResponsesInvocation = { payload: normalized, candidate, store, headers: {} };
+    const chainResult = await runInterceptors(invocation, ctx, responsesInterceptors, async () =>
+      await callResponsesCompactAsExecuteResult(invocation.payload, ctx, candidate, invocation.headers));
 
     if (chainResult.type !== 'events') return chainResult;
 

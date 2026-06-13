@@ -376,46 +376,83 @@ test('generate inherits invocation headers across translation to Messages', asyn
   assertEquals(observedHeaders?.['x-test'], 'abc');
 });
 
-test('generate seeds store.privatePayload from rewrite references so cross-turn shims can replay', async () => {
+test('generate seeds privatePayload before interceptors so the web-search shim replays the prior wsc results on echo', async () => {
+  // End-to-end contract: when a stateless client (e.g. Codex CLI) echoes a
+  // prior web_search_call by the gateway-minted id, the web-search shim's
+  // `transformItems` (which runs as part of the interceptor chain) must
+  // find the persisted `payload.private` and emit the cached function_call
+  // + function_call_output pair to upstream — NOT the not-preserved
+  // placeholder.
+  //
+  // The wire shape we model here:
+  //   - row.id = stored gateway id (`ws_<crc>_<body>`) — wrapResponsesOutputForStorage
+  //     emits this on the wire and clients echo it back as `wsc.id`.
+  //   - payload.item.id = the original `ws_gw_` wire id the shim synthesized
+  //     on turn 1; beginAttempt keys privatePayload by it after inline expansion.
+  //   - payload.private = WebSearchCallPrivatePayload (v:1, functionCallItem, ir).
+  //
+  // This regression caught a prior ordering bug where rewrite + beginAttempt
+  // ran inside the interceptor closure, after the shim's input transform —
+  // so privatePayload was always empty when the shim looked it up, and
+  // every echoed wsc collapsed to the placeholder.
   const repo = installRepo();
-
-  // A stored web_search_call row whose payload carries `private` — the
-  // payload kind the web-search shim relies on at cross-turn replay time.
-  const wireId = createStoredResponsesItemId('web_search_call');
+  const storedId = createStoredResponsesItemId('web_search_call');
+  const wireId = 'ws_gw_72927da0b19d48aa874e9937';
   await insertStoredItem(repo, {
-    id: wireId,
+    id: storedId,
     itemType: 'web_search_call',
-    origin: 'upstream',
+    origin: 'synthetic',
     payload: {
       item: {
         type: 'web_search_call',
         id: wireId,
         status: 'completed',
-        action: { type: 'search', query: 'previous query' },
+        action: { type: 'search', query: 'deepseek v4', queries: ['deepseek v4'] },
       },
-      private: { kind: 'web-search-call', marker: 'seeded' },
+      private: {
+        v: 1,
+        functionCallItem: {
+          type: 'function_call',
+          call_id: 'call_orig_xyz',
+          name: 'web_search',
+          arguments: '{"search_query":[{"q":"deepseek v4"}]}',
+          status: 'completed',
+        },
+        ir: {
+          action: { type: 'search', query: 'deepseek v4', queries: ['deepseek v4'] },
+          results: [{ type: 'text_result', url: 'https://example.com', title: 'Example', snippet: 'CACHED_SNIPPET_BODY' }],
+        },
+      },
     },
   });
 
-  // Echo the stored item in the input — this is what a follow-up turn from a
-  // stateless client looks like.
-  const completedEvent: ResponsesStreamEvent = {
-    type: 'response.completed',
-    sequence_number: 0,
-    response: makeResponsesResult(),
-  };
-  const callResponses = vi.fn(async (): Promise<ProviderStreamResult<ResponsesStreamEvent>> => ({
-    ok: true,
-    events: makeProviderEvents([completedEvent]),
-    modelKey: 'test-model-key',
-  }));
+  // Capture the upstream-bound body so we can verify what the shim produced
+  // after the echoed wsc passed through transformItems.
+  let capturedBody: { input?: unknown[] } | undefined;
+  const upstreamResponse = makeResponsesResult();
+  // The shim's multi-turn loop requires `response.created` (carrying a model
+  // name) before any synthesized terminal envelope. Emit the canonical
+  // created → in_progress → completed sequence so the shim can wrap.
+  const upstreamEvents: ResponsesStreamEvent[] = [
+    { type: 'response.created', sequence_number: 0, response: upstreamResponse },
+    { type: 'response.in_progress', sequence_number: 1, response: upstreamResponse },
+    { type: 'response.completed', sequence_number: 2, response: upstreamResponse },
+  ];
+  const callResponses = vi.fn(async (_model, body): Promise<ProviderStreamResult<ResponsesStreamEvent>> => {
+    capturedBody = body as { input?: unknown[] };
+    return { ok: true, events: makeProviderEvents(upstreamEvents), modelKey: 'test-model-key' };
+  });
   const candidate = makeCandidate(callResponses);
-  const store = createResponsesHttpStore(API_KEY_ID, true);
+  // The shim early-returns inactive unless the binding has the flag. The
+  // candidate shape is `readonly`, so swap the enabledFlags via Object.assign
+  // on both the binding and its upstreamModel (which the binding aliases).
+  const enabledFlags = new Set(['responses-web-search-shim']);
+  Object.assign(candidate.binding.upstreamModel, { enabledFlags });
+  Object.assign(candidate.binding, { enabledFlags });
 
-  // Populate the store cache the same way affinity-classified turns do, so
-  // the rewriter can resolve the echoed item against the stored row.
+  const store = createResponsesHttpStore(API_KEY_ID, true);
   await store.loadInputItems({
-    sourceItems: [{ type: 'web_search_call', id: wireId } as unknown as { id: string }],
+    sourceItems: [{ id: storedId } as unknown as { id: string }],
     view: {
       visitAsResponsesItems: async (items, visit) => {
         for (const item of items as readonly { id: string }[]) {
@@ -425,12 +462,18 @@ test('generate seeds store.privatePayload from rewrite references so cross-turn 
     },
   });
 
-  // Before generate runs, no per-attempt seed exists.
-  assertEquals(store.getPrivatePayload(wireId), undefined);
-
   const result = await responsesAttempt.generate({
     payload: makePayload({
-      input: [{ type: 'web_search_call', id: wireId } as unknown as never],
+      input: [
+        { type: 'message', role: 'user', content: 'follow-up' },
+        {
+          type: 'web_search_call',
+          id: storedId,
+          status: 'completed',
+          action: { type: 'search', queries: ['deepseek v4'] },
+        } as unknown as never,
+      ],
+      tools: [{ type: 'web_search' }],
     }),
     ctx: makeGatewayCtx(),
     store,
@@ -441,9 +484,20 @@ test('generate seeds store.privatePayload from rewrite references so cross-turn 
   if (result.type !== 'events') throw new Error('unreachable');
   await collectEvents(result.events);
 
-  // beginAttempt should have re-seeded privatePayload from the rewrite
-  // references — keyed by the wire id the stored payload.item carries.
-  const seeded = store.getPrivatePayload(wireId);
-  assert(seeded !== undefined, 'privatePayload must be seeded after rewrite');
-  assertEquals((seeded as { marker: string }).marker, 'seeded');
+  assert(capturedBody !== undefined, 'callResponses was not invoked');
+  const input = (capturedBody!.input ?? []) as Array<{ type: string; call_id?: string; output?: string; name?: string; arguments?: string }>;
+  // The wsc echo MUST be replaced by the recovered function_call + output pair,
+  // carrying the persisted call_id and the cached snippet body verbatim.
+  const fc = input.find(i => i.type === 'function_call' && i.call_id === 'call_orig_xyz');
+  assert(fc !== undefined, 'expected replayed function_call with the persisted call_id');
+  assertEquals(fc!.name, 'web_search');
+  assertEquals(fc!.arguments, '{"search_query":[{"q":"deepseek v4"}]}');
+  const fco = input.find(i => i.type === 'function_call_output' && i.call_id === 'call_orig_xyz');
+  assert(fco !== undefined, 'expected replayed function_call_output');
+  assert(fco!.output?.includes('CACHED_SNIPPET_BODY'), `expected cached body in function_call_output, got: ${fco!.output}`);
+  // And the not-preserved placeholder MUST NOT appear.
+  assert(
+    !input.some(i => i.type === 'function_call_output' && typeof i.output === 'string' && i.output.includes('Prior search results were not preserved')),
+    'shim emitted the not-preserved placeholder despite a stored private payload',
+  );
 });

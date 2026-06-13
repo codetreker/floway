@@ -1,5 +1,6 @@
 import { openAiJsonSchemaCoreFromMessagesFormat } from '../shared/messages/structured-output.ts';
 import { messagesReasoningBlockToResponsesReasoning } from '../shared/messages-and-responses/reasoning.ts';
+import { resolveMessagesReasoningEffort } from '../shared/messages-via/reasoning-effort.ts';
 import { normalizeMessagesToolInputSchema } from '../shared/messages-via/tool-schema.ts';
 import {
   type MessagesAssistantMessage,
@@ -185,17 +186,11 @@ const translateToolChoice = (toolChoice: MessagesPayload['tool_choice'], tools?:
   }
 };
 
-const translateMessagesReasoningEffort = (payload: MessagesPayload): string | undefined => {
-  if (payload.output_config?.effort) return payload.output_config.effort;
-  if (payload.thinking?.type === 'disabled') return 'none';
-  return undefined;
-};
-
 export const translateMessagesToResponses = (payload: MessagesPayload): ResponsesPayload => {
   // Preserve the source `output_config.effort` value as-is, even if the chosen
   // Responses upstream may reject it. Translation stays pairwise and leaves
   // target-side validation to the selected upstream endpoint.
-  const effort = translateMessagesReasoningEffort(payload);
+  const effort = resolveMessagesReasoningEffort(payload);
   const reasoning = effort ? { effort } : undefined;
   const clientTools = getClientTools(payload.tools);
   const instructions = translateSystemPrompt(payload.system);

@@ -757,3 +757,53 @@ test('reassembleMessagesEvents handles citations_delta and normalizes source fie
     cited_text: 'Source-only citation',
   });
 });
+
+test('reassembleMessagesEvents preserves unknown fields on message_start.message', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        type: 'message_start',
+        message: {
+          id: 'msg_1',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-test',
+          usage: { input_tokens: 5, output_tokens: 0 },
+          this_is_a_non_standard_field_of_reasoning: 'experimental_value',
+          custom_meta: { trace_id: 'abc' },
+        },
+      },
+    },
+    { data: { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } } },
+    { data: { type: 'message_stop' } },
+  ]);
+
+  const result = await reassembleMessagesEvents(body) as Awaited<ReturnType<typeof reassembleMessagesEvents>> & {
+    this_is_a_non_standard_field_of_reasoning?: string;
+    custom_meta?: { trace_id: string };
+  };
+  assertEquals(result.this_is_a_non_standard_field_of_reasoning, 'experimental_value');
+  assertEquals(result.custom_meta, { trace_id: 'abc' });
+});
+
+test('reassembleMessagesEvents preserves unknown fields on a content_block', async () => {
+  const body = makeEvents([
+    { data: { type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-test', usage: { input_tokens: 5, output_tokens: 0 } } } },
+    {
+      data: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: 'hello', vendor_trace: 'opaque-trace-123' },
+      },
+    },
+    { data: { type: 'content_block_stop', index: 0 } },
+    { data: { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } } },
+    { data: { type: 'message_stop' } },
+  ]);
+
+  const result = await reassembleMessagesEvents(body);
+  const block = result.content[0] as { type: string; thinking: string; vendor_trace?: string };
+  assertEquals(block.type, 'thinking');
+  assertEquals(block.thinking, 'hello');
+  assertEquals(block.vendor_trace, 'opaque-trace-123');
+});

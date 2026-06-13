@@ -193,6 +193,17 @@ findings, printing commands, and announcing the next step are inlined
 *alongside* the next tool call in the same turn — never as a standalone
 turn that ends and waits.
 
+When the user's request is the deploy itself — the human asked to deploy
+and not to deploy as the tail of a wider piece of work — git is read-only
+for the duration of the deploy flow. This constraint covers git only;
+code and config edits are not bound by it and remain a per-situation
+judgement call. Inspection commands such as `git branch`, `git status`,
+`git log`, `git diff`, and `git show` are fine and are often needed to
+gather state for Step 1 and Step 2. Anything that mutates repository
+state is forbidden: `git stash`, `git reset`, `git checkout` of files or
+branches, `git commit`, `git rebase`, `git merge`, `git pull`,
+`git push`, and any branch or tag creation/deletion.
+
 Substitute `<WORKER_NAME>` (top-level `name`) and `<DB_NAME>` (the D1
 binding's `database_name`) from `wrangler.jsonc` wherever those
 placeholders appear below.

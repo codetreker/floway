@@ -39,6 +39,42 @@ test('translateMessagesToChatCompletions treats empty output_config.effort as ab
   assertEquals(result.reasoning_effort, 'none');
 });
 
+test('translateMessagesToChatCompletions maps thinking.enabled to reasoning_effort medium regardless of budget_tokens', () => {
+  for (const budget of [undefined, 1024, 16384]) {
+    const result = translateMessagesToChatCompletions({
+      model: 'gpt-test',
+      max_tokens: 4096,
+      thinking: budget === undefined ? { type: 'enabled' } : { type: 'enabled', budget_tokens: budget },
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+
+    assertEquals(result.reasoning_effort, 'medium');
+  }
+});
+
+test('translateMessagesToChatCompletions maps thinking.adaptive to reasoning_effort medium', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 4096,
+    thinking: { type: 'adaptive' },
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.reasoning_effort, 'medium');
+});
+
+test('translateMessagesToChatCompletions prefers output_config.effort over thinking.enabled', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 4096,
+    output_config: { effort: 'high' },
+    thinking: { type: 'enabled', budget_tokens: 1024 },
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.reasoning_effort, 'high');
+});
+
 test('translateMessagesToChatCompletions keeps tool_result and user text as separate chat messages', () => {
   const result = translateMessagesToChatCompletions({
     model: 'gpt-test',
