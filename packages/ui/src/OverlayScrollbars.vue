@@ -133,7 +133,7 @@ defineExpose({
   >
     <div
       ref="contentWrapperRef"
-      data-overlayscrollbars-contents=""
+      :data-overlayscrollbars-contents="shouldUseOverlay ? '' : undefined"
       :class="contentClass"
     >
       <slot :os-enabled="shouldUseOverlay" />
