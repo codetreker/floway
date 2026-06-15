@@ -206,7 +206,7 @@ test('/api/performance rejects group_by=userId in self-by-key mode', async () =>
   assertEquals(body.error, 'group_by=userId is not allowed in self-by-key mode');
 });
 
-test('/api/performance/overview series pivots to per-user under all-by-user view', async () => {
+test('/api/performance/overview series stays per-model under all-by-user view', async () => {
   const { repo, adminSession, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: 'key_other',
@@ -235,9 +235,10 @@ test('/api/performance/overview series pivots to per-user under all-by-user view
 
   assertEquals(response.status, 200);
   const body = await response.json();
-  // Series is now grouped by user; both rows show up.
+  // Series stays per-model regardless of view — the page is a latency analysis,
+  // and per-user lines have no useful meaning there.
   const seriesGroups = body.series.map((r: { group: string; requests: number }) => [r.group, r.requests]).sort();
-  assertEquals(seriesGroups, [['1', 1], ['2', 1]]);
+  assertEquals(seriesGroups, [['gpt-5', 2]]);
   assertEquals(body.users.map((u: { id: number }) => u.id).sort(), [1, 2]);
 });
 
