@@ -855,14 +855,14 @@ test('POST /api/upstreams accepts proxy_fallback_list and surfaces it in the res
 
   const resp = await requestApp(
     '/api/upstreams',
-    authed(adminSession, createBody({ proxy_fallback_list: ['p_fallback', 'direct'] })),
+    authed(adminSession, createBody({ proxy_fallback_list: [{ id: 'p_fallback' }, { id: 'direct' }] })),
   );
   assertEquals(resp.status, 201);
   const created = (await resp.json()) as Record<string, any>;
-  assertEquals(created.proxy_fallback_list, ['p_fallback', 'direct']);
+  assertEquals(created.proxy_fallback_list, [{ id: 'p_fallback' }, { id: 'direct' }]);
 
   const stored = await repo.upstreams.getById(created.id);
-  assertEquals(stored?.proxyFallbackList, ['p_fallback', 'direct']);
+  assertEquals(stored?.proxyFallbackList, [{ id: 'p_fallback' }, { id: 'direct' }]);
 });
 
 test('POST /api/upstreams normalises proxy_fallback_list duplicates so the response matches what GET returns', async () => {
@@ -872,19 +872,19 @@ test('POST /api/upstreams normalises proxy_fallback_list duplicates so the respo
 
   const resp = await requestApp(
     '/api/upstreams',
-    authed(adminSession, createBody({ proxy_fallback_list: ['p_fallback', 'direct', 'p_fallback', 'direct'] })),
+    authed(adminSession, createBody({ proxy_fallback_list: [{ id: 'p_fallback' }, { id: 'direct' }, { id: 'p_fallback' }, { id: 'direct' }] })),
   );
   assertEquals(resp.status, 201);
   const created = (await resp.json()) as Record<string, any>;
   // Without the API-layer normalize, the response would echo the duplicates
   // while the saved row only kept one of each — operators would see a
   // different list on POST vs the next GET.
-  assertEquals(created.proxy_fallback_list, ['p_fallback', 'direct']);
+  assertEquals(created.proxy_fallback_list, [{ id: 'p_fallback' }, { id: 'direct' }]);
 
   const get = await requestApp('/api/upstreams', authed(adminSession));
   const list = (await get.json()) as Array<Record<string, any>>;
   const fresh = list.find(u => u.id === created.id);
-  assertEquals(fresh!.proxy_fallback_list, ['p_fallback', 'direct']);
+  assertEquals(fresh!.proxy_fallback_list, [{ id: 'p_fallback' }, { id: 'direct' }]);
 });
 
 test('PATCH /api/upstreams sets proxy_fallback_list', async () => {
@@ -893,17 +893,17 @@ test('PATCH /api/upstreams sets proxy_fallback_list', async () => {
   await repo.proxies.insert({ id: 'p_fallback', name: 'Fallback', url: 'socks5://198.51.100.10:1080', dialTimeoutSeconds: null });
 
   const create = await requestApp('/api/upstreams', authed(adminSession, createBody()));
-  const created = (await create.json()) as { id: string; proxy_fallback_list: string[] };
+  const created = (await create.json()) as { id: string; proxy_fallback_list: { id: string; colos?: string[] }[] };
   assertEquals(created.proxy_fallback_list, []);
 
   const patch = await requestApp(`/api/upstreams/${created.id}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json', 'x-floway-session': adminSession },
-    body: JSON.stringify({ proxy_fallback_list: ['p_fallback', 'direct'] }),
+    body: JSON.stringify({ proxy_fallback_list: [{ id: 'p_fallback' }, { id: 'direct' }] }),
   });
   assertEquals(patch.status, 200);
   const updated = (await patch.json()) as Record<string, any>;
-  assertEquals(updated.proxy_fallback_list, ['p_fallback', 'direct']);
+  assertEquals(updated.proxy_fallback_list, [{ id: 'p_fallback' }, { id: 'direct' }]);
 });
 
 test('PATCH /api/upstreams rejects proxy_fallback_list referencing an unknown proxy id', async () => {
@@ -916,7 +916,7 @@ test('PATCH /api/upstreams rejects proxy_fallback_list referencing an unknown pr
   const patch = await requestApp(`/api/upstreams/${created.id}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json', 'x-floway-session': adminSession },
-    body: JSON.stringify({ proxy_fallback_list: ['nope'] }),
+    body: JSON.stringify({ proxy_fallback_list: [{ id: 'nope' }] }),
   });
   assertEquals(patch.status, 400);
   const body = (await patch.json()) as { error: string };
@@ -928,7 +928,7 @@ test('DELETE /api/upstreams sweeps orphaned proxy backoff rows', async () => {
   await repo.upstreams.deleteAll();
   await repo.proxies.insert({ id: 'p_a', name: 'A', url: 'socks5://198.51.100.10:1080', dialTimeoutSeconds: null });
 
-  const create = await requestApp('/api/upstreams', authed(adminSession, createBody({ proxy_fallback_list: ['p_a'] })));
+  const create = await requestApp('/api/upstreams', authed(adminSession, createBody({ proxy_fallback_list: [{ id: 'p_a' }] })));
   const created = (await create.json()) as { id: string };
 
   await repo.proxyBackoffs.recordDialFailure('p_a', created.id, 'tcp refused');

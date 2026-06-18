@@ -446,6 +446,7 @@ interface ShimState {
   upstreamIds: readonly string[] | null;
   backgroundScheduler: GatewayCtx['backgroundScheduler'];
   runtimeLocation: string;
+  currentColo: string | null;
   downstreamAbortSignal: AbortSignal | undefined;
   imageDispatchCount: number;
 }
@@ -756,7 +757,7 @@ const streamImageGeneration = (
   sources: readonly ImageSource[],
   state: ShimState,
 ) => async function* (): AsyncGenerator<ServerToolLifecycleEvent, ServerToolTerminal> {
-  const fetcherForUpstream = await createPerRequestFetcher();
+  const fetcherForUpstream = await createPerRequestFetcher(state.currentColo);
   const resolved = await resolveImageBinding(isEdit, state, fetcherForUpstream);
   if (!resolved.ok) return imageTerminal(prompt, action, { ok: false, error: resolved.error });
   const { binding } = resolved;
@@ -957,6 +958,7 @@ export const imageGenerationServerTool: ServerToolRegistration = (invocation, ga
     upstreamIds: gatewayCtx.upstreamIds,
     backgroundScheduler: gatewayCtx.backgroundScheduler,
     runtimeLocation: gatewayCtx.runtimeLocation,
+    currentColo: gatewayCtx.currentColo,
     downstreamAbortSignal: gatewayCtx.abortSignal,
     imageDispatchCount: 0,
   };

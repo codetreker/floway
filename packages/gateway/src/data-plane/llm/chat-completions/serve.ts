@@ -26,6 +26,7 @@ export const chatCompletionsServe = {
             : endpoints.responses ? 'responses'
               : null,
       scheduler: ctx.backgroundScheduler,
+      currentColo: ctx.currentColo,
     });
     const decision = await planChatCompletionsRouting({ payload, candidates, store });
     if (decision.kind === 'failure') return renderChatCompletionsFailure(decision.failure);

@@ -4,6 +4,11 @@ export type UpstreamProviderKind = 'custom' | 'azure' | 'copilot' | 'codex';
 
 export type ModelKind = 'chat' | 'embedding' | 'image';
 
+export interface ProxyFallbackEntry {
+  id: string;
+  colos?: string[];
+}
+
 // A present key means the model is served by that endpoint.
 export interface ModelEndpoints {
   chatCompletions?: {};
@@ -134,10 +139,12 @@ export interface UpstreamRecord {
   // longer present in the live model list.
   disabled_public_model_ids: string[];
   config: CustomUpstreamConfig | AzureUpstreamConfig | CopilotUpstreamConfig | CodexUpstreamConfig;
-  // Ordered fallback dial-list. Each entry is either a proxy id from the
-  // proxies table or the literal string `direct` (no proxy). Empty list means
-  // "always direct".
-  proxy_fallback_list: string[];
+  // Ordered fallback dial-list. Each entry pins a proxy id (or the literal
+  // string `'direct'` for "no proxy") and an optional `colos` whitelist that
+  // scopes the entry to specific Cloudflare colos / Node RUNTIME_LOCATION
+  // tags. Empty/missing whitelist means "active in all colos". Empty top-
+  // level list means "always direct".
+  proxy_fallback_list: ProxyFallbackEntry[];
   // Codex is the only provider that ships gateway-managed state on the row
   // today; the other providers serialize this as null.
   state: CodexUpstreamState | null;

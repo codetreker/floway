@@ -26,6 +26,7 @@ const baseCtx = (overrides: Partial<GatewayCtx> = {}): GatewayCtx => {
     wantsStream: true,
     requestStartedAt: 0,
     runtimeLocation: 'test',
+    currentColo: null,
     abortSignal: downstream.signal,
     downstreamAbortController: downstream,
     backgroundScheduler: promise => { void promise; },

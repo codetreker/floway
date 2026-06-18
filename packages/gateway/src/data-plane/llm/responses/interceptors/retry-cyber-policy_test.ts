@@ -42,6 +42,7 @@ const stubCtx = (overrides: { abortSignal?: AbortSignal } = {}): GatewayCtx => (
   upstreamIds: null,
   wantsStream: true,
   runtimeLocation: 'test',
+  currentColo: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
   ...overrides,
@@ -154,6 +155,7 @@ const performanceFor = (modelKey: string) => ({
   modelKey,
   stream: true,
   runtimeLocation: 'test',
+  currentColo: null,
 });
 
 const upstreamCyberPolicyError = (message: string): ExecuteResult<ProtocolFrame<ResponsesStreamEvent>> => ({

@@ -2,6 +2,18 @@ import type { ModelKind, ModelEndpoints, ModelPricing } from '@floway-dev/protoc
 
 export type UpstreamProviderKind = 'copilot' | 'custom' | 'azure' | 'codex';
 
+// One entry in `UpstreamRecord.proxyFallbackList`. `id` is the proxy id from
+// the proxies catalog or the literal 'direct' sentinel. `colos` is an
+// optional whitelist of Cloudflare colos / Node `RUNTIME_LOCATION` tags;
+// when set, the dial layer only attempts this entry from a request that
+// landed in one of the listed colos. Missing means "all colos". An empty
+// array is never persisted — the wire schema rejects it and the repo
+// normalizer strips it.
+export interface ProxyFallbackEntry {
+  id: string;
+  colos?: string[];
+}
+
 // One upstream's persisted record. `config` is a per-provider opaque payload;
 // `state` is gateway-managed runtime data.
 export interface UpstreamRecord {
@@ -22,10 +34,7 @@ export interface UpstreamRecord {
   // id is hidden from the catalog and unroutable, but its row metadata stays
   // editable. Entries may reference ids no longer present in the live model list.
   disabledPublicModelIds: string[];
-  // Ordered list of proxy ids (or the literal 'direct') the upstream falls back
-  // through when its primary dial path is exhausted. Empty means no proxy
-  // fallback configured.
-  proxyFallbackList: string[];
+  proxyFallbackList: ProxyFallbackEntry[];
 }
 
 // Model identity attached to every provider result at the provider boundary

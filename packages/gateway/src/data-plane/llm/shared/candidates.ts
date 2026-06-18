@@ -11,7 +11,7 @@ export type { ProviderCandidate };
 // "model is missing entirely" failure from "model exists but does not
 // expose the endpoint this source needs".
 export const enumerateProviderCandidates = async ({
-  upstreamIds, model, pickTarget, scheduler,
+  upstreamIds, model, pickTarget, scheduler, currentColo,
 }: {
   // null = unrestricted; empty list = no providers visible.
   upstreamIds: readonly string[] | null;
@@ -21,8 +21,12 @@ export const enumerateProviderCandidates = async ({
   // lookup hits the SWR-cached `fetchUpstreamModelsCached` instead of
   // round-tripping to the upstream on every LLM serve.
   scheduler: BackgroundScheduler;
+  // Current colo for this data-plane request — see GatewayCtx.currentColo.
+  // Threaded into the per-request fetcher so colo-scoped fallback entries
+  // can be honoured at dial time.
+  currentColo: string | null;
 }): Promise<{ readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean }> => {
-  const fetcherForUpstream = await createPerRequestFetcher();
+  const fetcherForUpstream = await createPerRequestFetcher(currentColo);
   const providers = await listModelProviders(upstreamIds);
   const candidates: ProviderCandidate[] = [];
   let sawModel = false;

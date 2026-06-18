@@ -1,4 +1,4 @@
-import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import type { ProxyFallbackEntry, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import type { CodexQuotaSnapshot } from '@floway-dev/provider-codex';
 
 export interface ModelsCacheStatus {
@@ -16,7 +16,7 @@ export interface SerializedUpstreamRecord {
   updated_at: string;
   flag_overrides: Record<string, boolean>;
   disabled_public_model_ids: string[];
-  proxy_fallback_list: string[];
+  proxy_fallback_list: ProxyFallbackEntry[];
   config: unknown;
   state: unknown;
   // SWR models-cache freshness joined from the models_cache table by the
@@ -122,7 +122,7 @@ const serializeBase = (
   updated_at: upstream.updatedAt,
   flag_overrides: { ...upstream.flagOverrides },
   disabled_public_model_ids: [...upstream.disabledPublicModelIds],
-  proxy_fallback_list: [...upstream.proxyFallbackList],
+  proxy_fallback_list: upstream.proxyFallbackList.map(entry => entry.colos === undefined ? { id: entry.id } : { id: entry.id, colos: [...entry.colos] }),
   config: payload.config,
   state: payload.state,
 });

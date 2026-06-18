@@ -180,7 +180,7 @@ test('DELETE /api/proxies/:id returns 204 when no upstream references the proxy'
 test('DELETE /api/proxies/:id returns 409 when an upstream references the proxy', async () => {
   const { repo, adminSession, copilotUpstream } = await setupAppTest();
   await repo.proxies.insert({ id: 'p_ref', name: 'Referenced', url: HTTP_URL, dialTimeoutSeconds: null });
-  await repo.upstreams.save({ ...copilotUpstream, proxyFallbackList: ['p_ref'] });
+  await repo.upstreams.save({ ...copilotUpstream, proxyFallbackList: [{ id: 'p_ref' }] });
 
   const resp = await requestApp('/api/proxies/p_ref', deleteAuthed(adminSession));
   assertEquals(resp.status, 409);

@@ -4,6 +4,7 @@ import { MODEL_LISTING_FAILURE_MESSAGE } from './shared.ts';
 import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
+import { getCurrentColo } from '../../runtime/runtime-info.ts';
 import { geminiStatusForHttpStatus } from '../llm/gemini/errors.ts';
 import { getInternalModels } from '../providers/registry.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
@@ -73,7 +74,7 @@ const loadGeminiModels = async (
 
 export const serveGeminiModels = async (c: Context): Promise<Response> => {
   try {
-    const fetcherForUpstream = await createPerRequestFetcher();
+    const fetcherForUpstream = await createPerRequestFetcher(getCurrentColo(c.req.raw));
     return Response.json({ models: await loadGeminiModels(effectiveUpstreamIdsFromContext(c), fetcherForUpstream, backgroundSchedulerFromContext(c)) });
   } catch (error) {
     return geminiModelLoadError(error);
@@ -86,7 +87,7 @@ export const serveGeminiModelInfo = async (c: Context): Promise<Response> => {
 
   const modelId = rawModelId.replace(/^models\//, '');
   try {
-    const fetcherForUpstream = await createPerRequestFetcher();
+    const fetcherForUpstream = await createPerRequestFetcher(getCurrentColo(c.req.raw));
     const model = (await loadGeminiModels(effectiveUpstreamIdsFromContext(c), fetcherForUpstream, backgroundSchedulerFromContext(c))).find(candidate => candidate.baseModelId === modelId || candidate.name === `models/${modelId}`);
     if (!model) return geminiError(404, `Model not found: ${modelId}`);
     return Response.json(model);

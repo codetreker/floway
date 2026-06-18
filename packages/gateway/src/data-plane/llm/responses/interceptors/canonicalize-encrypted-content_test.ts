@@ -14,6 +14,7 @@ const stubCtx: GatewayCtx = {
   upstreamIds: null,
   wantsStream: false,
   runtimeLocation: 'test',
+  currentColo: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
 };

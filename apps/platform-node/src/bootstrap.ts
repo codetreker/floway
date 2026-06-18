@@ -11,6 +11,7 @@ import {
   initFileProvider,
   initImageCacheStore,
   initImageProcessor,
+  initRuntimeKind,
   initSocketDial,
   type SqlDatabase,
 } from '@floway-dev/platform';
@@ -24,6 +25,7 @@ export interface NodePlatformOptions {
 // userspace-TLS handshake.
 export const bootstrapNodePlatform = (opts: NodePlatformOptions): { db: SqlDatabase } => {
   initEnv(name => process.env[name] ?? '');
+  initRuntimeKind('node');
   initFileProvider(new FsFileProvider(opts.filesDir));
   initSocketDial(nodeSocketDial);
   addTrustedRootCAs(nodeRuntimeRootCAs);

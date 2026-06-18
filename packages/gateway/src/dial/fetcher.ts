@@ -1,8 +1,8 @@
-import { DIRECT_PROXY_ID } from '../repo/proxy-fallback-list.ts';
+import { DIRECT_PROXY_ID, entryMatchesColo } from '../repo/proxy-fallback-list.ts';
 import type { Repo } from '../repo/types.ts';
 import type { HttpRequest } from '@floway-dev/http';
 import { normalizeDialHost } from '@floway-dev/platform';
-import type { Fetcher } from '@floway-dev/provider';
+import type { Fetcher, ProxyFallbackEntry } from '@floway-dev/provider';
 import { isAbortError } from '@floway-dev/provider';
 import { ProxyDialError, type ProxyConfig, type ProxyRequestTarget, type RunProxiedRequestOptions, type SocketDial } from '@floway-dev/proxy';
 
@@ -18,8 +18,12 @@ export interface ProxyEntry {
 interface CreateFetcherInput {
   repo: Pick<Repo, 'proxyBackoffs'>;
   upstreamId: string;
-  fallbackList: string[];
+  fallbackList: ProxyFallbackEntry[];
   proxyById: Map<string, ProxyEntry>;
+  // Current Cloudflare colo (or Node RUNTIME_LOCATION) the data-plane request
+  // landed in; null on deployments without a colo concept. See
+  // `entryMatchesColo` for the filter rule.
+  currentColo: string | null;
   // Injected so the fetcher stays runtime-agnostic — the composition root
   // chooses the concrete dial/fetch implementations.
   runProxied: (
@@ -70,7 +74,11 @@ interface ProxiedRequest {
 // and the next attempt's wrap immediately overwrites the prior duration on
 // settle. The all-fail tail throws without anyone reading the duration.
 export const createFetcher = (input: CreateFetcherInput): Fetcher => {
-  const list = input.fallbackList.length > 0 ? input.fallbackList : [DIRECT_PROXY_ID];
+  // Colo filter precedes the implicit-['direct'] collapse so a fully-excluded
+  // list behaves like an empty list and gets the direct fallback, rather than
+  // throwing because pass 1 had no candidates.
+  const matched = input.fallbackList.filter(entry => entryMatchesColo(entry, input.currentColo));
+  const list = matched.length > 0 ? matched.map(entry => entry.id) : [DIRECT_PROXY_ID];
   // If `direct` precedes any non-direct entry, runtime fetch may take
   // ownership of `init.body` and consume its underlying stream/Blob.
   // Buffer the body up-front so a runtime that re-streams a Blob can't

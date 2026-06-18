@@ -19,7 +19,8 @@ import {
 import ModelsPanel from './ModelsPanel.vue';
 import UpstreamConfigPanel from './UpstreamConfigPanel.vue';
 import { authFetch, callApi, useApi } from '../../api/client.ts';
-import type { AzureUpstreamConfig, CopilotQuotaSnapshot, CustomRawModel, CustomUpstreamConfig, FlagDef, ModelEndpoints, UpstreamModelConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import type { AzureUpstreamConfig, CopilotQuotaSnapshot, CustomRawModel, CustomUpstreamConfig, FlagDef, ModelEndpoints, ProxyFallbackEntry, UpstreamModelConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import { useRuntimeInfo } from '../../composables/useRuntimeInfo.ts';
 import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
 import { Button } from '@floway-dev/ui';
 
@@ -47,6 +48,9 @@ const emit = defineEmits<{
 const router = useRouter();
 const api = useApi();
 const upstreamsStore = useUpstreamsStore();
+const { info: runtimeInfo } = useRuntimeInfo();
+const coloAware = computed(() => runtimeInfo.value?.kind === 'cloudflare');
+const currentColo = computed(() => runtimeInfo.value?.colo ?? null);
 
 type CreateBody = InferRequestType<typeof api.api.upstreams.$post>['json'];
 type PatchBody = InferRequestType<(typeof api.api.upstreams)[':id']['$patch']>['json'];
@@ -57,7 +61,7 @@ const enabled = ref(true);
 const sortOrder = ref<number>(props.nextSortOrder);
 const flagOverrides = ref<Record<string, boolean>>({});
 const disabledPublicModelIds = ref<string[]>([]);
-const proxyFallbackList = ref<string[]>([]);
+const proxyFallbackList = ref<ProxyFallbackEntry[]>([]);
 const customDraft = ref<CustomDraft>(blankCustomDraft());
 const azureDraft = ref<AzureDraft>(blankAzureDraft());
 
@@ -83,7 +87,7 @@ const seedFromRecord = (r: UpstreamRecord) => {
   sortOrder.value = r.sort_order;
   flagOverrides.value = { ...r.flag_overrides };
   disabledPublicModelIds.value = [...r.disabled_public_model_ids];
-  proxyFallbackList.value = [...r.proxy_fallback_list];
+  proxyFallbackList.value = r.proxy_fallback_list.map(e => ({ id: e.id, ...(e.colos ? { colos: [...e.colos] } : {}) }));
 
   if (r.provider === 'custom') {
     const cfg = r.config as CustomUpstreamConfig;
@@ -474,6 +478,8 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :mode="mode"
         :record="record"
         :flags="flags"
+        :colo-aware="coloAware"
+        :current-colo="currentColo"
         :custom-bearer-token-set="customBearerTokenSet"
         :azure-api-key-set="azureApiKeySet"
         :fetch-loading="fetchLoading"

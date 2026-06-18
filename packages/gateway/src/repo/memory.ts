@@ -779,7 +779,7 @@ class MemoryProxyRepo implements ProxyRepo {
     // between a prior findUpstreamsReferencing read and this delete is
     // rejected at the storage layer.
     const upstreams = await this.upstreams.list();
-    if (upstreams.some(u => u.proxyFallbackList.includes(id))) return false;
+    if (upstreams.some(u => u.proxyFallbackList.some(e => e.id === id))) return false;
     return this.store.delete(id);
   }
 
@@ -808,7 +808,7 @@ class MemoryProxyRepo implements ProxyRepo {
 
   async findUpstreamsReferencing(proxyId: string): Promise<string[]> {
     const upstreams = await this.upstreams.list();
-    return upstreams.filter(u => u.proxyFallbackList.includes(proxyId)).map(u => u.id);
+    return upstreams.filter(u => u.proxyFallbackList.some(e => e.id === proxyId)).map(u => u.id);
   }
 }
 

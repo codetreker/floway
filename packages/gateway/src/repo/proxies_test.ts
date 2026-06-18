@@ -4,7 +4,7 @@ import { InMemoryRepo } from './memory.ts';
 import { SqlRepo } from './sql.ts';
 import { createSqliteTestDb } from './test-sqlite.ts';
 import type { Repo } from './types.ts';
-import type { UpstreamRecord } from '@floway-dev/provider';
+import type { ProxyFallbackEntry, UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals } from '@floway-dev/test-utils';
 
 // Both backends must agree on the proxies repo contract.
@@ -17,7 +17,7 @@ const REPO_BACKENDS: Array<readonly [string, () => Promise<Repo>]> = [
   ['sql', async () => new SqlRepo(await createSqliteTestDb())],
 ];
 
-const upstreamFixture = (id: string, proxyFallbackList: string[]): UpstreamRecord => ({
+const upstreamFixture = (id: string, proxyFallbackList: ProxyFallbackEntry[]): UpstreamRecord => ({
   id,
   provider: 'custom',
   name: id,
@@ -47,9 +47,9 @@ for (const [backend, makeRepo] of REPO_BACKENDS) {
   test(`[${backend}] proxies repo findUpstreamsReferencing returns ids of upstreams whose fallback list contains the proxy`, async () => {
     const repo = await makeRepo();
     await repo.proxies.insert({ id: 'p', name: 'P', url: 'socks5://host:1080', dialTimeoutSeconds: null });
-    await repo.upstreams.save(upstreamFixture('up_1', ['p', 'direct']));
-    await repo.upstreams.save(upstreamFixture('up_2', ['direct', 'p']));
-    await repo.upstreams.save(upstreamFixture('up_3', ['direct']));
+    await repo.upstreams.save(upstreamFixture('up_1', [{ id: 'p' }, { id: 'direct' }]));
+    await repo.upstreams.save(upstreamFixture('up_2', [{ id: 'direct' }, { id: 'p' }]));
+    await repo.upstreams.save(upstreamFixture('up_3', [{ id: 'direct' }]));
 
     const ids = (await repo.proxies.findUpstreamsReferencing('p')).toSorted();
     assertEquals(ids, ['up_1', 'up_2']);

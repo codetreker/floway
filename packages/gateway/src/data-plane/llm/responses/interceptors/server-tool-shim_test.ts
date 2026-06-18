@@ -344,6 +344,7 @@ const makeGatewayCtx = (apiKeyId: string = 'k1'): GatewayCtx => ({
   upstreamIds: null,
   wantsStream: true,
   runtimeLocation: 'test',
+  currentColo: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
 });
@@ -4483,6 +4484,7 @@ test('downstream AbortSignal threads through to provider search / fetchPage and 
     upstreamIds: null,
     wantsStream: true,
     runtimeLocation: 'test',
+    currentColo: null,
     backgroundScheduler: () => {},
     requestStartedAt: 0,
     abortSignal: controller.signal,

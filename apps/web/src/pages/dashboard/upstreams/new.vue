@@ -5,11 +5,12 @@ import { useRoute } from 'vue-router';
 import type { UpstreamProviderKind } from '../../../api/types.ts';
 import UpstreamEditPage from '../../../components/upstream-edit/UpstreamEditPage.vue';
 import { useProxiesStore } from '../../../composables/useProxies.ts';
+import { useRuntimeInfo } from '../../../composables/useRuntimeInfo.ts';
 import { useUpstreamsStore } from '../../../composables/useUpstreams.ts';
 
 export const useNewUpstreamData = defineBasicLoader(async () => {
   const store = useUpstreamsStore();
-  await Promise.all([store.load(), useProxiesStore().load()]);
+  await Promise.all([store.load(), useProxiesStore().load(), useRuntimeInfo().load()]);
   const list = store.upstreams.value ?? [];
   const nextSortOrder = list.reduce((acc, u) => Math.max(acc, u.sort_order), -1) + 1;
   return {

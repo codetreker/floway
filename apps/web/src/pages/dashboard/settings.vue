@@ -14,6 +14,7 @@ import SearchConfigSection from '../../components/settings/SearchConfigSection.v
 import UpstreamsSettingsCard from '../../components/settings/UpstreamsSettingsCard.vue';
 import { useModelsStore } from '../../composables/useModels.ts';
 import { useProxiesStore } from '../../composables/useProxies.ts';
+import { useRuntimeInfo } from '../../composables/useRuntimeInfo.ts';
 import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
 
 const defaultSearchConfig: SearchConfig = {
@@ -29,6 +30,7 @@ export const useSettingsPageData = defineBasicLoader(async () => {
     useUpstreamsStore().load(),
     useModelsStore().load(),
     useProxiesStore().load(),
+    useRuntimeInfo().load(),
   ]);
   return {
     searchConfig: searchRes.data ?? defaultSearchConfig,

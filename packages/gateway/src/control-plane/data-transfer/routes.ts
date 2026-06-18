@@ -13,7 +13,7 @@ import { fetchUpstreamModelsCached } from '../../data-plane/providers/models-cac
 import { createProviderInstance } from '../../data-plane/providers/registry.ts';
 import { parseSearchConfigDefault, parseSearchConfigStrict } from '../../data-plane/tools/web-search/search-config.ts';
 import type { SearchConfig } from '../../data-plane/tools/web-search/types.ts';
-import { createPerRequestFetcher } from '../../dial/per-request.ts';
+import { createPerRequestFetcherForAdmin } from '../../dial/per-request.ts';
 import { type CtxWithJson, type CtxWithQuery } from '../../middleware/zod-validator.ts';
 import { parseDisabledPublicModelIdsWire } from '../../repo/disabled-public-models.ts';
 import { getRepo } from '../../repo/index.ts';
@@ -28,7 +28,7 @@ import { copilotConfigField, isRecord, nonEmptyStringField } from '../shared/fie
 import { type SerializedUpstreamRecord, upstreamRecordToFullJson } from '../upstreams/serialize.ts';
 import { BILLING_DIMENSIONS, type ModelPricing } from '@floway-dev/protocols/common';
 import { parseFlagOverridesWire } from '@floway-dev/provider';
-import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import type { ProxyFallbackEntry, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import { assertAzureUpstreamRecord } from '@floway-dev/provider-azure';
 import { assertCodexUpstreamRecord, assertCodexUpstreamState } from '@floway-dev/provider-codex';
 import { assertCustomUpstreamRecord } from '@floway-dev/provider-custom';
@@ -102,13 +102,29 @@ const normalizeUpstreamState = (provider: UpstreamProviderKind, value: unknown):
   return value;
 };
 
-const parseProxyFallbackListField = (value: unknown): string[] => {
+const parseProxyFallbackListField = (value: unknown): ProxyFallbackEntry[] => {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error('proxy_fallback_list must be an array');
-  for (const entry of value) {
-    if (typeof entry !== 'string') throw new Error('proxy_fallback_list entries must be strings');
+  const entries: ProxyFallbackEntry[] = [];
+  for (const raw of value) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error('proxy_fallback_list entries must be objects');
+    }
+    const entry = raw as { id?: unknown; colos?: unknown };
+    if (typeof entry.id !== 'string') throw new Error('proxy_fallback_list entry .id must be a string');
+    let colos: string[] | undefined;
+    if (entry.colos !== undefined) {
+      if (!Array.isArray(entry.colos)) throw new Error('proxy_fallback_list entry .colos must be an array');
+      const list: string[] = [];
+      for (const c of entry.colos) {
+        if (typeof c !== 'string') throw new Error('proxy_fallback_list entry .colos members must be strings');
+        list.push(c);
+      }
+      colos = list;
+    }
+    entries.push(colos === undefined ? { id: entry.id } : { id: entry.id, colos });
   }
-  return normalizeProxyFallbackList(value as string[]);
+  return normalizeProxyFallbackList(entries);
 };
 
 const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRecord[] } | { type: 'invalid'; index: number; error: string } => {
@@ -214,8 +230,8 @@ const validateProxyFallbackReferences = (
   knownIds.add(DIRECT_PROXY_ID);
   for (const upstream of upstreams) {
     for (const ref of upstream.proxyFallbackList) {
-      if (!knownIds.has(ref)) {
-        return `upstream ${upstream.id} references unknown proxy ${ref}`;
+      if (!knownIds.has(ref.id)) {
+        return `upstream ${upstream.id} references unknown proxy ${ref.id}`;
       }
     }
   }
@@ -527,7 +543,7 @@ const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: Perform
 const warmModelsCache = async (record: UpstreamRecord, c: Context): Promise<void> => {
   const scheduler = backgroundSchedulerFromContext(c);
   const instance = await createProviderInstance(record);
-  const fetcher = (await createPerRequestFetcher())(record.id);
+  const fetcher = (await createPerRequestFetcherForAdmin())(record.id);
   try {
     await fetchUpstreamModelsCached(instance, { scheduler, fetcher, force: true });
   } catch (err) {

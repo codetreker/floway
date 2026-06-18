@@ -35,6 +35,7 @@ export const geminiServe = {
       // Chat Completions, then Messages, then Responses.
       pickTarget: endpoints => endpoints.chatCompletions ? 'chat-completions' : endpoints.messages ? 'messages' : endpoints.responses ? 'responses' : null,
       scheduler: ctx.backgroundScheduler,
+      currentColo: ctx.currentColo,
     });
     const decision = await planGeminiRouting({ payload, candidates, store });
     if (decision.kind === 'failure') return renderGeminiFailure(decision.failure, 'generate');
@@ -65,6 +66,7 @@ export const geminiServe = {
       // → Messages and call Messages count_tokens upstream.
       pickTarget: endpoints => endpoints.messages ? 'messages' : null,
       scheduler: ctx.backgroundScheduler,
+      currentColo: ctx.currentColo,
     });
     const decision = await planGeminiRouting({ payload, candidates, store });
     if (decision.kind === 'failure') return renderGeminiFailure(decision.failure, 'countTokens');

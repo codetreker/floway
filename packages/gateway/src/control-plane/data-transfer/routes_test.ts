@@ -719,7 +719,7 @@ test('export includes proxies with full credential URIs and round-trips through 
   const { app, repo } = setup();
   await repo.proxies.save({ id: 'p_socks', name: 'SOCKS', url: SOCKS_PROXY_URL, dialTimeoutSeconds: 45 });
   await repo.proxies.save({ id: 'p_http', name: 'HTTP', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
-  const upstreamWithFallback: UpstreamRecord = { ...CUSTOM_UPSTREAM, proxyFallbackList: ['p_socks', 'p_http', 'direct'] };
+  const upstreamWithFallback: UpstreamRecord = { ...CUSTOM_UPSTREAM, proxyFallbackList: [{ id: 'p_socks' }, { id: 'p_http' }, { id: 'direct' }] };
   await repo.upstreams.save(upstreamWithFallback);
 
   const exported = await doExport(app);
@@ -744,7 +744,7 @@ test('export includes proxies with full credential URIs and round-trips through 
   ]);
 
   const restoredUpstream = await fresh.upstreams.getById(upstreamWithFallback.id);
-  assertEquals(restoredUpstream?.proxyFallbackList, ['p_socks', 'p_http', 'direct']);
+  assertEquals(restoredUpstream?.proxyFallbackList, [{ id: 'p_socks' }, { id: 'p_http' }, { id: 'direct' }]);
 });
 
 test('import in replace mode rejects an upstream fallback reference that does not resolve to an imported proxy', async () => {
@@ -752,7 +752,7 @@ test('import in replace mode rejects an upstream fallback reference that does no
   await repo.upstreams.save(CUSTOM_UPSTREAM);
 
   const result = await doImport(app, 'replace', latestImportData({
-    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: ['p_missing', 'direct'] }],
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: [{ id: 'p_missing' }, { id: 'direct' }] }],
     proxies: [],
   }));
 
@@ -770,14 +770,14 @@ test('import in merge mode accepts an upstream fallback reference that resolves 
   // local proxies table, so this is a legitimate reference that must not be
   // rejected as dangling.
   const result = await doImport(app, 'merge', latestImportData({
-    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: ['p_local', 'direct'] }],
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: [{ id: 'p_local' }, { id: 'direct' }] }],
     proxies: [],
   }));
 
   assertEquals(result.status, 200);
   assertEquals(result.body.imported.upstreams, 1);
   const restored = await repo.upstreams.getById(CUSTOM_UPSTREAM.id);
-  assertEquals(restored?.proxyFallbackList, ['p_local', 'direct']);
+  assertEquals(restored?.proxyFallbackList, [{ id: 'p_local' }, { id: 'direct' }]);
 });
 
 test('import in merge mode rejects an upstream fallback reference that resolves to neither an imported nor an existing proxy', async () => {
@@ -785,7 +785,7 @@ test('import in merge mode rejects an upstream fallback reference that resolves 
   await repo.proxies.save({ id: 'p_local', name: 'Local', url: HTTP_PROXY_URL, dialTimeoutSeconds: null });
 
   const result = await doImport(app, 'merge', latestImportData({
-    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: ['p_phantom'] }],
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), proxy_fallback_list: [{ id: 'p_phantom' }] }],
     proxies: [],
   }));
 

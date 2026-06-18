@@ -55,6 +55,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
 
     assertEquals(candidates.length, 1);
@@ -74,6 +75,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
 
     assertEquals(candidates.length, 0);
@@ -93,6 +95,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
 
     assertEquals(candidates.length, 0);
@@ -111,6 +114,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
 
     assertEquals(candidates.length, 2);
@@ -130,6 +134,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
 
     assertEquals(candidates.length, 2);
@@ -151,6 +156,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
 
     assertEquals(candidates.length, 1);
@@ -167,6 +173,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessagesOrResponses,
       scheduler: testScheduler,
+      currentColo: null,
     });
     assertEquals(msgCandidates.length, 1);
     assertEquals(msgCandidates[0].targetApi, 'messages');
@@ -176,6 +183,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickResponses,
       scheduler: testScheduler,
+      currentColo: null,
     });
     assertEquals(resCandidates.length, 1);
     assertEquals(resCandidates[0].targetApi, 'responses');
@@ -191,6 +199,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickAny,
       scheduler: testScheduler,
+      currentColo: null,
     });
     assertEquals(anyCandidates.length, 1);
     assertEquals(anyCandidates[0].targetApi, 'chat-completions');
@@ -200,6 +209,7 @@ describe('enumerateProviderCandidates', () => {
       model: 'test-model',
       pickTarget: pickMessages,
       scheduler: testScheduler,
+      currentColo: null,
     });
     assertEquals(msgCandidates.length, 0);
     // pickTarget filtered out, but the model exists — sawModel stays true.

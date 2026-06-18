@@ -10,6 +10,7 @@ import {
   initFileProvider,
   initImageCacheStore,
   initImageProcessor,
+  initRuntimeKind,
   initSocketDial,
   type SqlDatabase,
 } from '@floway-dev/platform';
@@ -45,6 +46,7 @@ export const bootstrapCloudflarePlatform = (env: CloudflareEnv): { db: SqlDataba
     }
     return String(value);
   });
+  initRuntimeKind('cloudflare');
   initFileProvider(new R2FileProvider(env.FILES));
   initImageCacheStore(new KvImageCache(env.KV, IMAGE_CACHE_POLICY));
   initImageProcessor(createCloudflareImageProcessor(env.IMAGES));

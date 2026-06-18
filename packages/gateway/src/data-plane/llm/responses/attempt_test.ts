@@ -22,6 +22,7 @@ const makeGatewayCtx = (): GatewayCtx => ({
   upstreamIds: null,
   wantsStream: true,
   runtimeLocation: 'test',
+  currentColo: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
 });

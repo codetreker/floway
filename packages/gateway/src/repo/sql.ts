@@ -40,7 +40,7 @@ import { generateSessionToken } from '../shared/session-tokens.ts';
 import { assertWebSearchProviderName } from '../shared/web-search-providers.ts';
 import type { SqlDatabase, SqlPreparedStatement, SqlResult } from '@floway-dev/platform';
 import { BILLING_DIMENSIONS, type BillingDimension, type ModelPricing, unitPriceForDimension } from '@floway-dev/protocols/common';
-import type { UpstreamModel, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import type { ProxyFallbackEntry, UpstreamModel, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 
 const runStatements = async (db: SqlDatabase, statements: SqlPreparedStatement[]): Promise<SqlResult[]> => {
   if (statements.length === 0) return [];
@@ -1310,7 +1310,7 @@ const parseDisabledPublicModelIds = (id: string, json: string): string[] => {
   return normalizeDisabledPublicModelIds(parsed as string[]);
 };
 
-const parseProxyFallbackList = (id: string, json: string): string[] => {
+const parseProxyFallbackList = (id: string, json: string): ProxyFallbackEntry[] => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -1320,12 +1320,31 @@ const parseProxyFallbackList = (id: string, json: string): string[] => {
   if (!Array.isArray(parsed)) {
     throw new Error(`Upstream ${id} proxy_fallback_list_json must be a JSON array, got ${parsed === null ? 'null' : typeof parsed}`);
   }
-  for (const entry of parsed) {
-    if (typeof entry !== 'string') {
-      throw new Error(`Upstream ${id} proxy_fallback_list_json entries must be strings, got ${typeof entry}`);
+  const entries: ProxyFallbackEntry[] = [];
+  for (const raw of parsed) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`Upstream ${id} proxy_fallback_list_json entries must be objects, got ${raw === null ? 'null' : Array.isArray(raw) ? 'array' : typeof raw}`);
     }
+    const entry = raw as { id?: unknown; colos?: unknown };
+    if (typeof entry.id !== 'string') {
+      throw new Error(`Upstream ${id} proxy_fallback_list entry .id must be a string, got ${typeof entry.id}`);
+    }
+    let colos: string[] | undefined;
+    if (entry.colos !== undefined) {
+      if (!Array.isArray(entry.colos)) {
+        throw new Error(`Upstream ${id} proxy_fallback_list entry .colos must be an array when set, got ${typeof entry.colos}`);
+      }
+      colos = [];
+      for (const c of entry.colos) {
+        if (typeof c !== 'string') {
+          throw new Error(`Upstream ${id} proxy_fallback_list entry .colos members must be strings, got ${typeof c}`);
+        }
+        colos.push(c);
+      }
+    }
+    entries.push(colos === undefined ? { id: entry.id } : { id: entry.id, colos });
   }
-  return normalizeProxyFallbackList(parsed as string[]);
+  return normalizeProxyFallbackList(entries);
 };
 
 class SqlProxyRepo implements ProxyRepo {
@@ -1404,7 +1423,7 @@ class SqlProxyRepo implements ProxyRepo {
          WHERE id = ?
            AND NOT EXISTS (
              SELECT 1 FROM upstreams u, json_each(u.proxy_fallback_list_json) j
-             WHERE j.value = proxies.id
+             WHERE json_extract(j.value, '$.id') = proxies.id
            )`,
       )
       .bind(id)
@@ -1433,10 +1452,10 @@ class SqlProxyRepo implements ProxyRepo {
 
   async findUpstreamsReferencing(proxyId: string): Promise<string[]> {
     // json_each unrolls the upstreams.proxy_fallback_list_json array into
-    // virtual rows so the predicate matches by element. Both D1 and node:sqlite
-    // ship the json1 extension.
+    // virtual rows so the predicate matches by element. Both D1 and
+    // node:sqlite ship the json1 extension.
     const { results } = await this.db
-      .prepare('SELECT DISTINCT u.id FROM upstreams u, json_each(u.proxy_fallback_list_json) j WHERE j.value = ?')
+      .prepare("SELECT DISTINCT u.id FROM upstreams u, json_each(u.proxy_fallback_list_json) j WHERE json_extract(j.value, '$.id') = ?")
       .bind(proxyId)
       .all<{ id: string }>();
     return results.map(row => row.id);

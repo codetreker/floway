@@ -33,6 +33,7 @@ export {
 export type {
   InternalModel,
   PerformanceTelemetryContext,
+  ProxyFallbackEntry,
   TelemetryModelIdentity,
   UpstreamModel,
   UpstreamProviderKind,
