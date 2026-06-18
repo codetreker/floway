@@ -1,7 +1,8 @@
 # AGENTS.md
 
-> **Fork 维护 / 发布：先读根目录 `FORK_SOP.md`。** 每次 sync upstream 或发布 prod
-> 前必读，那是发布流程的 single source of truth（2026-06-12 事故换来的纪律）。
+> **Fork 维护 / sync 上游：先读根目录 `FORK_SOP.md`。**
+> **发布 prod / 回滚：先读根目录 `DEPLOY_SOP.md`。**
+> 两个都是流程的 single source of truth（2026-06-12 事故换来的纪律），对应场景必读。
 
 ## Hard Rules
 
