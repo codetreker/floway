@@ -1,5 +1,8 @@
 # AGENTS.md
 
+> **Fork 维护 / 发布：先读根目录 `FORK_SOP.md`。** 每次 sync upstream 或发布 prod
+> 前必读，那是发布流程的 single source of truth（2026-06-12 事故换来的纪律）。
+
 ## Hard Rules
 
 - Do not open a Pull Request without explicit human approval. The human must
