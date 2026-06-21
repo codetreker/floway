@@ -103,6 +103,12 @@ export const createMessagesStreamUsageState = () => ({
 
 type MessagesStreamUsageState = ReturnType<typeof createMessagesStreamUsageState>;
 
+// Returns a snapshot of the running usage on every frame that revises it, not
+// only on `message_stop`, so the observer can checkpoint billing state into
+// `SourceStreamState.usage` as the stream progresses. A client disconnect that
+// races the terminal frame would otherwise discard the last `message_delta`'s
+// output count. Each call returns a fresh object so the snapshot stored in
+// `SourceStreamState.usage` does not silently mutate when the next delta lands.
 export const tokenUsageFromMessagesFrame = (frame: ProtocolFrame<MessagesStreamEvent>, state: MessagesStreamUsageState) => {
   if (frame.type !== 'event') return null;
   const { event } = frame;
@@ -113,13 +119,15 @@ export const tokenUsageFromMessagesFrame = (frame: ProtocolFrame<MessagesStreamE
     // every input-side dimension, not bare input alone — otherwise a later
     // delta carrying input_tokens re-merges and drops the cache counts.
     state.gotInputFromStart ||= (state.current.input ?? 0) + (state.current.input_cache_read ?? 0) + (state.current.input_cache_write ?? 0) + (state.current.input_cache_write_1h ?? 0) > 0;
+    return { ...state.current };
   }
   if (event.type === 'message_delta' && event.usage) {
     if (!state.gotInputFromStart && event.usage.input_tokens !== undefined) {
       state.current = tokenUsageFromMessagesUsage(event.usage);
     } else state.current.output = event.usage.output_tokens;
+    return { ...state.current };
   }
-  return event.type === 'message_stop' ? state.current : null;
+  return event.type === 'message_stop' ? { ...state.current } : null;
 };
 
 const internalMessagesErrorPayload = (error: InternalDebugError) => ({
