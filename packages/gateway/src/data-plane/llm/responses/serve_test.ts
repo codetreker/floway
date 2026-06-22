@@ -559,3 +559,86 @@ test('generate reuses an existing input row when a later turn echoes the same us
   if (turn1InputId === undefined || turn2InputId === undefined) throw new Error('expected each snapshot to start with a staged input item');
   assertEquals(turn2InputId, turn1InputId);
 });
+
+test('generate treats compaction_trigger-bearing input as compaction: snapshot replaces prior history with the compaction output alone, trigger reaches the wire but never stores a row', async () => {
+  const repo = installRepo();
+
+  // Seed a prior conversation: one user message + a snapshot pointing at it.
+  // The compacting turn references that snapshot via previous_response_id, so
+  // generate without the trigger would normally append [prior items + this
+  // turn's input + output] into the new snapshot. The trigger flips that to
+  // 'replace' so the new snapshot only carries the compaction blob — the
+  // whole point of compaction is to drop the prior history.
+  const priorMessageId = createStoredResponsesItemId('message');
+  await repo.responsesItems.insertMany([{
+    id: priorMessageId,
+    apiKeyId: API_KEY_ID,
+    upstreamId: null,
+    upstreamItemId: null,
+    itemType: 'message',
+    origin: 'input',
+    contentHash: null,
+    encryptedContentHash: null,
+    payload: { item: { type: 'message', id: priorMessageId, role: 'user', content: 'old turn' } },
+    createdAt: 1_000,
+    refreshedAt: 1_000,
+  }]);
+  await repo.responsesSnapshots.insert({
+    id: 'resp_before_compact',
+    apiKeyId: API_KEY_ID,
+    itemIds: [priorMessageId],
+    createdAt: 1_000,
+    refreshedAt: 1_000,
+  });
+
+  let receivedInput: unknown = null;
+  const callResponses = vi.fn(async (_model: unknown, body: unknown): Promise<ProviderStreamResult<ResponsesStreamEvent>> => {
+    receivedInput = (body as { input: unknown }).input;
+    return {
+      ok: true,
+      events: makeProtocolFrames([{
+        type: 'response.completed',
+        sequence_number: 0,
+        response: {
+          ...makeResponsesResult(),
+          output: [{ type: 'compaction', id: 'upstream_cmp_id', encrypted_content: 'ENC' }] as unknown as ResponsesResult['output'],
+        },
+      }]),
+      modelKey: 'test-model-key',
+      headers: new Headers(),
+    };
+  });
+  queueCandidates([makeCandidate({ upstream: 'up_a', callResponses })]);
+
+  const result = await responsesServe.generate({
+    payload: makePayload({
+      previous_response_id: 'resp_before_compact',
+      input: [{ type: 'compaction_trigger' }],
+    }),
+    ctx: makeGatewayCtx(),
+    store: createResponsesHttpStore(API_KEY_ID, true),
+    headers: new Headers(),
+  });
+
+  if (result.type !== 'events') throw new Error('expected events');
+  const events = await collectEvents(result.events);
+  const completed = events.find(e => e.type === 'response.completed') as Extract<ResponsesStreamEvent, { type: 'response.completed' }>;
+  const responseId = completed.response.id;
+
+  // 'replace' semantics: only the new compaction row, no item_reference to
+  // priorMessageId and no row for the trigger. (The test would also throw
+  // outright at `stageInputItem` if the trigger early-return regressed,
+  // since createStoredResponsesItemId('compaction_trigger') has no prefix.)
+  const snap = await repo.responsesSnapshots.lookup(API_KEY_ID, responseId);
+  if (snap === null) throw new Error('expected snapshot to be persisted');
+  assertEquals(snap.itemIds.length, 1);
+  const onlyItemId = snap.itemIds[0];
+  if (onlyItemId === undefined) throw new Error('unreachable');
+  assertEquals(onlyItemId.startsWith('cmp_'), true);
+
+  // The trigger still reaches the upstream — the gateway only intercepts at
+  // the storage seam, not on the wire. The expanded prefix puts item_reference
+  // first, the trigger last.
+  if (!Array.isArray(receivedInput)) throw new Error('expected the wire input to be an array');
+  assertEquals((receivedInput.at(-1) as { type?: unknown })?.type, 'compaction_trigger');
+});

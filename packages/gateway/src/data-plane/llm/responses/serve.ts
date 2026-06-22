@@ -25,6 +25,15 @@ export interface ResponsesServeCompactArgs {
   readonly headers: Headers;
 }
 
+// Codex's RemoteCompactionV2 performs compaction through the generate path
+// by appending a `compaction_trigger` control item to the input. Semantically
+// this is the same operation as `/responses/compact`: the upstream replaces
+// the prior history with a single `compaction` output, and any later
+// `previous_response_id` should resolve to that blob alone — not the dropped
+// history. Treat such a request like compact at the snapshot seam.
+const containsCompactionTrigger = (input: ResponsesPayload['input']): boolean =>
+  typeof input !== 'string' && input.some(item => item.type === 'compaction_trigger');
+
 export const responsesServe = {
   generate: async (args: ResponsesServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
     const { payload, ctx, store, snapshotMode = 'append', headers } = args;
@@ -37,7 +46,10 @@ export const responsesServe = {
               : null,
     });
     if (plan.kind === 'failure') return plan.result;
-    return await responsesAttempt.generate({ payload: plan.prepared, ctx, store, candidate: plan.candidate, snapshotMode, headers });
+    const effectiveSnapshotMode: ResponsesSnapshotMode = snapshotMode !== 'none' && containsCompactionTrigger(plan.prepared.input)
+      ? 'replace'
+      : snapshotMode;
+    return await responsesAttempt.generate({ payload: plan.prepared, ctx, store, candidate: plan.candidate, snapshotMode: effectiveSnapshotMode, headers });
   },
 
   compact: async (args: ResponsesServeCompactArgs): Promise<ResponsesAttemptResult> => {

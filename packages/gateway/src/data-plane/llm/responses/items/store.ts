@@ -268,6 +268,15 @@ export class LayeredStatefulResponsesStore implements StatefulResponsesStore {
   }
 
   private async stageInputItem(item: ResponsesInputItem): Promise<void> {
+    // `compaction_trigger` is a per-request control signal, not content:
+    // payload-free, idless, never persisted in codex's own rollout/history,
+    // and never re-sent on subsequent turns. A trigger-bearing generate is
+    // treated as a compaction (serve forces snapshotMode='replace') so the
+    // next snapshot is the resulting `compaction` blob alone; this row
+    // would have no reader. Skipping it also keeps `createStoredResponsesItemId`
+    // from minting a prefix for a type that never needs one.
+    if (item.type === 'compaction_trigger') return;
+
     if (item.type === 'item_reference') {
       const row = this.getItemById(item.id);
       if (row === undefined) throw new Error(`Cannot stage unresolved Responses item_reference id=${item.id}`);

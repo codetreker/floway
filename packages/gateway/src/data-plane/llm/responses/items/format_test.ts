@@ -62,6 +62,16 @@ test('throws for unknown item types instead of using a generic fallback prefix',
   assertThrows(() => createTemporaryResponsesItemId('unknown_item'), TypeError, 'Unknown Responses item type');
 });
 
+// `compaction_trigger` is intentionally absent from the prefix map. It is a
+// per-request control signal (payload-free, idless, never re-sent on later
+// turns) that is filtered out in `stageInputItem`, so no stored row is ever
+// minted for it. The throw here is the regression test: it pins the invariant
+// that nobody adds a prefix back without also re-introducing a use case.
+test('rejects compaction_trigger — a control signal that should never be stored', () => {
+  assertThrows(() => createStoredResponsesItemId('compaction_trigger'), TypeError, 'Unknown Responses item type');
+  assertThrows(() => createTemporaryResponsesItemId('compaction_trigger'), TypeError, 'Unknown Responses item type');
+});
+
 test('successive stored ids for the same item type collide-free under random body', () => {
   const seen = new Set<string>();
   for (let i = 0; i < 1024; i += 1) {
