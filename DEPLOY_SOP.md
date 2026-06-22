@@ -25,8 +25,10 @@
 3. **回滚命令是发布的前置交付物，不是事后产物。** 发布前先打印完整回滚命令并贴频道。
    （06-12：回滚 bookmark 执行时才临时取，部署一挂就没了，建军登机器翻半天才找到。）
 
-4. **回滚目标版本 = 上一个 `prod-*` tag，不许肉眼取 current version。**
+4. **回滚目标版本 = 上一个 good `prod-*` tag，不许肉眼取 current version。**
    （06-12：回滚取了 current = 4 月老版 0495548e，正确是 8b6d3e5d → 二次翻车 1101 错误。）
+   `rollback.sh` 自动列最近 3 个 `prod-*` tag + 日期供你确认选择（不再硬编码、也不盲选 head-1，
+   因为"上一个 good"在部署成功后才发现炸的场景里是 head-2，destructive 操作由人在回路定）。
 
 5. **每次吸上游后的首发，必须确认 `wrangler.jsonc` 定制项没丢**（deploy.sh STEP1 已断言，但人也要看）。
    （06-12：漏 `run_worker_first` 白名单 `/azure-api.codex/*` + `nodejs_compat` → codex WS 全挂。）
@@ -64,22 +66,19 @@ node deploy-scripts/ws_test_staging.js
 cd /workspace/copilot-gateway && git checkout main && git pull origin main
 
 # 1) ⚠️ 红线3：发布前先生成完整回滚命令并贴频道
-#    a. 查上一个 good tag（= 回滚代码目标）
+#    a. 查上一个 good tag（= 回滚代码目标，仅供贴频道告知，脚本会自动列）
 git tag --list 'prod-*' --sort=-creatordate | head -3
 #    b. 生成迁移前时间戳锚点（RFC3339），deploy/rollback 用同一个值
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "回滚: ./deploy-scripts/rollback.sh ${TS}  (代码基线 = 上一个 prod-* tag)"
+echo "回滚: ./deploy-scripts/rollback.sh ${TS}  (脚本会列 prod-* tag 让你选代码基线)"
 #    → 把这行 + 上一个 prod-* tag 贴到 #project-copilot-gateway
 
-# 2) ⚠️ 红线4：把 rollback.sh 的 DEPLOY_BASELINE 改成"上一个 prod-* tag 的 commit"
-#    （当前脚本硬编码 5aed8a9d，每次发布前更新它指向上一个 good tag）
-
-# 3) 执行部署
+# 2) 执行部署
 #    deploy.sh 内含：时间戳校验 → wrangler.jsonc 断言（红线5）→ DB 备份 →
 #                    migration → wrangler deploy → 真实 completion 验证（红线1）
 ./deploy-scripts/deploy.sh ${TS}
 
-# 4) 部署成功 → 打 tag（红线4 的下次回滚目标）
+# 3) 部署成功 → 打 tag（红线4 的下次回滚目标）
 git tag prod-$(date +%Y%m%d)        # 同日二次发布加 -2
 git push origin prod-$(date +%Y%m%d)
 ```
@@ -94,7 +93,7 @@ git push origin prod-$(date +%Y%m%d)
 # 数据先回 → 代码后回，两者绑死（红线2）。用发布时同一个时间戳。
 ./deploy-scripts/rollback.sh <发布时的同一个 RFC3339 时间戳>
 #   STEP A: time-travel restore --timestamp（数据回到迁移前）
-#   STEP B: 代码回滚到 DEPLOY_BASELINE（= 上一个 prod-* tag commit）— 脚本打印手动命令
+#   STEP B: 脚本先列最近 prod-* tag 让你选代码基线 → 打印手动 checkout 命令
 #   STEP C: 跑真实 completion 验证（红线1，返回 391 才算好）
 ```
 
@@ -111,5 +110,5 @@ git push origin prod-$(date +%Y%m%d)
 - [ ] `wrangler.jsonc`：codex 白名单 + nodejs_compat + prod db_id 都在
 - [ ] 看过 migrations 有无破坏性变更；有 → 回滚预案就绪
 - [ ] 发布前完整回滚命令 + 上一个 prod-* tag 已贴频道
-- [ ] `rollback.sh` 的 `DEPLOY_BASELINE` = 上一个 prod-* tag commit
 - [ ] 发布成功后打了 `prod-YYYYMMDD` tag 并 push
+      （回滚时 `rollback.sh` 会自动列 tag 让你选基线，无需手动改脚本）
