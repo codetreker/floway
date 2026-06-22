@@ -1,3 +1,4 @@
+import { appendFailedUpstreams } from '../../shared/failed-upstreams.ts';
 import type { LlmServeFailure } from '../shared/errors.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
@@ -32,8 +33,8 @@ export const renderMessagesFailure = (
   case 'routing-unavailable':
     return anthropicErrorResult(400, 'invalid_request_error', failure.message);
   case 'model-missing':
-    return anthropicErrorResult(404, 'not_found_error', `Model ${failure.model} is not available on any configured upstream.`);
+    return anthropicErrorResult(404, 'not_found_error', appendFailedUpstreams(`Model ${failure.model} is not available on any configured upstream.`, failure.failedUpstreams));
   case 'model-unsupported':
-    return anthropicErrorResult(400, 'invalid_request_error', `Model ${failure.model} does not support the ${endpointPath} endpoint.`);
+    return anthropicErrorResult(400, 'invalid_request_error', appendFailedUpstreams(`Model ${failure.model} does not support the ${endpointPath} endpoint.`, failure.failedUpstreams));
   }
 };

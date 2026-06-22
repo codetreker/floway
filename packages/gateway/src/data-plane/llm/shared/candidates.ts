@@ -9,7 +9,9 @@ export type { ProviderCandidate };
 // Returns the candidates that satisfy both the model resolution and the
 // target-endpoint pick, plus a `sawModel` flag that distinguishes the
 // "model is missing entirely" failure from "model exists but does not
-// expose the endpoint this source needs".
+// expose the endpoint this source needs", plus the names of upstreams
+// whose catalog fetch rejected this round so the caller's failure
+// renderer can surface them parenthetically.
 export const enumerateProviderCandidates = async ({
   upstreamIds, model, pickTarget, scheduler, currentColo,
 }: {
@@ -25,23 +27,46 @@ export const enumerateProviderCandidates = async ({
   // Threaded into the per-request fetcher so colo-scoped fallback entries
   // can be honoured at dial time.
   currentColo: string | null;
-}): Promise<{ readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean }> => {
+}): Promise<{ readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean; readonly failedUpstreams: readonly string[] }> => {
   const fetcherForUpstream = await createPerRequestFetcher(currentColo);
   const providers = await listModelProviders(upstreamIds);
+
+  // Fan out per-upstream and recover each rejection as a "this upstream
+  // has no models for this request" result rather than propagating the
+  // first failure: one upstream past HARD whose force re-fetch fails
+  // must not poison routing for other upstreams. The cache layer
+  // already memoizes in-flight fetches per upstream so the parallel
+  // walk does not multiply upstream round trips. Results are kept in
+  // input order so candidate priority (first viable candidate wins)
+  // matches the configured provider order.
+  const settled = await Promise.allSettled(providers.map(provider =>
+    resolveModelForProvider(provider, model, fetcherForUpstream(provider.upstream), scheduler)
+      .then(resolved => ({ provider, resolved }))));
+
   const candidates: ProviderCandidate[] = [];
+  const failedUpstreams: string[] = [];
   let sawModel = false;
 
-  for (const provider of providers) {
-    const fetcher = fetcherForUpstream(provider.upstream);
-    const resolved = await resolveModelForProvider(provider, model, fetcher, scheduler);
+  for (const [index, result] of settled.entries()) {
+    const provider = providers[index];
+    if (result.status === 'rejected') {
+      const error = result.reason;
+      // Caller-driven cancellation must propagate; see the matching
+      // guard in `collectProviderModels`.
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      failedUpstreams.push(provider.name);
+      continue;
+    }
+
+    const { resolved } = result.value;
     if (!resolved) continue;
     sawModel = true;
 
     const targetApi = pickTarget(resolved.binding.upstreamModel.endpoints);
     if (!targetApi) continue;
 
-    candidates.push({ provider, binding: resolved.binding, targetApi, fetcher });
+    candidates.push({ provider, binding: resolved.binding, targetApi, fetcher: fetcherForUpstream(provider.upstream) });
   }
 
-  return { candidates, sawModel };
+  return { candidates, sawModel, failedUpstreams };
 };

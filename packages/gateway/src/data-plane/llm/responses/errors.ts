@@ -1,3 +1,4 @@
+import { appendFailedUpstreams } from '../../shared/failed-upstreams.ts';
 import type { LlmServeFailure } from '../shared/errors.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesStreamEvent } from '@floway-dev/protocols/responses';
@@ -28,8 +29,8 @@ export const renderResponsesFailure = (
   case 'routing-unavailable':
     return openAiErrorResult(400, failure.message, { param: 'input', code: 'responses_item_routing_unavailable' });
   case 'model-missing':
-    return openAiErrorResult(404, `Model ${failure.model} is not available on any configured upstream.`);
+    return openAiErrorResult(404, appendFailedUpstreams(`Model ${failure.model} is not available on any configured upstream.`, failure.failedUpstreams));
   case 'model-unsupported':
-    return openAiErrorResult(400, `Model ${failure.model} does not support the /responses endpoint.`);
+    return openAiErrorResult(400, appendFailedUpstreams(`Model ${failure.model} does not support the /responses endpoint.`, failure.failedUpstreams));
   }
 };

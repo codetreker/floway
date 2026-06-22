@@ -13,6 +13,10 @@ interface ProviderModelsResult {
   models: ResolvedModel[];
   sawSuccess: boolean;
   lastError: unknown;
+  // Upstream names whose catalog fetch rejected this round, in the same
+  // order as the input `providers` list so the model-missing renderer can
+  // surface a stable, dashboard-aligned list.
+  failedUpstreams: string[];
 }
 
 const NO_UPSTREAM_CONFIGURED_MESSAGE = 'No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard';
@@ -102,6 +106,7 @@ const collectProviderModels = async (
   const byId = new Map<string, ResolvedModel>();
   let sawSuccess = false;
   let lastError: unknown = null;
+  const failedUpstreams: string[] = [];
 
   // Fan out per-upstream so a slow provider does not stall the rest. The SWR
   // cache layer dedupes concurrent in-flight fetches per upstream and serves
@@ -116,7 +121,7 @@ const collectProviderModels = async (
 
   const settled = await Promise.allSettled(providers.map(fetchOne));
 
-  for (const result of settled) {
+  for (const [index, result] of settled.entries()) {
     if (result.status === 'rejected') {
       // Caller-driven cancellation must propagate. Burying it in lastError
       // and letting an earlier sawSuccess return a partially-populated
@@ -125,6 +130,7 @@ const collectProviderModels = async (
       const error = result.reason;
       if (error instanceof Error && error.name === 'AbortError') throw error;
       lastError = error;
+      failedUpstreams.push(providers[index].name);
       continue;
     }
     sawSuccess = true;
@@ -159,7 +165,7 @@ const collectProviderModels = async (
     }
   }
 
-  return { models: [...byId.values()], sawSuccess, lastError };
+  return { models: [...byId.values()], sawSuccess, lastError, failedUpstreams };
 };
 
 const modelWithProviderInstances = (model: ResolvedModel, providers: ReadonlySet<ModelProviderInstance>): ResolvedModel => {
@@ -238,6 +244,12 @@ export const getInternalModels = async (
 interface ModelResolution {
   id: string;
   model?: ResolvedModel;
+  // Upstream names whose catalog fetch rejected during this resolution.
+  // Threaded out so the caller's failure renderer can mention them
+  // parenthetically — same data the dashboard's `modelsCache.lastError`
+  // surfaces, but inlined into the per-request 404/400 so a client sees
+  // why their model might be temporarily missing.
+  failedUpstreams: readonly string[];
 }
 
 interface ProviderModelResolution {
@@ -280,18 +292,20 @@ export const resolveModelForRequest = async (
     throw new Error(NO_UPSTREAM_CONFIGURED_MESSAGE);
   }
 
-  const { models, lastError } = await collectProviderModels(providers, fetcherForUpstream, scheduler);
+  const { models, failedUpstreams } = await collectProviderModels(providers, fetcherForUpstream, scheduler);
   const byId = new Map(models.map(model => [model.id, model]));
 
   const exact = byId.get(modelId);
-  if (exact) return { id: exact.id, model: exact };
+  if (exact) return { id: exact.id, model: exact, failedUpstreams };
 
   const alias = resolveProviderAlias(providers, byId, modelId);
-  if (alias) return { id: alias.id, model: alias };
+  if (alias) return { id: alias.id, model: alias, failedUpstreams };
 
-  if (lastError) throw lastError;
-
-  return { id: modelId };
+  // Treat a failing upstream as "no models from that upstream right now"
+  // rather than rethrowing its catalog error — other upstreams still
+  // route, and the failed list is handed back so the caller's failure
+  // body can name the affected upstreams.
+  return { id: modelId, failedUpstreams };
 };
 
 const providerModelRecord = (instance: ModelProviderInstance, upstreamModel: UpstreamModel): ProviderModelRecord => ({

@@ -1,3 +1,4 @@
+import { appendFailedUpstreams } from '../../shared/failed-upstreams.ts';
 import type { LlmServeFailure } from '../shared/errors.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiStreamEvent } from '@floway-dev/protocols/gemini';
@@ -48,8 +49,8 @@ export const renderGeminiFailure = (
   case 'routing-unavailable':
     return geminiRpcErrorResult(400, failure.message);
   case 'model-missing':
-    return geminiRpcErrorResult(404, `Model ${failure.model} is not available on any configured upstream.`);
+    return geminiRpcErrorResult(404, appendFailedUpstreams(`Model ${failure.model} is not available on any configured upstream.`, failure.failedUpstreams));
   case 'model-unsupported':
-    return geminiRpcErrorResult(400, `Model ${failure.model} does not support ${endpoint === 'countTokens' ? 'countTokens' : 'the Gemini generateContent endpoint'}.`);
+    return geminiRpcErrorResult(400, appendFailedUpstreams(`Model ${failure.model} does not support ${endpoint === 'countTokens' ? 'countTokens' : 'the Gemini generateContent endpoint'}.`, failure.failedUpstreams));
   }
 };

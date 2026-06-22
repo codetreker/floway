@@ -88,7 +88,7 @@ export const prepareResponsesServePlan = async (args: {
 }): Promise<ResponsesServePlan> => {
   const { payload, ctx, store, pickTarget } = args;
   const prepared = await expandPreviousResponseId(payload, store);
-  const { candidates, sawModel } = await enumerateProviderCandidates({
+  const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
     upstreamIds: ctx.upstreamIds,
     model: prepared.model,
     pickTarget,
@@ -114,8 +114,8 @@ export const prepareResponsesServePlan = async (args: {
       kind: 'failure',
       result: renderResponsesFailure(
         sawModel
-          ? { kind: 'model-unsupported', model: prepared.model }
-          : { kind: 'model-missing', model: prepared.model },
+          ? { kind: 'model-unsupported', model: prepared.model, failedUpstreams }
+          : { kind: 'model-missing', model: prepared.model, failedUpstreams },
       ),
     };
   }

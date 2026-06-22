@@ -1,10 +1,11 @@
 import { describe, test } from 'vitest';
 
 import { enumerateProviderCandidates } from './candidates.ts';
-import { setupAppTest } from '../../../test-helpers.ts';
+import { buildCustomUpstreamRecord, setupAppTest } from '../../../test-helpers.ts';
+import { clearInFlightForTesting } from '../../providers/models-cache.ts';
 import type { ModelEndpoints } from '@floway-dev/protocols/common';
 import type { LlmTargetApi, UpstreamRecord } from '@floway-dev/provider';
-import { assertEquals } from '@floway-dev/test-utils';
+import { assertEquals, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
 // Drains SWR background revalidate so a rejection surfaces in the runner
 // instead of being swallowed.
@@ -214,5 +215,88 @@ describe('enumerateProviderCandidates', () => {
     assertEquals(msgCandidates.length, 0);
     // pickTarget filtered out, but the model exists — sawModel stays true.
     assertEquals(sawModel, true);
+  });
+
+  // Regression: a single upstream whose catalog fetch rejects must not poison
+  // the loop. The healthy upstreams still produce candidates and the broken
+  // upstream's display name surfaces via failedUpstreams so the eventual
+  // serve-side error renderer can mention it.
+  test('a single rejecting upstream does not block candidates from healthy upstreams', async () => {
+    clearInFlightForTesting();
+    const { repo } = await setupAppTest();
+    await repo.upstreams.deleteAll();
+    await repo.upstreams.save(buildCustomUpstreamRecord({
+      id: 'up_broken',
+      name: 'Broken upstream',
+      sortOrder: 1,
+      config: { baseUrl: 'https://broken.example.com', bearerToken: 'sk-x', endpoints: { messages: {} } },
+    }));
+    await repo.upstreams.save(azureUpstream('up_ok', 2, ['test-model'], { messages: {} }));
+
+    await withMockedFetch(
+      request => {
+        const url = new URL(request.url);
+        if (url.hostname === 'broken.example.com' && url.pathname === '/v1/models') {
+          return jsonResponse({ error: 'upstream went down' }, 502);
+        }
+        throw new Error(`Unhandled fetch ${request.url}`);
+      },
+      async () => {
+        const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
+          upstreamIds: null,
+          model: 'test-model',
+          pickTarget: pickMessages,
+          scheduler: testScheduler,
+          currentColo: null,
+        });
+
+        assertEquals(candidates.length, 1);
+        assertEquals(candidates[0].provider.upstream, 'up_ok');
+        assertEquals(sawModel, true);
+        assertEquals(failedUpstreams, ['Broken upstream']);
+      },
+    );
+  });
+
+  // When every upstream's catalog rejects, the request gets an empty candidate
+  // list and sawModel=false — the LLM serve sites turn that into model-missing
+  // with the failed-upstream parenthetical attached.
+  test('all upstreams rejecting yields no candidates, sawModel=false, and every name in failedUpstreams', async () => {
+    clearInFlightForTesting();
+    const { repo } = await setupAppTest();
+    await repo.upstreams.deleteAll();
+    await repo.upstreams.save(buildCustomUpstreamRecord({
+      id: 'up_a',
+      name: 'A',
+      sortOrder: 1,
+      config: { baseUrl: 'https://a.example.com', bearerToken: 'sk-x', endpoints: { messages: {} } },
+    }));
+    await repo.upstreams.save(buildCustomUpstreamRecord({
+      id: 'up_b',
+      name: 'B',
+      sortOrder: 2,
+      config: { baseUrl: 'https://b.example.com', bearerToken: 'sk-x', endpoints: { messages: {} } },
+    }));
+
+    await withMockedFetch(
+      request => {
+        const url = new URL(request.url);
+        if (url.pathname === '/v1/models') return jsonResponse({ error: 'down' }, 502);
+        throw new Error(`Unhandled fetch ${request.url}`);
+      },
+      async () => {
+        const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
+          upstreamIds: null,
+          model: 'test-model',
+          pickTarget: pickMessages,
+          scheduler: testScheduler,
+          currentColo: null,
+        });
+
+        assertEquals(candidates.length, 0);
+        assertEquals(sawModel, false);
+        assertEquals(failedUpstreams, ['A', 'B']);
+      },
+    );
   });
 });

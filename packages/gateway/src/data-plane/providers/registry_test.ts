@@ -524,3 +524,54 @@ test('getInternalModels: a rejected provider does not block other providers', as
     },
   );
 });
+
+// Regression: when an upstream's force re-fetch rejects past HARD, the call
+// site asking for a model belonging to one of the *healthy* upstreams must
+// still resolve. The broken upstream's display name flows back via
+// `failedUpstreams` so the eventual error renderer can mention it.
+test('resolveModelForRequest: healthy upstream still resolves alongside a rejecting one, with failedUpstreams reported', async () => {
+  clearInFlightForTesting();
+  const { repo } = await setupAppTest();
+  await repo.upstreams.deleteAll();
+
+  await repo.upstreams.save(buildCustomUpstreamRecord({
+    id: 'up_broken',
+    name: 'Broken upstream',
+    sortOrder: 1,
+    config: { baseUrl: 'https://broken.example.com', bearerToken: 'sk-x', endpoints: { chatCompletions: {} } },
+  }));
+  await repo.upstreams.save(buildCustomUpstreamRecord({
+    id: 'up_ok',
+    name: 'Healthy upstream',
+    sortOrder: 2,
+    config: { baseUrl: 'https://ok.example.com', bearerToken: 'sk-x', endpoints: { chatCompletions: {} } },
+  }));
+
+  await withMockedFetch(
+    request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'broken.example.com' && url.pathname === '/v1/models') {
+        return jsonResponse({ error: 'upstream went down' }, 502);
+      }
+      if (url.hostname === 'ok.example.com' && url.pathname === '/v1/models') {
+        return jsonResponse({ object: 'list', data: [{ id: 'ok-model', supported_endpoints: ['/chat/completions'] }] });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const resolvedExisting = await resolveModelForRequest('ok-model', null, () => directFetcher, testScheduler);
+      assertEquals(resolvedExisting.id, 'ok-model');
+      assertEquals(resolvedExisting.model?.providers.map(({ upstream }) => upstream), ['up_ok']);
+      assertEquals(resolvedExisting.failedUpstreams, ['Broken upstream']);
+
+      // A model nobody currently knows about must NOT rethrow the broken
+      // upstream's catalog error — the caller's failure renderer is the right
+      // place to surface that, parenthetically, alongside the model-missing
+      // body.
+      const resolvedMissing = await resolveModelForRequest('unknown-model', null, () => directFetcher, testScheduler);
+      assertEquals(resolvedMissing.id, 'unknown-model');
+      assertEquals(resolvedMissing.model, undefined);
+      assertEquals(resolvedMissing.failedUpstreams, ['Broken upstream']);
+    },
+  );
+});

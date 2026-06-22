@@ -30,7 +30,7 @@ export interface GeminiServeCountTokensArgs {
 export const geminiServe = {
   generate: async (args: GeminiServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<GeminiStreamEvent>>> => {
     const { payload, ctx, store, model, headers } = args;
-    const { candidates, sawModel } = await enumerateProviderCandidates({
+    const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
       upstreamIds: ctx.upstreamIds,
       model,
       // Gemini has no native upstream target in the provider API; prefer
@@ -50,8 +50,8 @@ export const geminiServe = {
     if (candidate === undefined) {
       return renderGeminiFailure(
         sawModel
-          ? { kind: 'model-unsupported', model }
-          : { kind: 'model-missing', model },
+          ? { kind: 'model-unsupported', model, failedUpstreams }
+          : { kind: 'model-missing', model, failedUpstreams },
         'generate',
       );
     }
@@ -60,7 +60,7 @@ export const geminiServe = {
 
   countTokens: async (args: GeminiServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<GeminiStreamEvent>> | PlainResult> => {
     const { payload, ctx, store, model, headers } = args;
-    const { candidates, sawModel } = await enumerateProviderCandidates({
+    const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
       upstreamIds: ctx.upstreamIds,
       model,
       // Gemini countTokens has no native upstream support; only providers
@@ -80,8 +80,8 @@ export const geminiServe = {
     if (candidate === undefined) {
       return renderGeminiFailure(
         sawModel
-          ? { kind: 'model-unsupported', model }
-          : { kind: 'model-missing', model },
+          ? { kind: 'model-unsupported', model, failedUpstreams }
+          : { kind: 'model-missing', model, failedUpstreams },
         'countTokens',
       );
     }

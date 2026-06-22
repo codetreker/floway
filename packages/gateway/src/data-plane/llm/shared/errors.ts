@@ -1,8 +1,13 @@
 // Failures a protocol can render before reaching an upstream; unexpected
-// throws bubble as-is.
+// throws bubble as-is. `failedUpstreams` on model-{missing,unsupported}
+// carries the upstream names whose catalog fetch threw during this
+// resolution — surfaced parenthetically so the caller can tell a genuine
+// "no upstream has this model" miss from a transient outage where the
+// upstream that owns the model is currently unreachable. Empty / absent
+// means every consulted upstream returned a catalog.
 export type LlmServeFailure =
-  | { readonly kind: 'model-missing'; readonly model: string }
-  | { readonly kind: 'model-unsupported'; readonly model: string }
+  | { readonly kind: 'model-missing'; readonly model: string; readonly failedUpstreams?: readonly string[] }
+  | { readonly kind: 'model-unsupported'; readonly model: string; readonly failedUpstreams?: readonly string[] }
   | { readonly kind: 'item-not-found'; readonly itemId: string }
   | { readonly kind: 'routing-unavailable'; readonly message: string };
 

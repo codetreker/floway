@@ -25,7 +25,7 @@ export interface MessagesServeCountTokensArgs {
 export const messagesServe = {
   generate: async (args: MessagesServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> => {
     const { payload, ctx, store, headers } = args;
-    const { candidates, sawModel } = await enumerateProviderCandidates({
+    const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
       upstreamIds: ctx.upstreamIds,
       model: payload.model,
       pickTarget: endpoints =>
@@ -47,8 +47,8 @@ export const messagesServe = {
     if (candidate === undefined) {
       return renderMessagesFailure(
         sawModel
-          ? { kind: 'model-unsupported', model: payload.model }
-          : { kind: 'model-missing', model: payload.model },
+          ? { kind: 'model-unsupported', model: payload.model, failedUpstreams }
+          : { kind: 'model-missing', model: payload.model, failedUpstreams },
         'generate',
       );
     }
@@ -57,7 +57,7 @@ export const messagesServe = {
 
   countTokens: async (args: MessagesServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>> | PlainResult> => {
     const { payload, ctx, store, headers } = args;
-    const { candidates, sawModel } = await enumerateProviderCandidates({
+    const { candidates, sawModel, failedUpstreams } = await enumerateProviderCandidates({
       upstreamIds: ctx.upstreamIds,
       model: payload.model,
       pickTarget: endpoints => endpoints.messages ? 'messages' : null,
@@ -74,8 +74,8 @@ export const messagesServe = {
     if (candidate === undefined) {
       return renderMessagesFailure(
         sawModel
-          ? { kind: 'model-unsupported', model: payload.model }
-          : { kind: 'model-missing', model: payload.model },
+          ? { kind: 'model-unsupported', model: payload.model, failedUpstreams }
+          : { kind: 'model-missing', model: payload.model, failedUpstreams },
         'countTokens',
       );
     }

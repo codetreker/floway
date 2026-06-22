@@ -1,6 +1,7 @@
 import { createPerRequestFetcher } from '../../../../../dial/per-request.ts';
 import { sleep } from '../../../../../shared/sleep.ts';
 import { resolveModelForRequest } from '../../../../providers/registry.ts';
+import { appendFailedUpstreams } from '../../../../shared/failed-upstreams.ts';
 import { createUpstreamLatencyRecorder, recordPerformanceError, recordPerformanceLatency } from '../../../../shared/telemetry/performance.ts';
 import { recordTokenUsage, tokenUsageFromImagesResponse } from '../../../../shared/telemetry/usage.ts';
 import type { GatewayCtx } from '../../../shared/gateway-ctx.ts';
@@ -545,7 +546,7 @@ const resolveImageBinding = async (
       ok: false,
       error: {
         type: 'image_generation_error',
-        message: `No upstream provides model '${state.config.model}' for the ${endpointPath} endpoint.`,
+        message: appendFailedUpstreams(`No upstream provides model '${state.config.model}' for the ${endpointPath} endpoint.`, resolution.failedUpstreams),
         code: 'model_not_found',
         retryable: false,
       },
