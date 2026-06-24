@@ -22,11 +22,20 @@ export const seedPathOverrides = (saved: Record<string, string> | null | undefin
   return out;
 };
 
+export type CustomAuthStyle = 'bearer' | 'anthropic' | 'none';
+
+// Form state is kept flat (apiKey is always a string slot, even when
+// authStyle === 'none' parks it as ''). This keeps two-way binding simple
+// across the SecretInput and lets the user toggle between styles without
+// the field disappearing from the underlying object. buildCustomConfigCore
+// projects this onto the discriminated wire shape: it omits apiKey entirely
+// when 'none', and otherwise sends a trimmed key (or omits it for the
+// edit-mode "keep stored secret" path).
 export interface CustomDraft {
   baseUrl: string;
-  authStyle: 'bearer' | 'anthropic';
+  authStyle: CustomAuthStyle;
   endpoints: ModelEndpoints;
-  bearerToken: string;
+  apiKey: string;
   pathOverrides: Record<PathKey, string>;
   // Live /models browse toggle and its endpoint override; an empty endpoint
   // means "use the OpenAI default", stripped to undefined on save.
@@ -48,37 +57,45 @@ export interface OllamaDraft {
   models: UpstreamModelConfig[];
 }
 
-export interface CustomConfigCore {
+interface CustomConfigCoreBase {
   baseUrl: string;
-  authStyle: 'bearer' | 'anthropic';
   endpoints: ModelEndpoints;
-  bearerToken?: string;
   modelsFetch: { enabled: boolean; endpoint?: string };
 }
 
+// Wire-shape projection of CustomDraft. Discriminated on authStyle so the
+// 'none' branch can't carry an apiKey field at all.
+export type CustomConfigCore =
+  | (CustomConfigCoreBase & { authStyle: 'none' })
+  | (CustomConfigCoreBase & { authStyle: 'bearer' | 'anthropic'; apiKey?: string });
+
 // The fields shared by the persisted config and the /models browse preview.
 // Keeping a single builder guarantees the browse request can never drift from
-// what save() would write. An empty token or models endpoint is omitted so the
-// backend keeps the secret and resolves the OpenAI default respectively.
+// what save() would write. For non-'none' styles, an empty apiKey is omitted
+// so the backend keeps the stored secret; for 'none', apiKey is dropped
+// entirely.
 export const buildCustomConfigCore = (draft: CustomDraft): CustomConfigCore => {
-  const core: CustomConfigCore = {
+  const base: CustomConfigCoreBase = {
     baseUrl: draft.baseUrl.trim(),
-    authStyle: draft.authStyle,
     endpoints: draft.endpoints,
     modelsFetch: {
       enabled: draft.modelsFetch.enabled,
       ...(draft.modelsFetch.endpoint.trim() ? { endpoint: draft.modelsFetch.endpoint.trim() } : {}),
     },
   };
-  if (draft.bearerToken.trim()) core.bearerToken = draft.bearerToken.trim();
-  return core;
+  if (draft.authStyle === 'none') return { ...base, authStyle: 'none' };
+
+  const trimmed = draft.apiKey.trim();
+  return trimmed
+    ? { ...base, authStyle: draft.authStyle, apiKey: trimmed }
+    : { ...base, authStyle: draft.authStyle };
 };
 
 export const blankCustomDraft = (): CustomDraft => ({
   baseUrl: '',
   authStyle: 'bearer',
   endpoints: { chatCompletions: {} },
-  bearerToken: '',
+  apiKey: '',
   pathOverrides: emptyPathOverrides(),
   modelsFetch: { enabled: true, endpoint: '' },
   models: [],

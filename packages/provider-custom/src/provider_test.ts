@@ -25,7 +25,8 @@ const buildCustomUpstream = (options: BuildOptions = {}): UpstreamRecord => ({
   proxyFallbackList: [],
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'sk-test',
+    authStyle: 'bearer',
+    apiKey: 'sk-test',
     endpoints: { chatCompletions: {} },
     modelsFetch: { enabled: options.modelsFetchEnabled ?? true },
     models: options.models ?? [],

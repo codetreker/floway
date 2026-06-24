@@ -26,11 +26,14 @@ const customFetchInternal = async (
 ): Promise<Response> => {
   const headers = new Headers(init.headers);
   if (config.authStyle === 'anthropic') {
-    headers.set('x-api-key', config.bearerToken);
+    headers.set('x-api-key', config.apiKey);
     if (!headers.has('anthropic-version')) headers.set('anthropic-version', ANTHROPIC_VERSION);
-  } else {
-    headers.set('Authorization', `Bearer ${config.bearerToken}`);
+  } else if (config.authStyle === 'bearer') {
+    headers.set('Authorization', `Bearer ${config.apiKey}`);
   }
+  // authStyle === 'none' falls through with no auth header. The same goes
+  // for the /models fetch — Models Fetch shares this code path, so a 'none'
+  // upstream is queried anonymously end-to-end.
   if (init.body && !headers.has('Content-Type') && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }

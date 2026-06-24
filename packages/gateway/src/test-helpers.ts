@@ -71,7 +71,8 @@ export const buildCopilotUpstreamRecord = (githubAccount: CopilotAccountFixture,
 export const buildCustomUpstreamRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord => {
   const config = {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'sk-custom',
+    authStyle: 'bearer',
+    apiKey: 'sk-custom',
     endpoints: { chatCompletions: {} },
   };
   const { config: overrideConfig, ...rest } = overrides;

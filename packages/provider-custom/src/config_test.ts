@@ -14,7 +14,8 @@ const baseRecord: UpstreamRecord = {
   updatedAt: '2026-04-29T00:00:00.000Z',
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'sk-test',
+    authStyle: 'bearer',
+    apiKey: 'sk-test',
     endpoints: { chatCompletions: {} },
   },
   state: null,
@@ -104,10 +105,57 @@ test('assertCustomUpstreamRecord rejects malformed opaque config instead of drop
         ...baseRecord,
         config: {
           ...(baseRecord.config as Record<string, unknown>),
-          authStyle: 'apiKey',
+          authStyle: 'oauth',
         },
       }),
     Error,
-    'authStyle must be "bearer" or "anthropic"',
+    'authStyle must be "bearer", "anthropic", or "none"',
+  );
+});
+
+test('assertCustomUpstreamRecord accepts authStyle "none" with no apiKey', () => {
+  const { config } = assertCustomUpstreamRecord({
+    ...baseRecord,
+    config: {
+      baseUrl: 'https://internal.example.com',
+      authStyle: 'none',
+      endpoints: { chatCompletions: {} },
+    },
+  });
+  assertEquals(config.authStyle, 'none');
+  // The discriminated union narrows: apiKey is statically absent on the
+  // 'none' branch, so reading it requires the cast.
+  assertEquals((config as unknown as Record<string, unknown>).apiKey, undefined);
+});
+
+test('assertCustomUpstreamRecord rejects authStyle "none" with a stale apiKey', () => {
+  assertThrows(
+    () =>
+      assertCustomUpstreamRecord({
+        ...baseRecord,
+        config: {
+          ...(baseRecord.config as Record<string, unknown>),
+          authStyle: 'none',
+          apiKey: 'sk-leftover',
+        },
+      }),
+    Error,
+    'apiKey must not be present when authStyle is "none"',
+  );
+});
+
+test('assertCustomUpstreamRecord rejects authStyle "bearer" with no apiKey', () => {
+  assertThrows(
+    () =>
+      assertCustomUpstreamRecord({
+        ...baseRecord,
+        config: {
+          baseUrl: 'https://custom.example.com',
+          authStyle: 'bearer',
+          endpoints: { chatCompletions: {} },
+        },
+      }),
+    Error,
+    'apiKey must be a non-empty string',
   );
 });

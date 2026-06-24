@@ -23,7 +23,8 @@ test('/v1/models returns merged model list from Copilot and custom upstreams', a
     sortOrder: 100,
     config: {
       baseUrl: 'https://oai.example.com',
-      bearerToken: 'sk-test',
+      authStyle: 'bearer',
+      apiKey: 'sk-test',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -188,7 +189,8 @@ test('/models returns the same superset payload as /v1/models', async () => {
     sortOrder: 100,
     config: {
       baseUrl: 'https://images-proj.example.com',
-      bearerToken: 'sk-images-proj',
+      authStyle: 'bearer',
+      apiKey: 'sk-images-proj',
       endpoints: {  },
     },
   }));
@@ -282,7 +284,8 @@ test('/v1/models hides upstream identity when a provider returns an invalid mode
     sortOrder: 100,
     config: {
       baseUrl: 'https://secret.example.com',
-      bearerToken: 'sk-secret',
+      authStyle: 'bearer',
+      apiKey: 'sk-secret',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -317,7 +320,8 @@ test('public model list endpoints hide upstream HTTP error bodies and headers', 
     sortOrder: 100,
     config: {
       baseUrl: 'https://http-secret.example.com',
-      bearerToken: 'sk-secret',
+      authStyle: 'bearer',
+      apiKey: 'sk-secret',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -364,7 +368,8 @@ test('public model list endpoints hide thrown upstream request errors', async ()
     sortOrder: 100,
     config: {
       baseUrl: 'https://throw-secret.example.com',
-      bearerToken: 'sk-secret',
+      authStyle: 'bearer',
+      apiKey: 'sk-secret',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -404,7 +409,8 @@ test('public model list endpoints hide malformed upstream response bodies', asyn
     sortOrder: 100,
     config: {
       baseUrl: 'https://malformed-secret.example.com',
-      bearerToken: 'sk-secret',
+      authStyle: 'bearer',
+      apiKey: 'sk-secret',
       endpoints: { chatCompletions: {} },
     },
   }));

@@ -229,7 +229,7 @@ describe('enumerateProviderCandidates', () => {
       id: 'up_broken',
       name: 'Broken upstream',
       sortOrder: 1,
-      config: { baseUrl: 'https://broken.example.com', bearerToken: 'sk-x', endpoints: { messages: {} } },
+      config: { baseUrl: 'https://broken.example.com', authStyle: 'bearer', apiKey: 'sk-x', endpoints: { messages: {} } },
     }));
     await repo.upstreams.save(azureUpstream('up_ok', 2, ['test-model'], { messages: {} }));
 
@@ -269,13 +269,13 @@ describe('enumerateProviderCandidates', () => {
       id: 'up_a',
       name: 'A',
       sortOrder: 1,
-      config: { baseUrl: 'https://a.example.com', bearerToken: 'sk-x', endpoints: { messages: {} } },
+      config: { baseUrl: 'https://a.example.com', authStyle: 'bearer', apiKey: 'sk-x', endpoints: { messages: {} } },
     }));
     await repo.upstreams.save(buildCustomUpstreamRecord({
       id: 'up_b',
       name: 'B',
       sortOrder: 2,
-      config: { baseUrl: 'https://b.example.com', bearerToken: 'sk-x', endpoints: { messages: {} } },
+      config: { baseUrl: 'https://b.example.com', authStyle: 'bearer', apiKey: 'sk-x', endpoints: { messages: {} } },
     }));
 
     await withMockedFetch(

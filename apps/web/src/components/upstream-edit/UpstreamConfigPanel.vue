@@ -27,7 +27,7 @@ const proxyFallbackList = defineModel<ProxyFallbackEntry[]>('proxyFallbackList',
 type CommonConfigPanelProps = {
   provider: UpstreamProviderKind;
   flags: FlagDef[];
-  customBearerTokenSet: boolean;
+  customApiKeySet: boolean;
   azureApiKeySet: boolean;
   ollamaApiKeySet: boolean;
   fetchLoading: boolean;
@@ -164,7 +164,7 @@ onBeforeUnmount(() => floorObserver?.disconnect());
       <section v-if="provider === 'custom'" class="shrink-0">
         <CustomConfigPanel
           v-model="customDraft"
-          :bearer-token-set="customBearerTokenSet"
+          :api-key-set="customApiKeySet"
           :edit-mode="mode === 'edit'"
           :fetch-loading="fetchLoading"
           :fetch-error="fetchError"

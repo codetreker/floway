@@ -48,12 +48,12 @@ export interface CustomRawModel {
 
 export interface CustomUpstreamConfig {
   baseUrl: string;
-  authStyle: 'bearer' | 'anthropic';
+  authStyle: 'bearer' | 'anthropic' | 'none';
   endpoints: ModelEndpoints;
   pathOverrides?: Record<string, string>;
   modelsFetch: CustomModelsFetch;
   models: UpstreamModelConfig[];
-  bearerTokenSet?: boolean;
+  apiKeySet?: boolean;
 }
 
 export interface AzureUpstreamConfig {
@@ -102,7 +102,7 @@ export interface CodexUpstreamConfig {
 
 export interface OllamaUpstreamConfig {
   baseUrl: string;
-  // apiKeySet mirrors customConfig.bearerTokenSet — the wire never carries the
+  // apiKeySet mirrors customConfig.apiKeySet — the wire never carries the
   // real secret, only a flag the dashboard uses to render the "leave blank to
   // keep" hint and the "••••••••" placeholder.
   apiKeySet?: boolean;

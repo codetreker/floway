@@ -7,7 +7,8 @@ type JsonObject = Record<string, any>;
 
 const customConfig = {
   baseUrl: 'https://custom.example.com',
-  bearerToken: 'sk-test',
+  authStyle: 'bearer',
+  apiKey: 'sk-test',
   endpoints: { chatCompletions: {} },
 };
 
@@ -59,17 +60,17 @@ test('POST /api/upstreams creates custom upstreams and redacts bearer tokens', a
   assertEquals(resp.status, 201);
   const created = (await resp.json()) as JsonObject;
   assertEquals(created.provider, 'custom');
-  assertEquals(created.config.bearerToken, undefined);
-  assertEquals(created.config.bearerTokenSet, true);
+  assertEquals(created.config.apiKey, undefined);
+  assertEquals(created.config.apiKeySet, true);
   assertEquals(created.config.baseUrl, 'https://custom.example.com');
   assertEquals(created.flag_overrides, { 'vendor-kimi': true });
 
   const stored = await repo.upstreams.getById(created.id);
-  assertEquals((stored?.config as Record<string, unknown>).bearerToken, 'sk-test');
+  assertEquals((stored?.config as Record<string, unknown>).apiKey, 'sk-test');
 
   const list = await requestApp('/api/upstreams', { headers: { 'x-floway-session': adminSession } });
   const items = (await list.json()) as JsonObject[];
-  assertEquals(items[0].config.bearerToken, undefined);
+  assertEquals(items[0].config.apiKey, undefined);
 });
 
 test('POST /api/upstreams validates Azure models and redacts API keys', async () => {
@@ -174,7 +175,7 @@ test('PATCH /api/upstreams preserves omitted secrets and re-warms the models cac
   );
 
   const updated = await repo.upstreams.getById(created.id);
-  assertEquals((updated?.config as Record<string, unknown>).bearerToken, 'sk-test');
+  assertEquals((updated?.config as Record<string, unknown>).apiKey, 'sk-test');
   assertEquals((updated?.config as Record<string, unknown>).endpoints, { responses: {} });
 
   const cached = await repo.modelsCache.get(created.id);
@@ -241,7 +242,7 @@ test('GET /api/upstreams attaches models-cache freshness to every row', async ()
     flagOverrides: {},
     disabledPublicModelIds: [],
     proxyFallbackList: [],
-    config: { baseUrl: 'https://a.example.com', bearerToken: 'x', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://a.example.com', authStyle: 'bearer', apiKey: 'x', endpoints: { chatCompletions: {} } },
     state: null,
   };
   await repo.upstreams.save({ ...baseRow, id: 'up_fresh', name: 'Fresh', sortOrder: 0 });
@@ -300,7 +301,7 @@ test('GET /api/upstream-options returns the minimal picker shape to admin and no
     flagOverrides: {},
     disabledPublicModelIds: [],
     proxyFallbackList: [],
-    config: { baseUrl: 'https://custom.example.com', bearerToken: 'sk-secret', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://custom.example.com', authStyle: 'bearer', apiKey: 'sk-secret', endpoints: { chatCompletions: {} } },
     state: null,
   });
 
@@ -359,7 +360,7 @@ test('POST /api/upstreams/fetch-models rejects calls that supply a saved upstrea
     flagOverrides: {},
     disabledPublicModelIds: [],
     proxyFallbackList: [],
-    config: { ...customConfig, bearerToken: 'sk-stored-secret' },
+    config: { ...customConfig, apiKey: 'sk-stored-secret' },
     state: null,
   });
 
@@ -367,7 +368,7 @@ test('POST /api/upstreams/fetch-models rejects calls that supply a saved upstrea
   // (the SWR-cached path); fetch-models stays draft-only.
   const resp = await requestApp(
     '/api/upstreams/fetch-models',
-    authed(adminSession, { provider: 'custom', id: 'up_stored_secret', config: { ...customConfig, bearerToken: '' } }),
+    authed(adminSession, { provider: 'custom', id: 'up_stored_secret', config: { ...customConfig, apiKey: '' } }),
   );
   assertEquals(resp.status, 400);
   const body = (await resp.json()) as { error: { message: string; type: string } };
@@ -469,11 +470,11 @@ test('POST /api/upstreams/fetch-models rejects a malformed draft config with 400
   const { adminSession } = await setupAppTest();
 
   // Blank token with no id and no stored secret to substitute: the runtime
-  // assert rejects the empty bearerToken, surfaced as a 400 validation error.
-  const resp = await requestApp('/api/upstreams/fetch-models', authed(adminSession, { provider: 'custom', config: { ...customConfig, bearerToken: '' } }));
+  // assert rejects the empty apiKey, surfaced as a 400 validation error.
+  const resp = await requestApp('/api/upstreams/fetch-models', authed(adminSession, { provider: 'custom', config: { ...customConfig, apiKey: '' } }));
   assertEquals(resp.status, 400);
   const body = (await resp.json()) as { error: string };
-  assertEquals(body.error.includes('bearerToken'), true);
+  assertEquals(body.error.includes('apiKey'), true);
 });
 
 test('GET /api/upstreams/:id/models?refresh=true forces a fresh upstream fetch', async () => {
@@ -490,7 +491,7 @@ test('GET /api/upstreams/:id/models?refresh=true forces a fresh upstream fetch',
     flagOverrides: {},
     disabledPublicModelIds: [],
     proxyFallbackList: [],
-    config: { ...customConfig, bearerToken: 'sk-refresh' },
+    config: { ...customConfig, apiKey: 'sk-refresh' },
     state: null,
   });
   // SOFT-fresh row: without ?refresh=true the cache returns it verbatim.

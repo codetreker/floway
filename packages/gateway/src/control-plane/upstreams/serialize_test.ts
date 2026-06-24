@@ -19,7 +19,8 @@ const custom: UpstreamRecord = {
   proxyFallbackList: [],
   config: {
     baseUrl: 'https://api.example.com',
-    bearerToken: 'sk-secret-token-12345',
+    authStyle: 'bearer',
+    apiKey: 'sk-secret-token-12345',
     endpoints: { chatCompletions: {}, responses: {} },
     modelsFetch: { enabled: true, endpoint: '/models' },
     models: [{ upstreamModelId: 'gpt-prod', endpoints: { chatCompletions: {} } }],
@@ -39,8 +40,8 @@ test('upstreamRecordToJson redacts custom bearer token inside config', () => {
   assertEquals(result.flag_overrides, { 'vendor-deepseek': true });
   assertEquals(result.state, null);
   assertEquals(config.baseUrl, 'https://api.example.com');
-  assertEquals(config.bearerToken, undefined);
-  assertEquals(config.bearerTokenSet, true);
+  assertEquals(config.apiKey, undefined);
+  assertEquals(config.apiKeySet, true);
   assertEquals(config.endpoints, { chatCompletions: {}, responses: {} });
   assertEquals(config.modelsFetch, { enabled: true, endpoint: '/models' });
   assertEquals(config.models, [{ upstreamModelId: 'gpt-prod', endpoints: { chatCompletions: {} } }]);
@@ -140,8 +141,8 @@ test('upstreamRecordToFullJson includes provider config secrets for export', () 
   const config = result.config as Record<string, unknown>;
 
   assertEquals(result.id, 'up_custom_test');
-  assertEquals(config.bearerToken, 'sk-secret-token-12345');
-  assertEquals(config.bearerTokenSet, undefined);
+  assertEquals(config.apiKey, 'sk-secret-token-12345');
+  assertEquals(config.apiKeySet, undefined);
 });
 
 // Strict-throw helpers in serialize.ts fail loud rather than silently

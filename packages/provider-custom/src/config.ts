@@ -1,9 +1,11 @@
 // Generic custom upstream — any third-party LLM provider that speaks an
 // OpenAI-shaped or Anthropic-shaped HTTP API under a single base URL with a
 // static credential. `authStyle` decides the credential header:
-//   - 'bearer'    -> Authorization: Bearer <token>   (OpenAI, OpenRouter, ...)
-//   - 'anthropic' -> x-api-key: <token> + anthropic-version: 2023-06-01
+//   - 'bearer'    -> Authorization: Bearer <key>     (OpenAI, OpenRouter, ...)
+//   - 'anthropic' -> x-api-key: <key> + anthropic-version: 2023-06-01
 //                                                    (api.anthropic.com)
+//   - 'none'      -> no auth header (local or internal upstreams that
+//                                                    accept anonymous requests)
 //
 // The base URL is stored without an API prefix (admin enters e.g.
 // https://api.openai.com); we join it to a per-endpoint path. Default paths
@@ -22,7 +24,7 @@ import type { ModelEndpoints } from '@floway-dev/protocols/common';
 import type { UpstreamModelConfig, UpstreamRecord } from '@floway-dev/provider';
 import { endpointsField, modelsField, validateUpstreamPath } from '@floway-dev/provider';
 
-export type CustomAuthStyle = 'bearer' | 'anthropic';
+export type CustomAuthStyle = 'bearer' | 'anthropic' | 'none';
 
 // Logical endpoints the admin may override. Sub-paths (messages_count_tokens,
 // responses_compact) and the catalog (models — owned by modelsFetch.endpoint)
@@ -37,29 +39,31 @@ export interface CustomModelsFetch {
   endpoint?: string;
 }
 
-export interface CustomUpstreamConfig {
+// Fields shared by every auth style. The discriminated branches below add
+// `apiKey` only on the styles that actually send one, so consumers cannot
+// reach for `config.apiKey` on a 'none' upstream.
+interface CustomUpstreamConfigBase {
   baseUrl: string;
-  bearerToken: string;
-  authStyle: CustomAuthStyle;
   endpoints: ModelEndpoints;
   pathOverrides?: Partial<Record<CustomPathOverrideKey, string>>;
   modelsFetch: CustomModelsFetch;
   models: UpstreamModelConfig[];
 }
 
+export type CustomUpstreamConfig =
+  | (CustomUpstreamConfigBase & { authStyle: 'none' })
+  | (CustomUpstreamConfigBase & { authStyle: 'bearer' | 'anthropic'; apiKey: string });
+
 export type CustomUpstreamRecord = UpstreamRecord & {
   provider: 'custom';
   config: CustomUpstreamConfig;
 };
 
-const AUTH_STYLES: ReadonlySet<CustomAuthStyle> = new Set<CustomAuthStyle>(['bearer', 'anthropic']);
+const AUTH_STYLES: ReadonlySet<CustomAuthStyle> = new Set<CustomAuthStyle>(['bearer', 'anthropic', 'none']);
 
 const authStyleField = (value: unknown): CustomAuthStyle => {
-  // Records written before authStyle existed default to bearer, matching the
-  // previous fixed behavior.
-  if (value === undefined) return 'bearer';
   if (typeof value !== 'string' || !AUTH_STYLES.has(value as CustomAuthStyle)) {
-    throw new Error('Malformed custom upstream config: authStyle must be "bearer" or "anthropic"');
+    throw new Error('Malformed custom upstream config: authStyle must be "bearer", "anthropic", or "none"');
   }
   return value as CustomAuthStyle;
 };
@@ -86,11 +90,11 @@ const baseUrlField = (value: unknown): string => {
 
 const PATH_OVERRIDE_KEYS = new Set<CustomPathOverrideKey>(['chat_completions', 'responses', 'messages', 'embeddings', 'images_generations', 'images_edits']);
 
-const pathOverridesField = (value: unknown): CustomUpstreamConfig['pathOverrides'] => {
+const pathOverridesField = (value: unknown): CustomUpstreamConfigBase['pathOverrides'] => {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error('Malformed custom upstream config: pathOverrides must be an object');
 
-  const pathOverrides: NonNullable<CustomUpstreamConfig['pathOverrides']> = {};
+  const pathOverrides: NonNullable<CustomUpstreamConfigBase['pathOverrides']> = {};
   for (const [key, path] of Object.entries(value)) {
     if (!PATH_OVERRIDE_KEYS.has(key as CustomPathOverrideKey)) {
       throw new Error(`Malformed custom upstream config: unsupported pathOverrides key ${key}`);
@@ -124,17 +128,27 @@ export const assertCustomUpstreamRecord = (record: UpstreamRecord): CustomUpstre
   if (record.provider !== 'custom') throw new Error(`Expected custom upstream record, got ${record.provider}`);
   if (!isRecord(record.config)) throw new Error('Malformed custom upstream config: config must be an object');
 
-  return {
-    ...record,
-    provider: 'custom',
-    config: {
-      baseUrl: baseUrlField(record.config.baseUrl),
-      bearerToken: nonEmptyStringField(record.config.bearerToken, 'bearerToken'),
-      authStyle: authStyleField(record.config.authStyle),
-      endpoints: endpointsField(record.config.endpoints, 'custom upstream config: endpoints', { allowEmpty: true }),
-      ...(record.config.pathOverrides !== undefined ? { pathOverrides: pathOverridesField(record.config.pathOverrides) } : {}),
-      modelsFetch: modelsFetchField(record.config.modelsFetch),
-      models: modelsField(record.config.models ?? [], 'custom'),
-    },
+  const raw = record.config;
+  const authStyle = authStyleField(raw.authStyle);
+  const base = {
+    baseUrl: baseUrlField(raw.baseUrl),
+    endpoints: endpointsField(raw.endpoints, 'custom upstream config: endpoints', { allowEmpty: true }),
+    ...(raw.pathOverrides !== undefined ? { pathOverrides: pathOverridesField(raw.pathOverrides) } : {}),
+    modelsFetch: modelsFetchField(raw.modelsFetch),
+    models: modelsField(raw.models ?? [], 'custom'),
   };
+
+  if (authStyle === 'none') {
+    // Reject dead fields: a stored 'none' row must not carry a stale apiKey
+    // from an earlier auth style. mergeConfigPatch enforces this on PATCH
+    // and the migration leaves no such rows, so any presence here signals
+    // bad input.
+    if (raw.apiKey !== undefined) {
+      throw new Error('Malformed custom upstream config: apiKey must not be present when authStyle is "none"');
+    }
+    return { ...record, provider: 'custom', config: { ...base, authStyle } };
+  }
+
+  const apiKey = nonEmptyStringField(raw.apiKey, 'apiKey');
+  return { ...record, provider: 'custom', config: { ...base, authStyle, apiKey } };
 };

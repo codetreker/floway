@@ -217,7 +217,8 @@ test('/v1/embeddings routes to custom upstream when model is only declared there
     disabledPublicModelIds: [],
     config: {
       baseUrl: 'https://embed.example.com',
-      bearerToken: 'sk-embed',
+      authStyle: 'bearer',
+      apiKey: 'sk-embed',
       endpoints: {},
     },
   }));
@@ -289,7 +290,8 @@ test('/v1/embeddings rejects model on custom upstream without /embeddings capabi
     disabledPublicModelIds: [],
     config: {
       baseUrl: 'https://chat.example.com',
-      bearerToken: 'sk-chat',
+      authStyle: 'bearer',
+      apiKey: 'sk-chat',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -346,7 +348,8 @@ test('/v1/embeddings reports the failed upstream parenthetically when /v1/models
     disabledPublicModelIds: [],
     config: {
       baseUrl: 'https://embed.example.com',
-      bearerToken: 'sk-embed',
+      authStyle: 'bearer',
+      apiKey: 'sk-embed',
       endpoints: {},
     },
   }));
@@ -403,7 +406,8 @@ test('/v1/embeddings reports the failed upstream even when a sibling upstream\'s
     disabledPublicModelIds: [],
     config: {
       baseUrl: 'https://embed.example.com',
-      bearerToken: 'sk-embed',
+      authStyle: 'bearer',
+      apiKey: 'sk-embed',
       endpoints: {},
     },
   }));

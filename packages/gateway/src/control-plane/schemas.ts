@@ -105,13 +105,13 @@ const upstreamModelSchema = z.object({
 
 const customConfigSchema = z.object({
   baseUrl: z.string().min(1),
-  // authStyle is optional; the runtime parser defaults omitted values to
-  // bearer, so the schema accepts the same.
-  authStyle: z.enum(['bearer', 'anthropic']).optional(),
+  authStyle: z.enum(['bearer', 'anthropic', 'none']),
   // Structured capability map — the runtime parser permits an empty map for
   // an upstream serving only kind-derived models.
   endpoints: modelEndpointsSchema,
-  bearerToken: z.string().optional(),
+  // Optional because edit-mode PATCH omits it to keep the stored secret;
+  // the runtime parser enforces presence vs. authStyle invariants.
+  apiKey: z.string().optional(),
   // PATCH passes `null` to explicitly clear pathOverrides; nullable() keeps
   // that escape hatch.
   pathOverrides: z.record(z.string(), z.string()).nullable().optional(),

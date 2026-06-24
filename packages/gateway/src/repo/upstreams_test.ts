@@ -161,7 +161,7 @@ const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
     sortOrder: 2,
     createdAt: '2026-05-21T10:00:02.000Z',
     updatedAt: '2026-05-21T10:00:02.000Z',
-    config: { baseUrl: 'https://custom.example/v1', bearerToken: 'sk-custom', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://custom.example/v1', authStyle: 'bearer', apiKey: 'sk-custom', endpoints: { chatCompletions: {} } },
     flagOverrides: { 'z-fix': true, 'a-fix': true },
     disabledPublicModelIds: [],
   });
@@ -202,7 +202,7 @@ const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
     sortOrder: 0,
     createdAt: '2099-01-01T00:00:00.000Z',
     updatedAt: '2026-05-21T10:00:04.000Z',
-    config: { baseUrl: 'https://updated.example/v1', bearerToken: 'sk-updated', endpoints: { responses: {} } },
+    config: { baseUrl: 'https://updated.example/v1', authStyle: 'bearer', apiKey: 'sk-updated', endpoints: { responses: {} } },
     flagOverrides: { 'm-fix': true, 'a-fix': true },
     disabledPublicModelIds: [],
   });
@@ -415,6 +415,48 @@ test('migration 0010 creates unified upstreams and rewrites legacy upstream iden
     ]);
     assertEquals(sqlJsRows<{ key: string }>(db, 'SELECT key FROM config ORDER BY key'), [{ key: 'keep_me' }]);
     assertEquals(sqlJsRows<{ name: string }>(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('github_accounts', 'upstream_configs') ORDER BY name"), []);
+  } finally {
+    db.close();
+  }
+});
+
+test('migration 0042 renames bearerToken to apiKey and backfills authStyle on legacy rows', async () => {
+  const db = await createMigratedSqlJsDatabase();
+  try {
+    for (const filename of [...migrationSqlByFilename.keys()].filter(f => f >= '0010_unified_upstreams.sql' && f < '0042_custom_apikey_rename.sql').toSorted()) {
+      applySqlJsFile(db, filename);
+    }
+
+    // Seed two custom rows mirroring real legacy shapes:
+    //   - up_legacy:     post-0010 row with bearerToken and no authStyle
+    //   - up_anthropic:  later row with bearerToken AND authStyle: 'anthropic'
+    // and a non-custom (azure) row that the migration must leave untouched.
+    db.run(`INSERT INTO upstreams (id, provider, name, enabled, sort_order, created_at, updated_at, config_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json)
+            VALUES
+              ('up_legacy', 'custom', 'Legacy', 1, 0, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z', json_object('baseUrl', 'https://a.example/v1', 'bearerToken', 'sk-legacy'), '[]', '[]', '[]'),
+              ('up_anthropic', 'custom', 'Anthropic', 1, 1, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z', json_object('baseUrl', 'https://b.example/v1', 'bearerToken', 'sk-ant', 'authStyle', 'anthropic'), '[]', '[]', '[]'),
+              ('up_azure', 'azure', 'Azure', 1, 2, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z', json_object('endpoint', 'https://az.example', 'apiKey', 'az-key'), '[]', '[]', '[]')`);
+
+    applySqlJsFile(db, '0042_custom_apikey_rename.sql');
+
+    const rows = sqlJsRows<{ id: string; bearerToken: unknown; apiKey: string; authStyle: string }>(
+      db,
+      `SELECT
+        id,
+        json_extract(config_json, '$.bearerToken') AS bearerToken,
+        json_extract(config_json, '$.apiKey') AS apiKey,
+        json_extract(config_json, '$.authStyle') AS authStyle
+       FROM upstreams
+       ORDER BY id`,
+    );
+
+    assertEquals(rows.find(r => r.id === 'up_legacy'), { id: 'up_legacy', bearerToken: null, apiKey: 'sk-legacy', authStyle: 'bearer' });
+    assertEquals(rows.find(r => r.id === 'up_anthropic'), { id: 'up_anthropic', bearerToken: null, apiKey: 'sk-ant', authStyle: 'anthropic' });
+    // Non-custom rows are untouched.
+    const azure = rows.find(r => r.id === 'up_azure');
+    assertEquals(azure?.bearerToken, null);
+    assertEquals(azure?.apiKey, 'az-key');
+    assertEquals(azure?.authStyle, null);
   } finally {
     db.close();
   }

@@ -68,7 +68,7 @@ const redactedConfig = (upstream: UpstreamRecord): unknown => {
       ...(config.pathOverrides !== undefined ? { pathOverrides: clone(config.pathOverrides) } : {}),
       ...(config.modelsFetch !== undefined ? { modelsFetch: clone(config.modelsFetch) } : {}),
       ...(config.models !== undefined ? { models: clone(config.models) } : {}),
-      bearerTokenSet: hasSecret(config.bearerToken),
+      apiKeySet: hasSecret(config.apiKey),
     };
   case 'azure':
     return {

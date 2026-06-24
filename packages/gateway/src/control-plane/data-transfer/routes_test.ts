@@ -84,7 +84,8 @@ const CUSTOM_UPSTREAM: UpstreamRecord = {
   proxyFallbackList: [],
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'sk-custom',
+    authStyle: 'bearer',
+    apiKey: 'sk-custom',
     endpoints: { chatCompletions: {}, responses: {} },
     modelsFetch: { enabled: true, endpoint: '/models' },
   },
@@ -329,7 +330,7 @@ test('export includes full upstream configs and omits performance by default', a
 
   assertEquals(result.data.apiKeys, [KEY_A]);
   assertEquals(result.data.upstreams.map((upstream: any) => upstream.id), ['up_copilot_a', 'up_custom_a', 'up_azure_a']);
-  assertEquals(result.data.upstreams.find((upstream: any) => upstream.id === 'up_custom_a').config.bearerToken, 'sk-custom');
+  assertEquals(result.data.upstreams.find((upstream: any) => upstream.id === 'up_custom_a').config.apiKey, 'sk-custom');
   assertEquals(result.data.upstreams.find((upstream: any) => upstream.id === 'up_copilot_a').config.githubToken, 'ghu-alice');
   assertEquals(result.data.upstreams.find((upstream: any) => upstream.id === 'up_azure_a').config.apiKey, 'az-key');
   assertEquals(result.data.usage, [USAGE_1]);
@@ -559,7 +560,7 @@ test('import rejects invalid records before clearing existing data', async () =>
   const badUpstream = await doImport(app, 'replace', {
     users: [SEED_ADMIN],
     apiKeys: [],
-    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), config: { baseUrl: 'https://custom.example.com', bearerToken: 'sk', endpoints: { bogus: {} } } }],
+    upstreams: [{ ...upstreamRecordToFullJson(CUSTOM_UPSTREAM), config: { baseUrl: 'https://custom.example.com', authStyle: 'bearer', apiKey: 'sk', endpoints: { bogus: {} } } }],
     usage: [],
     searchUsage: [],
     performanceIncluded: false,

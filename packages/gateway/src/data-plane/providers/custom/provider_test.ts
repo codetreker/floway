@@ -19,7 +19,8 @@ const baseRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord => 
   proxyFallbackList: [],
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'sk-test',
+    authStyle: 'bearer',
+    apiKey: 'sk-test',
     endpoints: { chatCompletions: {}, responses: {}, messages: {} },
   },
   state: null,
@@ -97,7 +98,8 @@ test('Custom provider uses configured endpoints regardless of per-model hints in
         id: 'up_custom_endpoints',
         config: {
           baseUrl: 'https://custom.example.com',
-          bearerToken: 'sk-test',
+          authStyle: 'bearer',
+          apiKey: 'sk-test',
           endpoints: { chatCompletions: {} },
         },
       })).provider;
@@ -158,7 +160,7 @@ test('Custom provider falls back to `name` when display_name is missing (loose O
 test('Custom provider projects gpt-image-* models with kind=image and both image endpoints', async () => {
   await setupAppTest();
   const record = buildCustomUpstreamRecord({
-    config: { baseUrl: 'https://custom.example.com', bearerToken: 'sk-custom', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://custom.example.com', authStyle: 'bearer', apiKey: 'sk-custom', endpoints: { chatCompletions: {} } },
   });
   await withMockedFetch(
     request => {
@@ -182,7 +184,7 @@ test('Custom provider projects gpt-image-* models with kind=image and both image
 test('Custom provider callImagesGenerations posts JSON with model re-injected', async () => {
   await setupAppTest();
   const record = buildCustomUpstreamRecord({
-    config: { baseUrl: 'https://custom.example.com', bearerToken: 'sk-custom', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://custom.example.com', authStyle: 'bearer', apiKey: 'sk-custom', endpoints: { chatCompletions: {} } },
   });
   let forwarded: { url: string; body: { model?: unknown; prompt?: unknown } } | undefined;
   await withMockedFetch(
@@ -211,7 +213,7 @@ test('Custom provider callImagesGenerations posts JSON with model re-injected', 
 test('Custom provider callImagesEdits forwards multipart body with model field appended', async () => {
   await setupAppTest();
   const record = buildCustomUpstreamRecord({
-    config: { baseUrl: 'https://custom.example.com', bearerToken: 'sk-custom', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://custom.example.com', authStyle: 'bearer', apiKey: 'sk-custom', endpoints: { chatCompletions: {} } },
   });
   let forwarded: { url: string; form: FormData } | undefined;
   await withMockedFetch(
@@ -251,7 +253,8 @@ test('Custom provider with modelsFetch disabled serves only manual models and ne
         id: 'up_custom_manual_only',
         config: {
           baseUrl: 'https://custom.example.com',
-          bearerToken: 'sk-test',
+          authStyle: 'bearer',
+          apiKey: 'sk-test',
           endpoints: { chatCompletions: {} },
           modelsFetch: { enabled: false },
           models: [
@@ -305,7 +308,8 @@ test('Custom provider with a manual override sharing an upstream id wins over th
         id: 'up_custom_override',
         config: {
           baseUrl: 'https://custom.example.com',
-          bearerToken: 'sk-test',
+          authStyle: 'bearer',
+          apiKey: 'sk-test',
           endpoints: { chatCompletions: {} },
           modelsFetch: { enabled: true },
           models: [

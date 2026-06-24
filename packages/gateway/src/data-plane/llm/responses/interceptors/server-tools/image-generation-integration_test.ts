@@ -170,7 +170,8 @@ beforeEach(async () => {
     proxyFallbackList: [],
     config: {
       baseUrl: 'https://unused.example.com',
-      bearerToken: 'unused',
+      authStyle: 'bearer',
+      apiKey: 'unused',
       endpoints: { imagesGenerations: {}, imagesEdits: {} },
       modelsFetch: { enabled: false, endpoint: '/models' },
       models: [],

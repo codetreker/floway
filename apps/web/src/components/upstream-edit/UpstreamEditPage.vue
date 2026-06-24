@@ -117,7 +117,7 @@ const seedFromRecord = (r: UpstreamRecord) => {
       baseUrl: cfg.baseUrl,
       authStyle: cfg.authStyle,
       endpoints: { ...cfg.endpoints },
-      bearerToken: '',
+      apiKey: '',
       pathOverrides: seedPathOverrides(cfg.pathOverrides),
       modelsFetch: cfg.modelsFetch
         ? { enabled: cfg.modelsFetch.enabled, endpoint: cfg.modelsFetch.endpoint ?? '' }
@@ -160,9 +160,9 @@ const seedFresh = () => {
 if (props.mode === 'edit') seedFromRecord(props.record);
 else seedFresh();
 
-const customBearerTokenSet = computed(() => {
+const customApiKeySet = computed(() => {
   if (props.record?.provider !== 'custom') return false;
-  return props.record.config.bearerTokenSet === true;
+  return props.record.config.apiKeySet === true;
 });
 const azureApiKeySet = computed(() => {
   if (props.record?.provider !== 'azure') return false;
@@ -548,7 +548,7 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :flags="flags"
         :colo-aware="coloAware"
         :current-colo="currentColo"
-        :custom-bearer-token-set="customBearerTokenSet"
+        :custom-api-key-set="customApiKeySet"
         :azure-api-key-set="azureApiKeySet"
         :ollama-api-key-set="ollamaApiKeySet"
         :fetch-loading="fetchLoading"

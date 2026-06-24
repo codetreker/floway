@@ -17,7 +17,8 @@ const upstreamRecord = () => ({
   proxyFallbackList: [],
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'token',
+    authStyle: 'bearer',
+    apiKey: 'token',
     endpoints: { chatCompletions: {} },
   },
   state: null,

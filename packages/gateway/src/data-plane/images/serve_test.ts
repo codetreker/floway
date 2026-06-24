@@ -86,7 +86,8 @@ test('/v1/images/generations rejects model on custom upstream without /images/ge
     sortOrder: 100,
     config: {
       baseUrl: 'https://chat.example.com',
-      bearerToken: 'sk-chat',
+      authStyle: 'bearer',
+      apiKey: 'sk-chat',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -121,7 +122,8 @@ test('/v1/images/generations forwards a JSON request through a custom upstream a
     sortOrder: 100,
     config: {
       baseUrl: 'https://images.example.com',
-      bearerToken: 'sk-images',
+      authStyle: 'bearer',
+      apiKey: 'sk-images',
       endpoints: {},
     },
   }));
