@@ -359,3 +359,107 @@ test('reassembleChatCompletionsEvents preserves unknown choice-level fields (con
   };
   assertEquals(result.choices[0].content_filter_results, { hate: { filtered: false, severity: 'safe' } });
 });
+
+test('reassembleChatCompletionsEvents carries system_fingerprint without concatenating its repeated chunks', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        id: 'cmpl_fp',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        system_fingerprint: 'fp_abc123',
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'hi' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_fp',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        system_fingerprint: 'fp_abc123',
+        choices: [{ index: 0, delta: { content: ' there' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_fp',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        system_fingerprint: 'fp_abc123',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    },
+  ]);
+
+  const result = await reassembleChatCompletionsEvents(body);
+  assertEquals(result.system_fingerprint, 'fp_abc123');
+  assertEquals(result.choices[0].message.content, 'hi there');
+});
+
+test('reassembleChatCompletionsEvents carries service_tier without concatenating its repeated chunks', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        id: 'cmpl_tier',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        service_tier: 'priority',
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_tier',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        service_tier: 'priority',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    },
+  ]);
+
+  const result = await reassembleChatCompletionsEvents(body);
+  assertEquals(result.service_tier, 'priority');
+});
+
+test('reassembleChatCompletionsEvents holds first non-empty system_fingerprint when later chunks omit it', async () => {
+  const body = makeEvents([
+    {
+      data: {
+        id: 'cmpl_fp_late',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        system_fingerprint: null,
+        choices: [{ index: 0, delta: { role: 'assistant', content: 'a' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_fp_late',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        system_fingerprint: 'fp_late',
+        choices: [{ index: 0, delta: { content: 'b' } }],
+      },
+    },
+    {
+      data: {
+        id: 'cmpl_fp_late',
+        object: 'chat.completion.chunk',
+        created: 1000,
+        model: 'gpt-test',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    },
+  ]);
+
+  const result = await reassembleChatCompletionsEvents(body);
+  assertEquals(result.system_fingerprint, 'fp_late');
+});

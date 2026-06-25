@@ -14,6 +14,12 @@
 //   so an unknown vendor extension that copies it survives.
 // - Plain object + plain object: shallow merge. Last write wins per key.
 // - Anything else: last non-null value wins.
+//
+// Caller contract: the string-concat default assumes any unknown string field
+// is a streaming text delta. Stable scalar string fields — the kind an
+// upstream repeats unchanged on every chunk (e.g. OpenAI's
+// `system_fingerprint`, `service_tier`) — MUST be registered as known keys
+// by the caller, otherwise this helper concatenates the same value N times.
 
 const isPlainArray = (value: unknown): value is unknown[] => Array.isArray(value);
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>

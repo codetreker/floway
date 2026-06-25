@@ -84,6 +84,7 @@ export interface ChatCompletionsResult {
   choices: ChatCompletionsChoiceNonStreaming[];
   // https://platform.openai.com/docs/api-reference/chat/object
   service_tier?: 'default' | 'auto' | 'flex' | 'priority' | 'scale' | (string & {}) | null;
+  system_fingerprint?: string | null;
   usage?: ChatCompletionsUsage;
 }
 
@@ -94,6 +95,7 @@ export interface ChatCompletionsStreamEvent {
   model: string;
   choices: ChatCompletionsChoiceStreaming[];
   service_tier?: 'default' | 'auto' | 'flex' | 'priority' | 'scale' | (string & {}) | null;
+  system_fingerprint?: string | null;
   usage?: ChatCompletionsUsage;
 }
 

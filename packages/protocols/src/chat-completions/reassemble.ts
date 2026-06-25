@@ -15,19 +15,26 @@ import { captureExtras } from '../common/reassemble-extras.ts';
 //    replayed onto the assembled result.
 //
 // `reasoning_content` (the DeepSeek/Kimi dialect for reasoning text on Chat
-// Completions) is the concrete case that motivated this; the goal is that any
-// future field — `audio_prompt_tokens`, `prompt_filter_results`,
+// Completions) is the concrete case that motivated the extras path; the goal
+// is that any future field — `audio_prompt_tokens`, `prompt_filter_results`,
 // `this_is_a_non_standard_field_of_reasoning` — survives by default without a
 // gateway code change.
+//
+// Stable scalar strings that the upstream repeats unchanged on every chunk —
+// OpenAI's `system_fingerprint` and `service_tier` are the canonical examples
+// — MUST be registered as known keys; otherwise the generic extras path
+// concatenates them into a duplicated mess (`fp_xfp_xfp_x…`).
 
 const KNOWN_DELTA_KEYS = new Set(['content', 'role', 'reasoning_text', 'reasoning_opaque', 'reasoning_items', 'tool_calls']);
 const KNOWN_CHOICE_KEYS = new Set(['index', 'delta', 'finish_reason']);
-const KNOWN_CHUNK_KEYS = new Set(['id', 'object', 'created', 'model', 'choices', 'usage']);
+const KNOWN_CHUNK_KEYS = new Set(['id', 'object', 'created', 'model', 'choices', 'usage', 'system_fingerprint', 'service_tier']);
 
 export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<ChatCompletionsStreamEvent>): Promise<ChatCompletionsResult> {
   let id = '';
   let model = '';
   let created = 0;
+  let systemFingerprint: string | undefined;
+  let serviceTier: ChatCompletionsResult['service_tier'];
   let content = '';
   let reasoningText = '';
   let reasoningOpaque = '';
@@ -52,6 +59,13 @@ export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<Chat
       id = chunk.id as string;
       model = chunk.model as string;
       created = chunk.created as number;
+    }
+
+    if (!systemFingerprint && typeof chunk.system_fingerprint === 'string' && chunk.system_fingerprint) {
+      systemFingerprint = chunk.system_fingerprint;
+    }
+    if (!serviceTier && typeof chunk.service_tier === 'string' && chunk.service_tier) {
+      serviceTier = chunk.service_tier;
     }
 
     if (chunk.usage) {
@@ -146,6 +160,8 @@ export async function reassembleChatCompletionsEvents(chunks: AsyncIterable<Chat
         ...choiceExtras,
       },
     ],
+    ...(systemFingerprint && { system_fingerprint: systemFingerprint }),
+    ...(serviceTier && { service_tier: serviceTier }),
     ...(lastUsage && { usage: lastUsage }),
     ...chunkExtras,
   } as ChatCompletionsResult;
