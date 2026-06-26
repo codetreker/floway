@@ -1,4 +1,4 @@
-import { withReasoningEncryptedContentCanonicalized } from './canonicalize-encrypted-content.ts';
+import { withResponsesOutputItemsCanonicalized } from './canonicalize-output-items.ts';
 import { withDemoteDeveloperToSystem } from './demote-developer-to-system.ts';
 import { withInterleavedSystemDemotedToUser } from './demote-interleaved-system-to-user.ts';
 import { withReasoningDisabledOnForcedToolChoice } from './disable-reasoning-on-forced-tool-choice.ts';
@@ -17,8 +17,6 @@ import { withVendorQwenResponsesNormalize } from './vendor-qwen-normalize.ts';
 // Order matters: earlier entries wrap later ones.
 //   - withResponsesServerToolShim: runs outermost so it wraps the full
 //     multi-turn ReAct loop around the rest of the chain.
-//   - withReasoningEncryptedContentCanonicalized: pins the final
-//     (post-retry) event stream's encrypted_content.
 //   - withCyberPolicyRetried: gated by `retry-cyber-policy`.
 //   - withReasoningDisabledOnForcedToolChoice: gated by
 //     `disable-reasoning-on-forced-tool-choice`.
@@ -32,18 +30,26 @@ import { withVendorQwenResponsesNormalize } from './vendor-qwen-normalize.ts';
 //     rewrites any `role: 'system'` message item that follows the leading
 //     contiguous system run to `role: 'user'` so upstreams that reject
 //     mid-stream system messages still accept the body.
-//   - withVendor*ResponsesNormalize: gated by `vendor-<X>`. Registered LAST
-//     so each gets the final say on the outbound wire body.
+//   - withVendor*ResponsesNormalize: gated by `vendor-<X>`. Registered after
+//     the demotion entries so each gets the final say on the outbound wire
+//     body.
+//   - withResponsesOutputItemsCanonicalized: runs innermost (last entry)
+//     so it observes the raw upstream event stream first, before any outer
+//     interceptor inspects ids or hashes content. Pins each output item's
+//     `id` and `encrypted_content` across the streamed `output_item.done`
+//     view and the terminal `response.completed` envelope; downstream
+//     consumers (server-tool shim, storage layer's id mapper, replay
+//     affinity) then see a single canonical pair per item.
 export const responsesInterceptors: readonly ResponsesInterceptor[] = [
   withResponsesServerToolShim([
     webSearchServerTool,
     imageGenerationServerTool,
   ]),
-  withReasoningEncryptedContentCanonicalized,
   withCyberPolicyRetried,
   withReasoningDisabledOnForcedToolChoice,
   withDemoteDeveloperToSystem,
   withInterleavedSystemDemotedToUser,
   withVendorDeepseekResponsesNormalize,
   withVendorQwenResponsesNormalize,
+  withResponsesOutputItemsCanonicalized,
 ];
