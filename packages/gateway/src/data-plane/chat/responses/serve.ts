@@ -41,9 +41,19 @@ export const responsesServe = {
     // Compact accepts `previous_response_id` (the official endpoint documents
     // it). When present we expand it the same way generate does so the
     // upstream sees the same item_reference + current input shape.
+    //
+    // Target selection mirrors generate: any chat endpoint is fair game.
+    // For non-responses targets the responses-compact-shim picks up the
+    // request inside the interceptor chain, flips action='compact' to
+    // 'generate', runs a SUMMARIZATION_PROMPT turn through translation, and
+    // re-tags the result as compact on the way out.
     const plan = await prepareResponsesServePlan({
       payload, ctx, store,
-      pickTarget: endpoints => endpoints.responses ? 'responses' : null,
+      pickTarget: endpoints =>
+        endpoints.responses ? 'responses'
+          : endpoints.messages ? 'messages'
+            : endpoints.chatCompletions ? 'chat-completions'
+              : null,
     });
     if (plan.kind === 'failure') return plan.result;
     return await responsesAttempt.invoke({ payload: plan.prepared, action: 'compact', ctx, store, candidate: plan.candidate, headers });

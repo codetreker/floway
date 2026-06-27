@@ -505,6 +505,62 @@ test('translateResponsesToMessages throws on a stray web_search_call input item 
   );
 });
 
+test('translateResponsesToMessages throws on a stray compaction_trigger input item (compact-shim owns the strip)', async () => {
+  // The compact-shim is structurally required on non-responses targets and
+  // strips compaction_trigger items before reaching this translator.
+  // Reaching here with one in input means the shim disengaged; the
+  // translator's exhaustive default surfaces the regression.
+  await assertRejects(
+    () => translateResponsesToMessages({
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction_trigger' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    'Unexpected Responses input item variant',
+  );
+});
+
+test('translateResponsesToMessages throws on a stray compaction input item (compact-shim owns the expansion)', async () => {
+  // The compact-shim expands its own shim-encoded compaction items inline
+  // before reaching this translator and round-trips foreign compactions
+  // back to the upstream as raw items. Either way the translator should
+  // never see one.
+  await assertRejects(
+    () => translateResponsesToMessages({
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction', id: 'cmp_x', encrypted_content: 'opaque', created_by: 'compaction_session' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    'Unexpected Responses input item variant',
+  );
+});
+
 test('translateResponsesToMessages attaches ephemeral cache breakpoints to system, last function tool, and last message block', async () => {
   const result = await translateResponsesToMessages({
     model: 'claude-test',

@@ -1,4 +1,5 @@
 import { withResponsesOutputItemsCanonicalized } from './canonicalize-output-items.ts';
+import { withResponsesCompactShim } from './compact-shim.ts';
 import { withDemoteDeveloperToSystem } from './demote-developer-to-system.ts';
 import { withInterleavedSystemDemotedToUser } from './demote-interleaved-system-to-user.ts';
 import { withReasoningDisabledOnForcedToolChoice } from './disable-reasoning-on-forced-tool-choice.ts';
@@ -15,8 +16,13 @@ import { withVendorQwenResponsesNormalize } from './vendor-qwen-normalize.ts';
 // early-return on `ctx.candidate.binding.enabledFlags.has(flagId)`).
 //
 // Order matters: earlier entries wrap later ones.
-//   - withResponsesServerToolShim: runs outermost so it wraps the full
-//     multi-turn ReAct loop around the rest of the chain.
+//   - withResponsesCompactShim: runs outermost so the action pivot
+//     ('compact' → 'generate' for the inner summarization turn) is visible
+//     to every downstream interceptor + the provider terminal. Also
+//     responsible for inbound expansion of prior shim-encoded compaction
+//     items so the upstream sees the summarized history.
+//   - withResponsesServerToolShim: wraps the multi-turn ReAct loop around
+//     the rest of the chain.
 //   - withCyberPolicyRetried: gated by `retry-cyber-policy`.
 //   - withReasoningDisabledOnForcedToolChoice: gated by
 //     `disable-reasoning-on-forced-tool-choice`.
@@ -41,6 +47,7 @@ import { withVendorQwenResponsesNormalize } from './vendor-qwen-normalize.ts';
 //     consumers (server-tool shim, storage layer's id mapper, replay
 //     affinity) then see a single canonical pair per item.
 export const responsesInterceptors: readonly ResponsesInterceptor[] = [
+  withResponsesCompactShim,
   withResponsesServerToolShim([
     webSearchServerTool,
     imageGenerationServerTool,

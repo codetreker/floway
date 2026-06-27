@@ -1423,6 +1423,62 @@ test('translateResponsesToChatCompletions throws on a stray web_search_call inpu
   );
 });
 
+test('translateResponsesToChatCompletions throws on a stray compaction_trigger input item (compact-shim owns the strip)', () => {
+  // The compact-shim is structurally required on non-responses targets and
+  // strips compaction_trigger items before reaching this translator.
+  // Reaching here with one in input means the shim disengaged; the
+  // translator's catch-all guard surfaces the regression.
+  assertThrows(
+    () => translateResponsesToChatCompletions({
+      model: 'gpt-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction_trigger' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    'Responses → Chat Completions translator does not accept compaction_trigger input items',
+  );
+});
+
+test('translateResponsesToChatCompletions throws on a stray compaction input item (compact-shim owns the expansion)', () => {
+  // The compact-shim expands its own shim-encoded compaction items inline
+  // before reaching this translator and round-trips foreign compactions
+  // back to the upstream as raw items. Either way the translator should
+  // never see one.
+  assertThrows(
+    () => translateResponsesToChatCompletions({
+      model: 'gpt-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction', id: 'cmp_x', encrypted_content: 'opaque', created_by: 'compaction_session' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    'Responses → Chat Completions translator does not accept compaction input items',
+  );
+});
+
 test('translateResponsesToChatCompletions maps multimodal function_call_output into a tool message with image content', () => {
   const result = translateResponsesToChatCompletions({
     model: 'gpt-test',

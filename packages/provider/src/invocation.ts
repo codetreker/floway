@@ -33,9 +33,10 @@ export interface MessagesInvocation {
 
 export interface ResponsesInvocation {
   payload: ResponsesPayload;
-  // Mutable action tag — interceptors may flip it so the inner provider call
-  // runs the other branch; the gateway derives snapshot mode from the
-  // post-chain action carried on the invocation.
+  // Mutable action tag — interceptors can flip 'compact' to 'generate' so the
+  // inner provider call runs a normal summarization turn (see the
+  // responses-compact-shim) and the gateway derives snapshot mode from the
+  // post-chain action carried on the provider's tagged result.
   action: ResponsesAction;
   readonly candidate: ProviderCandidate;
   readonly headers: Headers;

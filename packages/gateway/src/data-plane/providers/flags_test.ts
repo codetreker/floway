@@ -50,9 +50,13 @@ test('provider flags: defaultsForProvider returns the catalog-declared defaults'
   const azureDefaults = [...defaultsForProvider('azure')].sort();
   assertEquals(azureDefaults, ['messages-web-search-shim', 'responses-image-generation-shim', 'responses-web-search-shim', 'strip-billing-attribution']);
   assertEquals([...defaultsForProvider('custom')].sort(), ['messages-web-search-shim', 'responses-image-generation-shim', 'responses-web-search-shim', 'strip-billing-attribution']);
-  assertEquals([...defaultsForProvider('ollama')].sort(), ['messages-web-search-shim', 'responses-image-generation-shim', 'responses-web-search-shim']);
+  // ollama gets responses-compact-shim by default (no native /v1/responses/compact endpoint).
+  assertEquals([...defaultsForProvider('ollama')].sort(), ['messages-web-search-shim', 'responses-compact-shim', 'responses-image-generation-shim', 'responses-web-search-shim']);
   assertEquals(defaultsForProvider('codex').size, 0);
-  assertEquals(defaultsForProvider('claude-code').size, 0);
+  // claude-code gets responses-compact-shim by default (Messages-only — any
+  // Responses request that reaches a claude-code binding needs the shim to
+  // simulate compaction; the alternative is a hard reject from the provider).
+  assertEquals([...defaultsForProvider('claude-code')].sort(), ['responses-compact-shim']);
 });
 
 test('provider flags: defaultsForProvider memoizes the set per provider kind', () => {

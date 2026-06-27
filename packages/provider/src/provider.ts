@@ -14,7 +14,9 @@ import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@f
 // turn that some upstreams expose natively (`/v1/responses/compact`,
 // chatgpt.com's RemoteCompactionV2 over /codex/responses) and others have to
 // simulate. The same `callResponses` method dispatches on this tag, and
-// interceptors may flip it before the inner upstream call runs.
+// interceptors are free to flip it (the responses-compact-shim turns 'compact'
+// into 'generate' so the inner upstream call runs an ordinary summarization
+// turn against the SUMMARIZATION_PROMPT).
 export type ResponsesAction = 'generate' | 'compact';
 
 export interface ProviderModelRecord {

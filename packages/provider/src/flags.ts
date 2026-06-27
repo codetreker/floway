@@ -73,6 +73,12 @@ export const OPTIONAL_FLAGS = [
     defaultFor: ALL_PROVIDER_KINDS.filter(p => !['codex', 'claude-code'].includes(p)),
   },
   {
+    id: 'responses-compact-shim',
+    label: 'Responses compact shim',
+    description: "Simulate `response.compaction` against upstreams that don't expose a native compact wire. The shim swaps a compact request's instructions for the Codex SUMMARIZATION_PROMPT, runs a normal generate turn, and packs the upstream's summary back into a synthetic compaction envelope. Default on for `claude-code` and `ollama` (no native compaction); default off for `codex`, `copilot`, `azure`, `custom` (each has a native compact wire).",
+    defaultFor: ['claude-code', 'ollama'],
+  },
+  {
     id: 'disable-reasoning-on-forced-tool-choice',
     label: 'Disable reasoning when caller forces a tool',
     description: "Disable reasoning in the outbound request when the caller forces a specific tool. Emits the gateway's canonical 'no reasoning' sentinel; the active Vendor flag (if any) translates that into the vendor's wire form.",

@@ -1,4 +1,5 @@
 import type { MessagesInterceptor } from './types.ts';
+import { decodeBase64UrlJson, encodeBase64UrlJson } from '../../../../shared/base64url-json.ts';
 import { isJsonObject } from '../../../../shared/json-helpers.ts';
 import { resolveConfiguredWebSearchProvider } from '../../../tools/web-search/provider.ts';
 import { loadSearchConfig } from '../../../tools/web-search/search-config.ts';
@@ -110,47 +111,6 @@ const normalizeNonEmptyDomainList = (domains?: string[]): string[] | undefined =
   return normalized && normalized.length > 0 ? [...new Set(normalized)] : undefined;
 };
 
-const bytesToBase64Url = (bytes: Uint8Array): string => {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-};
-
-const base64UrlToBytes = (value: string): Uint8Array | null => {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-
-  try {
-    const binary = atob(padded);
-    return Uint8Array.from(binary, char => char.charCodeAt(0));
-  } catch {
-    return null;
-  }
-};
-
-// Payload is base64url-encoded JSON with no envelope or prefix marker. Replay
-// detection is purely structural: a foreign upstream's opaque
-// `encrypted_content` / `encrypted_index` will fail base64url+JSON decoding or
-// fail the strict exact-keys schema validators below, so it round-trips through
-// the shim untouched.
-const encodePayload = (payload: unknown): string => bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
-
-const decodePayload = (value: string): unknown | null => {
-  const bytes = base64UrlToBytes(value);
-  if (!bytes) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return null;
-  }
-};
-
 const hasExactKeys = (value: Record<string, unknown>, keys: string[]): boolean => {
   const actualKeys = Object.keys(value);
   return actualKeys.length === keys.length && actualKeys.every(key => keys.includes(key));
@@ -185,17 +145,21 @@ const isShimWebSearchCitationPayload = (value: unknown): value is ShimWebSearchC
   );
 };
 
-export const encodeWebSearchResultPayload = (payload: ShimWebSearchResultPayload): string => encodePayload(payload);
+export const encodeWebSearchResultPayload = (payload: ShimWebSearchResultPayload): string => encodeBase64UrlJson(payload);
 
+// Replay detection is purely structural: a foreign upstream's opaque
+// `encrypted_content` / `encrypted_index` will fail base64url+JSON decoding or
+// fail the strict exact-keys schema validators above, so it round-trips through
+// the shim untouched.
 export const decodeWebSearchResultPayload = (value: string): ShimWebSearchResultPayload | null => {
-  const decoded = decodePayload(value);
+  const decoded = decodeBase64UrlJson(value);
   return isShimWebSearchResultPayload(decoded) ? decoded : null;
 };
 
-export const encodeWebSearchCitationPayload = (payload: ShimWebSearchCitationPayload): string => encodePayload(payload);
+export const encodeWebSearchCitationPayload = (payload: ShimWebSearchCitationPayload): string => encodeBase64UrlJson(payload);
 
 export const decodeWebSearchCitationPayload = (value: string): ShimWebSearchCitationPayload | null => {
-  const decoded = decodePayload(value);
+  const decoded = decodeBase64UrlJson(value);
   return isShimWebSearchCitationPayload(decoded) ? decoded : null;
 };
 

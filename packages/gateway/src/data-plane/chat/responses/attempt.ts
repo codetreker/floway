@@ -32,10 +32,31 @@ export interface ResponsesAttemptInvokeArgs {
 }
 
 // Single entry point for both `action: 'generate'` and `action: 'compact'`.
-// The interceptor chain owns the action through `invocation.action` and may
-// flip it; post-chain we read `invocation.action` to decide whether to drain
-// the event stream into a single compaction envelope (compact branch) or to
-// hand it back as a streaming `ExecuteResult` (generate branch).
+// Envelope-drain branches on the caller's intent (`action` passed by value),
+// not on `invocation.action`. Interceptors are free to mutate `ctx.action`
+// to steer inner dispatch — and, by the project's interceptor convention,
+// they do not restore on the way out — so post-chain `invocation.action`
+// reflects whatever the last writer left it at. The shape of the result we
+// hand back is the caller's contract; keying off the caller's value is the
+// only place that contract lives.
+//
+// The module-boundary invariant `compact-shaped ⇒ targetApi='responses'`
+// at dispatch time is enforced in two places, each at the layer that owns
+// the corresponding piece of state:
+//
+//   - `invocation.action === 'compact'` is caught inside `dispatchResponses`'s
+//     `case 'messages'` / `case 'chat-completions'` arms — action is a
+//     Responses-level metadata field that the translators never see.
+//   - A `compaction_trigger` (or any other compact-shaped) item in input is
+//     caught by the translator itself — the `responses-via-messages` and
+//     `responses-via-chat-completions` translators reject any input-item
+//     variant they do not handle, so a compaction_trigger that slipped past
+//     the shim surfaces as a translator-level error rather than a silent
+//     drop.
+//
+// Both safety nets fire pre-upstream-call, live inside the chain (not after
+// the interceptor finally blocks), and stay independent of the shim's
+// presence.
 //
 // Snapshot persistence is owned end-to-end by `wrapResponsesOutputForStorage`,
 // which derives the snapshot mode by observing the output stream — `'replace'`
@@ -50,11 +71,6 @@ export interface ResponsesAttemptInvokeArgs {
 export const responsesAttempt = {
   invoke: async (args: ResponsesAttemptInvokeArgs): Promise<ResponsesAttemptResult> => {
     const { payload, action, ctx, store, candidate, headers } = args;
-    // Read the caller's intent `action` (NOT `invocation.action`) — the guard
-    // runs pre-chain, before any interceptor can flip the value.
-    if (action === 'compact' && candidate.targetApi !== 'responses') {
-      throw new Error(`responsesAttempt.invoke(action='compact') requires targetApi='responses', got '${candidate.targetApi}'`);
-    }
     // Rewrite + privatePayload seed + assistant-content normalization all run
     // BEFORE the interceptor chain so source interceptors — most importantly
     // the web-search server-tool shim — see fully inline-expanded input items
@@ -87,12 +103,15 @@ export const responsesAttempt = {
     if (chainResult.type !== 'events') return chainResult;
 
     const responseId = createStoredResponseId();
-    if (invocation.action === 'compact') {
-      // Drain the events into a single envelope and return the value branch
-      // so the http compact endpoint can JSON-encode it directly. Storage
-      // still runs over the synthesized event stream so the snapshot is
-      // committed under the same id the client will see — wrap detects the
-      // `compaction` output item and writes a `'replace'` snapshot.
+    if (action === 'compact') {
+      // The caller entered through /v1/responses/compact (or serve.compact).
+      // Drain the chain's events — whether they came from a native /compact
+      // wire or from the responses-compact-shim's synthesized envelope —
+      // into a single result envelope so the http layer can JSON-encode it
+      // directly. Storage still runs over the synthesized event stream so
+      // the snapshot is committed under the same id the client will see —
+      // wrap detects the `compaction` output item and writes a `'replace'`
+      // snapshot.
       const upstreamCompacted = await collectResponsesProtocolEventsToResult(chainResult.events);
       await drainAsync(wrapResponsesOutputForStorage(syntheticEventsFromResult(upstreamCompacted), {
         store,
@@ -224,7 +243,13 @@ const dispatchResponses = async (
   }
   case 'messages':
     if (invocation.action === 'compact') {
-      throw new Error(`responsesAttempt: action='compact' is unreachable on targetApi='messages' (filtered by serve-prep)`);
+      // The responses-compact-shim is structurally required on non-responses
+      // targets and pivots ctx.action to 'generate' before reaching here;
+      // landing inside this case with action='compact' means the shim
+      // disengaged or was wired out of the chain. A compaction_trigger in
+      // input is caught one layer down by the translator's
+      // unexpected-input-item guard.
+      throw new Error(`responsesAttempt: action='compact' reached dispatch on targetApi='messages' — the responses-compact-shim must engage and pivot the action`);
     }
     return await traverseTranslation(
       invocation.payload,
@@ -238,7 +263,7 @@ const dispatchResponses = async (
     );
   case 'chat-completions':
     if (invocation.action === 'compact') {
-      throw new Error(`responsesAttempt: action='compact' is unreachable on targetApi='chat-completions' (filtered by serve-prep)`);
+      throw new Error(`responsesAttempt: action='compact' reached dispatch on targetApi='chat-completions' — the responses-compact-shim must engage and pivot the action`);
     }
     return await traverseTranslation(
       invocation.payload,
