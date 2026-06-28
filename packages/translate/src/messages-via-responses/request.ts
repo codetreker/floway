@@ -141,11 +141,15 @@ const translateAssistantMessage = (message: MessagesAssistantMessage): Responses
   return input;
 };
 
+// Preserve per-block boundaries when the source carries a
+// MessagesTextBlock[]; single-string source stays as string content.
 const translateMessagesSystem = (message: MessagesSystemMessage): ResponsesInputItem[] => [
   {
     type: 'message',
     role: 'system',
-    content: typeof message.content === 'string' ? message.content : message.content.map(block => block.text).join('\n\n'),
+    content: typeof message.content === 'string'
+      ? message.content
+      : message.content.map(block => ({ type: 'input_text', text: block.text })),
   },
 ];
 
@@ -159,14 +163,32 @@ const translateMessagesInput = (messages: MessagesMessage[]): ResponsesInputItem
     }
   });
 
-const translateSystemPrompt = (system: string | MessagesTextBlock[] | undefined): string | null => {
-  if (typeof system === 'string') return system;
-  if (!system) return null;
+// Responses' `instructions` field is `string | null` — it cannot carry
+// multiple text blocks faithfully. When the source `MessagesPayload.system`
+// is a single string or a single block, the canonical `instructions` slot
+// is the right home. When the source is a multi-block array, the canonical
+// slot would silently merge the boundaries, so emit a leading input
+// system message with multi-part `input_text` content instead and leave
+// `instructions` null; both placements act as a system prompt prefix at
+// the upstream and the multi-part form preserves the caller-visible block
+// structure.
+interface SystemPlacement {
+  readonly instructions: string | null;
+  readonly prependItems: readonly ResponsesInputItem[];
+}
 
-  // Messages system blocks are prompt boundaries. Keep paragraph separation on
-  // OpenAI fallbacks instead of collapsing headings or lists with spaces.
-  const text = system.map(block => block.text).join('\n\n');
-  return text.length > 0 ? text : null;
+const placeMessagesSystem = (system: string | MessagesTextBlock[] | undefined): SystemPlacement => {
+  if (typeof system === 'string') return { instructions: system, prependItems: [] };
+  if (!system || system.length === 0) return { instructions: null, prependItems: [] };
+  if (system.length === 1) return { instructions: system[0].text, prependItems: [] };
+  return {
+    instructions: null,
+    prependItems: [{
+      type: 'message',
+      role: 'system',
+      content: system.map(block => ({ type: 'input_text', text: block.text })),
+    }],
+  };
 };
 
 const translateTools = (tools: MessagesClientTool[] | undefined): ResponsesTool[] | null => {
@@ -209,7 +231,7 @@ export const translateMessagesToResponses = (payload: MessagesPayload): Response
   const effort = resolveMessagesReasoningEffort(payload);
   const reasoning = effort ? { effort } : undefined;
   const clientTools = getClientTools(payload.tools);
-  const instructions = translateSystemPrompt(payload.system);
+  const { instructions, prependItems } = placeMessagesSystem(payload.system);
   const jsonSchema = openAiJsonSchemaCoreFromMessagesFormat(payload.output_config?.format);
   const text = jsonSchema ? { format: { type: 'json_schema' as const, ...jsonSchema } } : undefined;
 
@@ -224,7 +246,7 @@ export const translateMessagesToResponses = (payload: MessagesPayload): Response
   // Messages source did not express those knobs.
   return {
     model: payload.model,
-    input: translateMessagesInput(payload.messages),
+    input: [...prependItems, ...translateMessagesInput(payload.messages)],
     ...(instructions !== null ? { instructions } : {}),
     ...(payload.temperature !== undefined ? { temperature: payload.temperature } : {}),
     ...(payload.top_p !== undefined ? { top_p: payload.top_p } : {}),
