@@ -210,7 +210,7 @@ test('generate translates through the Responses target when only that endpoint i
   assertEquals(callResponses.mock.calls.length, 1);
 });
 
-test('generate stops at the first candidate even when it yields an upstream error', async () => {
+test('generate falls through to the next candidate when the first yields an upstream error', async () => {
   installRepo();
   const firstError = new Response(JSON.stringify({ error: { message: 'nope' } }), {
     status: 502, headers: new Headers({ 'content-type': 'application/json' }),
@@ -232,12 +232,31 @@ test('generate stops at the first candidate even when it yields an upstream erro
     headers: new Headers(),
   });
 
-  // An upstream error from the first candidate IS the final answer — the
-  // gateway does not retry on a different upstream just because the first one
-  // produced an HTTP error.
-  assertEquals(result.type, 'api-error');
+  // The narrowed candidate list exists exactly so a transient upstream
+  // failure (5xx/429/network) on one entry rolls over to the next. The
+  // second candidate's success is the request's final answer.
+  assertEquals(result.type, 'events');
   assertEquals(firstCall.mock.calls.length, 1);
-  assertEquals(secondCall.mock.calls.length, 0);
+  assertEquals(secondCall.mock.calls.length, 1);
+});
+
+test('generate surfaces the last upstream error verbatim when every candidate fails', async () => {
+  installRepo();
+  const firstError = new Response('first', { status: 503 });
+  const lastError = new Response('last', { status: 502 });
+  queueCandidates([
+    makeCandidate({ upstream: 'up_a', callMessages: async () => ({ ok: false, response: firstError, modelKey: 'first-key' }) }),
+    makeCandidate({ upstream: 'up_b', callMessages: async () => ({ ok: false, response: lastError, modelKey: 'last-key' }) }),
+  ]);
+
+  const result = await messagesServe.generate({
+    payload: makePayload(),
+    ctx: makeGatewayCtx(),
+    headers: new Headers(),
+  });
+
+  const failure = assertResultType(result, 'api-error');
+  assertEquals(failure.status, 502);
 });
 
 test('generate stops at the first candidate when the payload has no reasoning carriers to route on', async () => {

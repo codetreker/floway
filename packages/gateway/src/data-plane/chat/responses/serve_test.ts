@@ -193,7 +193,7 @@ test('compact returns a result envelope from the wrapped attempt', async () => {
   assertEquals(callResponses.mock.calls[0][2], 'compact');
 });
 
-test('generate stops at the first candidate even when it yields an upstream error', async () => {
+test('generate falls through to the next candidate when the first yields an upstream error', async () => {
   installRepo();
   const firstError = new Response(JSON.stringify({ error: { message: 'nope' } }), {
     status: 502, headers: new Headers({ 'content-type': 'application/json' }),
@@ -219,12 +219,12 @@ test('generate stops at the first candidate even when it yields an upstream erro
     headers: new Headers(),
   });
 
-  // An upstream error from the first candidate IS the final answer — the
-  // gateway does not retry on a different upstream just because the first one
-  // produced an HTTP error.
-  assertEquals(result.type, 'api-error');
+  // The narrowed candidate list exists exactly so a transient upstream
+  // failure (5xx/429/network) on one entry rolls over to the next. The
+  // second candidate's success is the request's final answer.
+  assertEquals(result.type, 'events');
   assertEquals(firstCall.mock.calls.length, 1);
-  assertEquals(secondCall.mock.calls.length, 0);
+  assertEquals(secondCall.mock.calls.length, 1);
 });
 
 test('generate renders model-missing when no candidates are available', async () => {

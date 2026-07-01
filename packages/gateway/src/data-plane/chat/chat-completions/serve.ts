@@ -4,6 +4,7 @@ import { enumerateModelCandidates } from '../../providers/registry.ts';
 import { classifyResponsesItemAffinity } from '../responses/items/affinity.ts';
 import { noViableCandidateFailure } from '../shared/errors.ts';
 import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
+import { iterateChatCandidates } from '../shared/iterate-candidates.ts';
 import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ExecuteResult } from '@floway-dev/provider';
@@ -33,13 +34,18 @@ export const chatCompletionsServe = {
       candidates: viable,
     });
     if (decision.kind === 'failure') return renderChatCompletionsFailure(decision.failure);
+    if (decision.candidates.length === 0) return renderChatCompletionsFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams));
 
-    // Any non-throwing attempt result — events, api-error, or
-    // internal-error — IS the answer for this request: an upstream 4xx/5xx
-    // from the first viable candidate is final, not a hint to try another
-    // upstream.
-    const [candidate] = decision.candidates;
-    if (candidate === undefined) return renderChatCompletionsFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams));
-    return await chatCompletionsAttempt.generate({ payload, ctx, candidate, headers });
+    // Try each narrowed candidate in order. A successful attempt (SSE
+    // stream opened) is the final answer; an api-error or internal-error
+    // from one candidate falls through to the next so the gateway absorbs
+    // transient 5xx/429/network failures. When the list is exhausted, the
+    // most recent failure is forwarded verbatim so the client still sees
+    // real upstream telemetry rather than a synthetic envelope.
+    return await iterateChatCandidates(
+      decision.candidates,
+      'chatCompletionsServe.generate',
+      candidate => chatCompletionsAttempt.generate({ payload, ctx, candidate, headers }),
+    );
   },
 };

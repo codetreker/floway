@@ -150,7 +150,7 @@ test('generate filters out candidates that do not expose any chat-completions-ta
   assertEquals(callChatCompletions.mock.calls.length, 0);
 });
 
-test('generate stops at the first candidate even when it yields an upstream error', async () => {
+test('generate falls through to the next candidate when the first yields an upstream error', async () => {
   installRepo();
   const firstError = new Response(JSON.stringify({ error: { message: 'nope' } }), {
     status: 502, headers: new Headers({ 'content-type': 'application/json' }),
@@ -172,12 +172,34 @@ test('generate stops at the first candidate even when it yields an upstream erro
     headers: new Headers(),
   });
 
-  // An upstream error from the first candidate IS the final answer — the
-  // gateway does not retry on a different upstream just because the first one
-  // produced an HTTP error.
-  assertEquals(result.type, 'api-error');
+  // The narrowed candidate list exists exactly so a transient upstream
+  // failure (5xx/429/network) on one entry rolls over to the next. The
+  // second candidate's success is the request's final answer.
+  assertEquals(result.type, 'events');
   assertEquals(firstCall.mock.calls.length, 1);
-  assertEquals(secondCall.mock.calls.length, 0);
+  assertEquals(secondCall.mock.calls.length, 1);
+});
+
+test('generate surfaces the last upstream error verbatim when every candidate fails', async () => {
+  installRepo();
+  const firstError = new Response('first', { status: 503 });
+  const lastError = new Response(JSON.stringify({ error: { message: 'last' } }), {
+    status: 502, headers: new Headers({ 'content-type': 'application/json' }),
+  });
+  queueCandidates([
+    makeCandidate({ upstream: 'up_a', callChatCompletions: async () => ({ ok: false, response: firstError, modelKey: 'first-key' }) }),
+    makeCandidate({ upstream: 'up_b', callChatCompletions: async () => ({ ok: false, response: lastError, modelKey: 'last-key' }) }),
+  ]);
+
+  const result = await chatCompletionsServe.generate({
+    payload: makePayload(),
+    ctx: makeGatewayCtx(),
+    headers: new Headers(),
+  });
+
+  assertEquals(result.type, 'api-error');
+  if (result.type !== 'api-error') throw new Error('unreachable');
+  assertEquals(result.status, 502);
 });
 
 test('generate is a routing no-op when the payload carries no reasoning carriers (degenerate path)', async () => {

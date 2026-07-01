@@ -4,6 +4,7 @@ import { enumerateModelCandidates } from '../../providers/registry.ts';
 import { classifyResponsesItemAffinity } from '../responses/items/affinity.ts';
 import { noViableCandidateFailure } from '../shared/errors.ts';
 import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
+import { iterateChatCandidates } from '../shared/iterate-candidates.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult, PlainResult } from '@floway-dev/provider';
@@ -39,14 +40,18 @@ export const messagesServe = {
       candidates: viable,
     });
     if (decision.kind === 'failure') return renderMessagesFailure(decision.failure, 'generate');
+    if (decision.candidates.length === 0) return renderMessagesFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams), 'generate');
 
-    // Any non-throwing attempt result — events, api-error, or
-    // internal-error — IS the answer for this request: an upstream 4xx/5xx
-    // from the first viable candidate is final, not a hint to try another
-    // upstream.
-    const [candidate] = decision.candidates;
-    if (candidate === undefined) return renderMessagesFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams), 'generate');
-    return await messagesAttempt.generate({ payload, ctx, candidate, headers });
+    // Try each narrowed candidate in order. A successful attempt (SSE
+    // stream opened) is the final answer; an api-error or internal-error
+    // from one candidate falls through to the next so the gateway absorbs
+    // transient 5xx/429/network failures. When the list is exhausted, the
+    // most recent failure is forwarded verbatim.
+    return await iterateChatCandidates(
+      decision.candidates,
+      'messagesServe.generate',
+      candidate => messagesAttempt.generate({ payload, ctx, candidate, headers }),
+    );
   },
 
   countTokens: async (args: MessagesServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>> | PlainResult> => {
@@ -66,12 +71,12 @@ export const messagesServe = {
       candidates: viable,
     });
     if (decision.kind === 'failure') return renderMessagesFailure(decision.failure, 'countTokens');
+    if (decision.candidates.length === 0) return renderMessagesFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams), 'countTokens');
 
-    // PlainResult always represents a final response — both 2xx and upstream
-    // errors come back as a `plain` envelope, so the first candidate's result
-    // is the answer. Provider-level transport errors throw and propagate.
-    const [candidate] = decision.candidates;
-    if (candidate === undefined) return renderMessagesFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams), 'countTokens');
-    return await messagesAttempt.countTokens({ payload, ctx, candidate, headers });
+    return await iterateChatCandidates(
+      decision.candidates,
+      'messagesServe.countTokens',
+      candidate => messagesAttempt.countTokens({ payload, ctx, candidate, headers }),
+    );
   },
 };

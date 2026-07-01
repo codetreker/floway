@@ -4,6 +4,7 @@ import { enumerateModelCandidates } from '../../providers/registry.ts';
 import { classifyResponsesItemAffinity } from '../responses/items/affinity.ts';
 import { noViableCandidateFailure } from '../shared/errors.ts';
 import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
+import { iterateChatCandidates } from '../shared/iterate-candidates.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiPayload, GeminiStreamEvent } from '@floway-dev/protocols/gemini';
 import type { ExecuteResult, PlainResult } from '@floway-dev/provider';
@@ -44,14 +45,13 @@ export const geminiServe = {
       candidates: viable,
     });
     if (decision.kind === 'failure') return renderGeminiFailure(decision.failure, 'generate');
+    if (decision.candidates.length === 0) return renderGeminiFailure(noViableCandidateFailure(sawModel, model, failedUpstreams), 'generate');
 
-    // Any non-throwing attempt result — events, api-error, or
-    // internal-error — IS the answer for this request: an upstream 4xx/5xx
-    // from the first viable candidate is final, not a hint to try another
-    // upstream.
-    const [candidate] = decision.candidates;
-    if (candidate === undefined) return renderGeminiFailure(noViableCandidateFailure(sawModel, model, failedUpstreams), 'generate');
-    return await geminiAttempt.generate({ payload, ctx, candidate, headers });
+    return await iterateChatCandidates(
+      decision.candidates,
+      'geminiServe.generate',
+      candidate => geminiAttempt.generate({ payload, ctx, candidate, headers }),
+    );
   },
 
   countTokens: async (args: GeminiServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<GeminiStreamEvent>> | PlainResult> => {
@@ -71,12 +71,12 @@ export const geminiServe = {
       candidates: viable,
     });
     if (decision.kind === 'failure') return renderGeminiFailure(decision.failure, 'countTokens');
+    if (decision.candidates.length === 0) return renderGeminiFailure(noViableCandidateFailure(sawModel, model, failedUpstreams), 'countTokens');
 
-    // PlainResult always represents a final response — both 2xx and upstream
-    // errors come back as a `plain` envelope, so the first candidate's result
-    // is the answer. Provider-level transport errors throw and propagate.
-    const [candidate] = decision.candidates;
-    if (candidate === undefined) return renderGeminiFailure(noViableCandidateFailure(sawModel, model, failedUpstreams), 'countTokens');
-    return await geminiAttempt.countTokens({ payload, ctx, candidate, headers });
+    return await iterateChatCandidates(
+      decision.candidates,
+      'geminiServe.countTokens',
+      candidate => geminiAttempt.countTokens({ payload, ctx, candidate, headers }),
+    );
   },
 };
