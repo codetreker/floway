@@ -6,12 +6,25 @@ import { planResponsesRouting } from './routing.ts';
 import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
 import type { StoredResponsesItem } from '../../../repo/types.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { ResponsesPayload } from '@floway-dev/protocols/responses';
 import type { ProviderCandidate } from '@floway-dev/provider';
 import { directFetcher } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel, assertEquals } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_routing_test';
+
+const makeCtx = (): ChatGatewayCtx => ({
+  apiKeyId: API_KEY_ID,
+  upstreamIds: null,
+  wantsStream: false,
+  runtimeLocation: 'TEST',
+  currentColo: 'TEST',
+  dump: null,
+  backgroundScheduler: () => {},
+  requestStartedAt: 0,
+  store: createNonResponsesSourceStore(API_KEY_ID),
+});
 
 const candidateFor = (upstream: string): ProviderCandidate => {
   const modelProvider = stubProvider({
@@ -66,7 +79,7 @@ test('payload with no stored references passes candidates through unchanged', as
   const decision = await planResponsesRouting({
     payload: payload([{ type: 'message', role: 'user', content: 'hello' }]),
     candidates,
-    store: createNonResponsesSourceStore(API_KEY_ID),
+    ctx: makeCtx(),
   });
 
   assertEquals(decision.kind, 'success');
@@ -85,7 +98,7 @@ test('item_reference forcing an upstream absent from candidates fails routing', 
   const decision = await planResponsesRouting({
     payload: payload([{ type: 'item_reference', id }]),
     candidates: [candidateFor('up_b')],
-    store: createNonResponsesSourceStore(API_KEY_ID),
+    ctx: makeCtx(),
   });
 
   assertEquals(decision.kind, 'failure');

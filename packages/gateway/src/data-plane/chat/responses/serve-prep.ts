@@ -4,7 +4,7 @@ import type { StatefulResponsesStore } from './items/store.ts';
 import { planResponsesRouting } from './routing.ts';
 import { enumerateModelCandidates } from '../../providers/registry.ts';
 import { noViableCandidateFailure } from '../shared/errors.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesInputItem, ResponsesPayload, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 import type { ProviderCandidate, ExecuteResult } from '@floway-dev/provider';
@@ -84,10 +84,10 @@ export type ResponsesServePlan =
 // directly without re-deriving the model-error branch.
 export const prepareResponsesServePlan = async (args: {
   readonly payload: ResponsesPayload;
-  readonly ctx: GatewayCtx;
-  readonly store: StatefulResponsesStore;
+  readonly ctx: ChatGatewayCtx;
 }): Promise<ResponsesServePlan> => {
-  const { payload, ctx, store } = args;
+  const { payload, ctx } = args;
+  const { store } = ctx;
   const prepared = await expandPreviousResponseId(payload, store);
   const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
     upstreamIds: ctx.upstreamIds,
@@ -97,7 +97,7 @@ export const prepareResponsesServePlan = async (args: {
     currentColo: ctx.currentColo,
   });
   const viable = enumerated.filter(c => responsesTarget.canServe(c.model.endpoints));
-  const decision = await planResponsesRouting({ payload: prepared, candidates: viable, store });
+  const decision = await planResponsesRouting({ payload: prepared, candidates: viable, ctx });
   if (decision.kind === 'failure') return { kind: 'failure', result: renderResponsesFailure(decision.failure) };
   // Stage the user-supplied input from the original payload — not the
   // expansion's `item_reference` prefix — so the next-turn snapshot picks

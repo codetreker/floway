@@ -13,7 +13,7 @@ import {
   type UpstreamTerminal,
 } from './server-tool-shim.ts';
 import { SHIM_TOOL_NAME, webSearchServerTool } from './server-tools/web-search.ts';
-import type { ResponsesInterceptor, ResponsesInvocation } from './types.ts';
+import type { ResponsesInterceptor } from './types.ts';
 import { initRepo } from '../../../../repo/index.ts';
 import { InMemoryRepo } from '../../../../repo/memory.ts';
 import { resolveConfiguredWebSearchProvider } from '../../../tools/web-search/provider.ts';
@@ -26,9 +26,8 @@ import type {
   WebSearchProviderRequest,
   WebSearchProviderResult,
 } from '../../../tools/web-search/types.ts';
-import type { GatewayCtx } from '../../shared/gateway-ctx.ts';
-import { MemoryStatefulResponsesBacking, LayeredStatefulResponsesStore } from '../items/store.ts';
-import type { StatefulResponsesStore } from '../items/store.ts';
+import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
+import { createNonResponsesSourceStore } from '../items/store.ts';
 import { eventFrame } from '@floway-dev/protocols/common';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type {
@@ -43,7 +42,7 @@ import type {
   ResponsesToolChoice,
   ResponsesWebSearchAction,
 } from '@floway-dev/protocols/responses';
-import { directFetcher, type EventResult, type ExecuteResult } from '@floway-dev/provider';
+import { directFetcher, type EventResult, type ExecuteResult, type ResponsesInvocation } from '@floway-dev/provider';
 import { assert, assertEquals, assertFalse } from '@floway-dev/test-utils';
 
 const withResponsesWebSearchShim = withResponsesServerToolShim([webSearchServerTool]);
@@ -307,15 +306,6 @@ interface InvocationOverrides {
   payload?: Partial<ResponsesPayload>;
 }
 
-const makeStore = (apiKeyId: string | null = 'k1'): StatefulResponsesStore =>
-  new LayeredStatefulResponsesStore({
-    apiKeyId,
-    reads: [new MemoryStatefulResponsesBacking()],
-    itemWrites: [],
-    snapshotWrites: [],
-    stageInputs: false,
-  });
-
 const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocation => ({
   candidate: {
     provider: {
@@ -337,7 +327,6 @@ const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocatio
   // function_call_output path. Tests that care about a specific target
   // set targetApi explicitly.
   targetApi: overrides.targetApi ?? 'chat-completions',
-  store: makeStore(),
   payload: {
     model: 'claude-x',
     input: [{ type: 'message', role: 'user', content: 'hi' }],
@@ -352,7 +341,7 @@ const makeInvocation = (overrides: InvocationOverrides = {}): ResponsesInvocatio
   action: 'generate',
 });
 
-const makeGatewayCtx = (apiKeyId: string = 'k1'): GatewayCtx => ({
+const makeGatewayCtx = (apiKeyId: string = 'k1'): ChatGatewayCtx => ({
   apiKeyId,
   upstreamIds: null,
   wantsStream: true,
@@ -361,6 +350,7 @@ const makeGatewayCtx = (apiKeyId: string = 'k1'): GatewayCtx => ({
   dump: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
+  store: createNonResponsesSourceStore(apiKeyId),
 });
 
 const collectFrames = async <T>(iter: AsyncIterable<T>): Promise<T[]> => {
@@ -375,7 +365,7 @@ const collectFrames = async <T>(iter: AsyncIterable<T>): Promise<T[]> => {
 const runShimAndDrain = async (
   shim: ResponsesInterceptor,
   inv: ResponsesInvocation,
-  gatewayCtx: GatewayCtx,
+  gatewayCtx: ChatGatewayCtx,
   run: () => Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>>,
 ): Promise<{
   result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>;
@@ -664,19 +654,20 @@ test('synthesized web_search_call ids are registered as gateway-synthetic on the
   makeStubDeps();
   const shim = withResponsesWebSearchShim;
   const inv = makeInvocation();
+  const ctx = makeGatewayCtx();
   const script = scriptedRun([
     searchCallTurn(0, 'call_1', 'q1'),
     messageTurn('summary', 0),
   ]);
 
-  const { frames } = await runShimAndDrain(shim, inv, makeGatewayCtx(), script.run);
+  const { frames } = await runShimAndDrain(shim, inv, ctx, script.run);
 
   // Every web_search_call the shim synthesizes carries a gateway-minted id no
   // upstream issued; persistence relies on these being registered so it stores
   // them with no upstream identity (non_affinity).
   const doneEvents = outputItemDoneEvents(frames);
   const wsCallDoneIds = doneEvents.filter(e => e.item.type === 'web_search_call').map(e => e.item.id!);
-  const store = inv.store;
+  const store = ctx.store;
   assert(wsCallDoneIds.length > 0, 'expected a synthesized web_search_call');
   for (const id of wsCallDoneIds) {
     assert(id.startsWith('ws_gw_'));
@@ -4500,7 +4491,7 @@ test('downstream AbortSignal threads through to provider search / fetchPage and 
   });
   const shim = withResponsesWebSearchShim;
   const inv = makeInvocation();
-  const gatewayCtx: GatewayCtx = {
+  const gatewayCtx: ChatGatewayCtx = {
     apiKeyId: 'k1',
     upstreamIds: null,
     wantsStream: true,
@@ -4509,6 +4500,7 @@ test('downstream AbortSignal threads through to provider search / fetchPage and 
     dump: null,
     backgroundScheduler: () => {},
     requestStartedAt: 0,
+    store: createNonResponsesSourceStore('k1'),
     abortSignal: controller.signal,
   };
   const script = scriptedRun([

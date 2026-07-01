@@ -1,12 +1,11 @@
 import { test } from 'vitest';
 
 import { withCyberPolicyRetried } from './retry-cyber-policy.ts';
-import type { ResponsesInvocation } from './types.ts';
-import type { GatewayCtx } from '../../shared/gateway-ctx.ts';
-import { MemoryStatefulResponsesBacking, LayeredStatefulResponsesStore } from '../items/store.ts';
+import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
+import { createNonResponsesSourceStore } from '../items/store.ts';
 import { eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { eventResult, type ExecuteResult } from '@floway-dev/provider';
+import { eventResult, type ExecuteResult, type ResponsesInvocation } from '@floway-dev/provider';
 import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const makePayload = (): ResponsesPayload => ({
@@ -28,18 +27,11 @@ const makeInvocation = (payload: ResponsesPayload): ResponsesInvocation => ({
   payload,
   candidate: stubProviderCandidate({ model: { enabledFlags: new Set(['retry-cyber-policy']) } }),
   targetApi: 'responses',
-  store: new LayeredStatefulResponsesStore({
-    apiKeyId: 'test-key',
-    reads: [new MemoryStatefulResponsesBacking()],
-    itemWrites: [],
-    snapshotWrites: [],
-    stageInputs: false,
-  }),
   headers: new Headers(),
   action: 'generate',
 });
 
-const stubCtx = (overrides: { abortSignal?: AbortSignal } = {}): GatewayCtx => ({
+const stubCtx = (overrides: { abortSignal?: AbortSignal } = {}): ChatGatewayCtx => ({
   apiKeyId: 'test-key',
   upstreamIds: null,
   wantsStream: true,
@@ -48,6 +40,7 @@ const stubCtx = (overrides: { abortSignal?: AbortSignal } = {}): GatewayCtx => (
   dump: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
+  store: createNonResponsesSourceStore('test-key'),
   ...overrides,
 });
 

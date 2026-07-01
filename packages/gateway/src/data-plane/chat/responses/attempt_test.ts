@@ -3,11 +3,11 @@ import { test, vi } from 'vitest';
 import { responsesAttempt } from './attempt.ts';
 import { createStoredResponsesItemId, isStoredResponseId } from './items/format.ts';
 import * as outputModule from './items/output.ts';
-import { createResponsesHttpStore } from './items/store.ts';
+import { createResponsesHttpStore, createNonResponsesSourceStore } from './items/store.ts';
 import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
 import type { StoredResponsesItem } from '../../../repo/types.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
@@ -16,7 +16,7 @@ import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-d
 
 const API_KEY_ID = 'key_attempt_test';
 
-const makeGatewayCtx = (): GatewayCtx => ({
+const makeGatewayCtx = (store?: ChatGatewayCtx['store']): ChatGatewayCtx => ({
   apiKeyId: API_KEY_ID,
   upstreamIds: null,
   wantsStream: true,
@@ -25,6 +25,7 @@ const makeGatewayCtx = (): GatewayCtx => ({
   dump: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
+  store: store ?? createNonResponsesSourceStore(API_KEY_ID),
 });
 
 const makePayload = (overrides: Partial<ResponsesPayload> = {}): ResponsesPayload => ({
@@ -120,14 +121,13 @@ test('generate native success wraps the upstream event stream once', async () =>
   }));
 
   const candidate = makeCandidate(callResponses);
-  const ctx = makeGatewayCtx();
   const store = createResponsesHttpStore(API_KEY_ID, true);
+  const ctx = makeGatewayCtx(store);
   const commitSpy = vi.spyOn(store, 'commitSnapshot').mockResolvedValue();
 
   const result = await responsesAttempt.generate({
     payload: makePayload(),
     ctx,
-    store,
     candidate,
     headers: new Headers(),
   });
@@ -192,8 +192,7 @@ test('generate derives snapshotMode=replace when the upstream emits a compaction
         { type: 'message', role: 'user', content: 'kept message' },
       ],
     }),
-    ctx: makeGatewayCtx(),
-    store,
+    ctx: makeGatewayCtx(store),
     candidate,
     headers: new Headers(),
   });
@@ -240,8 +239,7 @@ test('generate returns failure when rewrite throws item-not-found', async () => 
 
   const result = await responsesAttempt.generate({
     payload: makePayload({ input: [{ type: 'item_reference', id: missingId }] }),
-    ctx: makeGatewayCtx(),
-    store,
+    ctx: makeGatewayCtx(store),
     candidate,
     headers: new Headers(),
   });
@@ -269,8 +267,7 @@ test('generate passes non-events provider result through unchanged', async () =>
   const candidate = makeCandidate(callResponses);
   const result = await responsesAttempt.generate({
     payload: makePayload(),
-    ctx: makeGatewayCtx(),
-    store: createResponsesHttpStore(API_KEY_ID, true),
+    ctx: makeGatewayCtx(createResponsesHttpStore(API_KEY_ID, true)),
     candidate,
     headers: new Headers(),
   });
@@ -321,8 +318,7 @@ test('compact reshapes the trigger turn into a result and derives snapshotMode=r
       ],
     }),
     action: 'compact',
-    ctx: makeGatewayCtx(),
-    store,
+    ctx: makeGatewayCtx(store),
     candidate,
     headers: new Headers(),
   });
@@ -386,8 +382,7 @@ test('generate inherits invocation headers across translation to Messages', asyn
 
   const result = await responsesAttempt.generate({
     payload: makePayload(),
-    ctx: makeGatewayCtx(),
-    store: createResponsesHttpStore(API_KEY_ID, true),
+    ctx: makeGatewayCtx(createResponsesHttpStore(API_KEY_ID, true)),
     candidate,
     headers: new Headers({ 'x-test': 'abc' }),
   });
@@ -495,8 +490,7 @@ test('generate seeds privatePayload before interceptors so the web-search shim r
       ],
       tools: [{ type: 'web_search' }],
     }),
-    ctx: makeGatewayCtx(),
-    store,
+    ctx: makeGatewayCtx(store),
     candidate,
     headers: new Headers(),
   });
@@ -543,8 +537,7 @@ test('generate propagates upstream response headers onto the EventResult so resp
   const store = createResponsesHttpStore(API_KEY_ID, true);
   const result = await responsesAttempt.generate({
     payload: makePayload(),
-    ctx: makeGatewayCtx(),
-    store,
+    ctx: makeGatewayCtx(store),
     candidate,
     headers: new Headers(),
   });

@@ -1343,7 +1343,7 @@ export const webSearchServerTool: ServerToolRegistration = (invocation, gatewayC
   return {
     type: 'active',
     baseToolName: SHIM_TOOL_NAME,
-    transformItems: (items, toolName) => transformInputItemsForWebSearch(items, toolName, id => invocation.store.getPrivatePayload(id)),
+    transformItems: (items, toolName) => transformInputItemsForWebSearch(items, toolName, id => gatewayCtx.store.getPrivatePayload(id)),
     ...(hasHostedWebSearch
       ? {
           hosted: {

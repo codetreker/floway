@@ -2,23 +2,21 @@ import { chatCompletionsAttempt, chatCompletionsTarget } from './attempt.ts';
 import { renderChatCompletionsFailure } from './errors.ts';
 import { planChatCompletionsRouting } from './routing.ts';
 import { enumerateModelCandidates } from '../../providers/registry.ts';
-import type { StatefulResponsesStore } from '../responses/items/store.ts';
 import { noViableCandidateFailure } from '../shared/errors.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ExecuteResult } from '@floway-dev/provider';
 
 export interface ChatCompletionsServeGenerateArgs {
   readonly payload: ChatCompletionsPayload;
-  readonly ctx: GatewayCtx;
-  readonly store: StatefulResponsesStore;
+  readonly ctx: ChatGatewayCtx;
   readonly headers: Headers;
 }
 
 export const chatCompletionsServe = {
   generate: async (args: ChatCompletionsServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> => {
-    const { payload, ctx, store, headers } = args;
+    const { payload, ctx, headers } = args;
     const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
       upstreamIds: ctx.upstreamIds,
       model: payload.model,
@@ -27,7 +25,7 @@ export const chatCompletionsServe = {
       currentColo: ctx.currentColo,
     });
     const viable = enumerated.filter(c => chatCompletionsTarget.canServe(c.model.endpoints));
-    const decision = await planChatCompletionsRouting({ payload, candidates: viable, store });
+    const decision = await planChatCompletionsRouting({ payload, candidates: viable, ctx });
     if (decision.kind === 'failure') return renderChatCompletionsFailure(decision.failure);
 
     // Any non-throwing attempt result — events, api-error, or
@@ -36,6 +34,6 @@ export const chatCompletionsServe = {
     // upstream.
     const [candidate] = decision.candidates;
     if (candidate === undefined) return renderChatCompletionsFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams));
-    return await chatCompletionsAttempt.generate({ payload, ctx, store, candidate, headers });
+    return await chatCompletionsAttempt.generate({ payload, ctx, candidate, headers });
   },
 };

@@ -1,5 +1,5 @@
 import { responsesInterceptors } from './interceptors/index.ts';
-import type { ResponsesAttemptResult, ResponsesInvocation } from './interceptors/types.ts';
+import type { ResponsesAttemptResult } from './interceptors/types.ts';
 import { createStoredResponseId } from './items/format.ts';
 import { normalizeAssistantInputText } from './items/normalize-assistant-content.ts';
 import { drainAsync, syntheticEventsFromResult, wrapResponsesOutputForStorage } from './items/output.ts';
@@ -11,14 +11,14 @@ import { chatCompletionsAttempt } from '../chat-completions/attempt.ts';
 import { messagesAttempt } from '../messages/attempt.ts';
 import { providerStreamResultToExecuteResult, buildUpstreamCallOptions, telemetryModelIdentity, chatTargetPicker } from '../shared/attempt-helpers.ts';
 import { tryCatchChatServeFailure } from '../shared/errors.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { traverseTranslation } from '../shared/translate-traverse.ts';
 import { createUpstreamLatencyRecorder, recordUpstreamHttpFailure, upstreamPerformanceContext } from '../shared/upstream-telemetry.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import { collectResponsesProtocolEventsToResult } from '@floway-dev/protocols/responses';
 import { type ResponsesPayload, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { type ProviderCandidate, eventResult, readUpstreamApiError, type ChatTargetApi, type ExecuteResult, type ProviderResponsesResult, type ResponsesAction } from '@floway-dev/provider';
+import { type ProviderCandidate, eventResult, readUpstreamApiError, type ChatTargetApi, type ExecuteResult, type ProviderResponsesResult, type ResponsesAction, type ResponsesInvocation } from '@floway-dev/provider';
 import { translateResponsesViaChatCompletions, translateResponsesViaMessages } from '@floway-dev/translate';
 
 // `/v1/responses` generate prefers the native Responses target, then the
@@ -31,8 +31,7 @@ export const responsesTarget = chatTargetPicker(['responses', 'messages', 'chat-
 export interface ResponsesAttemptInvokeArgs {
   readonly payload: ResponsesPayload;
   readonly action: ResponsesAction;
-  readonly ctx: GatewayCtx;
-  readonly store: StatefulResponsesStore;
+  readonly ctx: ChatGatewayCtx;
   readonly candidate: ProviderCandidate;
   readonly headers: Headers;
 }
@@ -76,7 +75,8 @@ export interface ResponsesAttemptInvokeArgs {
 // no-op at the store-write layer.
 export const responsesAttempt = {
   invoke: async (args: ResponsesAttemptInvokeArgs): Promise<ResponsesAttemptResult> => {
-    const { payload, action, ctx, store, candidate, headers } = args;
+    const { payload, action, ctx, candidate, headers } = args;
+    const { store } = ctx;
     const targetApi = responsesTarget.pick(candidate.model.endpoints);
     // Rewrite + privatePayload seed + assistant-content normalization all run
     // BEFORE the interceptor chain so source interceptors — most importantly
@@ -102,7 +102,6 @@ export const responsesAttempt = {
       action,
       candidate,
       targetApi,
-      store,
       headers,
     };
     const chainResult = await runInterceptors(invocation, ctx, responsesInterceptors, async () =>
@@ -216,9 +215,9 @@ const rewriteOrRenderFailure = async (
 
 const dispatchResponses = async (
   invocation: ResponsesInvocation,
-  ctx: GatewayCtx,
+  ctx: ChatGatewayCtx,
 ): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
-  const { candidate, targetApi, store } = invocation;
+  const { candidate, targetApi } = invocation;
   switch (targetApi) {
   case 'responses': {
     const recorder = createUpstreamLatencyRecorder();
@@ -266,7 +265,7 @@ const dispatchResponses = async (
         fallbackMaxOutputTokens: candidate.model.limits.max_output_tokens,
       }),
       translated => messagesAttempt.generate({
-        payload: translated, ctx, store, candidate, headers: invocation.headers,
+        payload: translated, ctx, candidate, headers: invocation.headers,
       }),
     );
   case 'chat-completions':
@@ -277,7 +276,7 @@ const dispatchResponses = async (
       invocation.payload,
       p => translateResponsesViaChatCompletions(p, { model: candidate.model.id }),
       translated => chatCompletionsAttempt.generate({
-        payload: translated, ctx, store, candidate, headers: invocation.headers,
+        payload: translated, ctx, candidate, headers: invocation.headers,
       }),
     );
   default: {
@@ -296,7 +295,7 @@ const providerResponsesResultToExecuteResult = async (
   providerResult: ProviderResponsesResult,
   candidate: ProviderCandidate,
   targetApi: ChatTargetApi,
-  ctx: GatewayCtx,
+  ctx: ChatGatewayCtx,
   recorder: ReturnType<typeof createUpstreamLatencyRecorder>,
 ): Promise<ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>> => {
   if (providerResult.action === 'generate') {

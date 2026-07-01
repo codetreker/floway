@@ -2,30 +2,27 @@ import { messagesAttempt, messagesGenerateTarget, messagesCountTokensTarget } fr
 import { renderMessagesFailure } from './errors.ts';
 import { planMessagesRouting } from './routing.ts';
 import { enumerateModelCandidates } from '../../providers/registry.ts';
-import type { StatefulResponsesStore } from '../responses/items/store.ts';
 import { noViableCandidateFailure } from '../shared/errors.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult, PlainResult } from '@floway-dev/provider';
 
 export interface MessagesServeGenerateArgs {
   readonly payload: MessagesPayload;
-  readonly ctx: GatewayCtx;
-  readonly store: StatefulResponsesStore;
+  readonly ctx: ChatGatewayCtx;
   readonly headers: Headers;
 }
 
 export interface MessagesServeCountTokensArgs {
   readonly payload: MessagesPayload;
-  readonly ctx: GatewayCtx;
-  readonly store: StatefulResponsesStore;
+  readonly ctx: ChatGatewayCtx;
   readonly headers: Headers;
 }
 
 export const messagesServe = {
   generate: async (args: MessagesServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> => {
-    const { payload, ctx, store, headers } = args;
+    const { payload, ctx, headers } = args;
     const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
       upstreamIds: ctx.upstreamIds,
       model: payload.model,
@@ -34,7 +31,7 @@ export const messagesServe = {
       currentColo: ctx.currentColo,
     });
     const viable = enumerated.filter(c => messagesGenerateTarget.canServe(c.model.endpoints));
-    const decision = await planMessagesRouting({ payload, candidates: viable, store });
+    const decision = await planMessagesRouting({ payload, candidates: viable, ctx });
     if (decision.kind === 'failure') return renderMessagesFailure(decision.failure, 'generate');
 
     // Any non-throwing attempt result — events, api-error, or
@@ -43,11 +40,11 @@ export const messagesServe = {
     // upstream.
     const [candidate] = decision.candidates;
     if (candidate === undefined) return renderMessagesFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams), 'generate');
-    return await messagesAttempt.generate({ payload, ctx, store, candidate, headers });
+    return await messagesAttempt.generate({ payload, ctx, candidate, headers });
   },
 
   countTokens: async (args: MessagesServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>> | PlainResult> => {
-    const { payload, ctx, store, headers } = args;
+    const { payload, ctx, headers } = args;
     const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
       upstreamIds: ctx.upstreamIds,
       model: payload.model,
@@ -56,7 +53,7 @@ export const messagesServe = {
       currentColo: ctx.currentColo,
     });
     const viable = enumerated.filter(c => messagesCountTokensTarget.canServe(c.model.endpoints));
-    const decision = await planMessagesRouting({ payload, candidates: viable, store });
+    const decision = await planMessagesRouting({ payload, candidates: viable, ctx });
     if (decision.kind === 'failure') return renderMessagesFailure(decision.failure, 'countTokens');
 
     // PlainResult always represents a final response — both 2xx and upstream
@@ -64,6 +61,6 @@ export const messagesServe = {
     // is the answer. Provider-level transport errors throw and propagate.
     const [candidate] = decision.candidates;
     if (candidate === undefined) return renderMessagesFailure(noViableCandidateFailure(sawModel, payload.model, failedUpstreams), 'countTokens');
-    return await messagesAttempt.countTokens({ payload, ctx, store, candidate, headers });
+    return await messagesAttempt.countTokens({ payload, ctx, candidate, headers });
   },
 };

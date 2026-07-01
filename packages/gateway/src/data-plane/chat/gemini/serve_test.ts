@@ -3,7 +3,7 @@ import { afterEach, test, vi } from 'vitest';
 import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import { doneFrame, eventFrame, type ModelEndpoints, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
@@ -41,7 +41,7 @@ const installRepo = (): InMemoryRepo => {
   return repo;
 };
 
-const makeGatewayCtx = (): GatewayCtx => ({
+const makeGatewayCtx = (): ChatGatewayCtx => ({
   apiKeyId: API_KEY_ID,
   upstreamIds: null,
   wantsStream: true,
@@ -50,6 +50,7 @@ const makeGatewayCtx = (): GatewayCtx => ({
   dump: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
+  store: createNonResponsesSourceStore(API_KEY_ID),
 });
 
 const makePayload = (overrides: Partial<GeminiPayload> = {}): GeminiPayload => ({
@@ -162,7 +163,6 @@ test('generate translates through native Chat Completions target end to end', as
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'test-model',
     headers: new Headers(),
   });
@@ -182,7 +182,6 @@ test('generate translates through Messages when only that endpoint is exposed', 
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'test-model',
     headers: new Headers(),
   });
@@ -202,7 +201,6 @@ test('generate translates through Responses when only that endpoint is exposed',
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'test-model',
     headers: new Headers(),
   });
@@ -231,7 +229,6 @@ test('generate stops at the first candidate even when it yields an upstream erro
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'test-model',
     headers: new Headers(),
   });
@@ -257,7 +254,6 @@ test('generate is a routing no-op for a bare user-text request (degenerate path)
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'test-model',
     headers: new Headers(),
   });
@@ -274,7 +270,6 @@ test('generate renders model-missing as a Google RPC 404 when no candidates are 
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'unknown-model',
     headers: new Headers(),
   });
@@ -297,7 +292,6 @@ test('generate filters out candidates whose endpoints do not satisfy the gemini-
   const result = await geminiServe.generate({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'wrong-endpoint-model',
     headers: new Headers(),
   });
@@ -328,7 +322,6 @@ test('countTokens translates Gemini to Messages count_tokens and returns the Gem
   const result = await geminiServe.countTokens({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'test-model',
     headers: new Headers(),
   });
@@ -347,7 +340,6 @@ test('countTokens renders a Google RPC NOT_FOUND when no Messages-capable candid
   const result = await geminiServe.countTokens({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'no-messages-model',
     headers: new Headers(),
   });
@@ -370,7 +362,6 @@ test('countTokens filters out candidates whose endpoints do not satisfy the gemi
   const result = await geminiServe.countTokens({
     payload: makePayload(),
     ctx: makeGatewayCtx(),
-    store: createNonResponsesSourceStore(API_KEY_ID),
     model: 'wrong-endpoint-model',
     headers: new Headers(),
   });

@@ -5,12 +5,25 @@ import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
 import { createStoredResponsesItemId } from '../responses/items/format.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { MessagesPayload } from '@floway-dev/protocols/messages';
 import type { ProviderCandidate } from '@floway-dev/provider';
 import { directFetcher } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel, assertEquals } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_messages_routing_test';
+
+const makeCtx = (): ChatGatewayCtx => ({
+  apiKeyId: API_KEY_ID,
+  upstreamIds: null,
+  wantsStream: false,
+  runtimeLocation: 'TEST',
+  currentColo: 'TEST',
+  dump: null,
+  backgroundScheduler: () => {},
+  requestStartedAt: 0,
+  store: createNonResponsesSourceStore(API_KEY_ID),
+});
 
 const candidateFor = (upstream: string): ProviderCandidate => {
   const upstreamModel = stubUpstreamModel();
@@ -46,7 +59,7 @@ test('messages payload with no reasoning carriers passes candidates through unch
   const decision = await planMessagesRouting({
     payload: payload([{ role: 'user', content: 'hello' }]),
     candidates,
-    store: createNonResponsesSourceStore(API_KEY_ID),
+    ctx: makeCtx(),
   });
 
   assertEquals(decision.kind, 'success');
@@ -73,7 +86,7 @@ test('a reasoning signature naming an unknown stored id fails routing as item-no
       },
     ]),
     candidates: [candidateFor('up_a')],
-    store: createNonResponsesSourceStore(API_KEY_ID),
+    ctx: makeCtx(),
   });
 
   assertEquals(decision.kind, 'failure');

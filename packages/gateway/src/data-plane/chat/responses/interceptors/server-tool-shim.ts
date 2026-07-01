@@ -1,7 +1,7 @@
 import { jsonrepair } from 'jsonrepair';
 
-import type { ResponsesInterceptor, ResponsesInvocation } from './types.ts';
-import type { GatewayCtx } from '../../shared/gateway-ctx.ts';
+import type { ResponsesInterceptor } from './types.ts';
+import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import { truncatePreservingCodePoints } from '../../shared/text.ts';
 import type { StatefulResponsesStore } from '../items/store.ts';
 import type { InterceptorRun } from '@floway-dev/interceptor';
@@ -16,7 +16,7 @@ import type {
   ResponsesTool,
   ResponsesToolChoice,
 } from '@floway-dev/protocols/responses';
-import type { EventResultMetadata, ExecuteResult } from '@floway-dev/provider';
+import type { EventResultMetadata, ExecuteResult, ResponsesInvocation } from '@floway-dev/provider';
 
 export interface MergeUsage {
   input_tokens?: number;
@@ -131,7 +131,7 @@ export type ServerToolPrepareResult =
     hosted?: ServerToolHostedDispatch;
   };
 
-export type ServerToolRegistration = (invocation: ResponsesInvocation, gatewayCtx: GatewayCtx) => ServerToolPrepareResult | Promise<ServerToolPrepareResult>;
+export type ServerToolRegistration = (invocation: ResponsesInvocation, gatewayCtx: ChatGatewayCtx) => ServerToolPrepareResult | Promise<ServerToolPrepareResult>;
 
 type ActiveServerTool = Extract<ServerToolPrepareResult, { type: 'active' }> & {
   toolName: string;
@@ -1034,7 +1034,7 @@ export const withResponsesServerToolShim = (
       demoteForcedServerToolChoiceAfterFirstTurn,
       turn1Iter,
       dispatchers,
-      statefulResponsesStore: ctx.store,
+      statefulResponsesStore: gatewayCtx.store,
       canonicalInput,
       active,
       metadata,

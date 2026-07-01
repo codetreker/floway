@@ -6,7 +6,7 @@ import { rewriteStoredResponsesItemsForCandidate } from '../responses/items/rewr
 import type { StatefulResponsesStore } from '../responses/items/store.ts';
 import { providerStreamResultToExecuteResult, buildUpstreamCallOptions, chatTargetPicker } from '../shared/attempt-helpers.ts';
 import { tryCatchChatServeFailure } from '../shared/errors.ts';
-import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { traverseTranslation } from '../shared/translate-traverse.ts';
 import { createUpstreamLatencyRecorder } from '../shared/upstream-telemetry.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
@@ -22,17 +22,16 @@ export const chatCompletionsTarget = chatTargetPicker(['chat-completions', 'mess
 
 export interface ChatCompletionsAttemptArgs {
   readonly payload: ChatCompletionsPayload;
-  readonly ctx: GatewayCtx;
-  readonly store: StatefulResponsesStore;
+  readonly ctx: ChatGatewayCtx;
   readonly candidate: ProviderCandidate;
   readonly headers: Headers;
 }
 
 export const chatCompletionsAttempt = {
   generate: async (args: ChatCompletionsAttemptArgs): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> => {
-    const { payload, ctx, store, candidate, headers } = args;
+    const { payload, ctx, candidate, headers } = args;
     const targetApi = chatCompletionsTarget.pick(candidate.model.endpoints);
-    const rewritten = await rewriteOrRenderChatCompletionsFailure(payload, store, candidate);
+    const rewritten = await rewriteOrRenderChatCompletionsFailure(payload, ctx.store, candidate);
     if (rewritten.failure) return rewritten.failure;
     const invocation: ChatCompletionsInvocation = {
       payload: rewritten.payload,
@@ -52,7 +51,7 @@ export const chatCompletionsAttempt = {
             fallbackMaxOutputTokens: candidate.model.limits.max_output_tokens,
           }),
           translated => messagesAttempt.generate({
-            payload: translated, ctx, store, candidate, headers: invocation.headers,
+            payload: translated, ctx, candidate, headers: invocation.headers,
           }),
         );
       }
@@ -61,7 +60,7 @@ export const chatCompletionsAttempt = {
           invocation.payload,
           p => translateChatCompletionsViaResponses(p, { model: candidate.model.id }),
           translated => responsesAttempt.generate({
-            payload: translated, ctx, store, candidate, headers: invocation.headers,
+            payload: translated, ctx, candidate, headers: invocation.headers,
           }),
         );
       }
@@ -106,7 +105,7 @@ const rewriteOrRenderChatCompletionsFailure = async (
 
 const callChatCompletionsAsExecuteResult = async (
   payload: ChatCompletionsPayload,
-  ctx: GatewayCtx,
+  ctx: ChatGatewayCtx,
   candidate: ProviderCandidate,
   headers: Headers,
 ): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> => {
