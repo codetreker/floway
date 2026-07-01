@@ -7,7 +7,7 @@ import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import { eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import { type ExecuteResult, eventResult } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -23,7 +23,7 @@ const stubCtx: ChatGatewayCtx = {
 
 const invocation = (payload: ChatCompletionsPayload, enabledFlags: ReadonlySet<string> = new Set(['vendor-kimi'])): ChatCompletionsInvocation => ({
   payload,
-  candidate: stubProviderCandidate({ model: { enabledFlags } }),
+  candidate: stubModelCandidate({ model: { enabledFlags } }),
   targetApi: 'chat-completions',
   headers: new Headers(),
 });

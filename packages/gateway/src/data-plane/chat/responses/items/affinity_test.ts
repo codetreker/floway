@@ -7,25 +7,25 @@ import { initRepo } from '../../../../repo/index.ts';
 import { InMemoryRepo } from '../../../../repo/memory.ts';
 import type { StoredResponsesItem } from '../../../../repo/types.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
-import type { ProviderCandidate } from '@floway-dev/provider';
+import type { ModelCandidate } from '@floway-dev/provider';
 import { directFetcher } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel, assertEquals } from '@floway-dev/test-utils';
 import { responsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
 
 const API_KEY_ID = 'key_affinity_test';
 
-const candidate = (upstream: string, supportsResponsesItemReference = true): ProviderCandidate => {
+const candidate = (upstream: string, supportsResponsesItemReference = true): ModelCandidate => {
   const modelProvider = stubProvider({
     getProvidedModels: () => Promise.resolve([stubUpstreamModel()]),
   });
   return {
     provider: {
       upstream,
-      providerKind: 'custom',
+      kind: 'custom',
       name: upstream,
       disabledPublicModelIds: [],
       modelPrefix: null,
-      provider: modelProvider,
+      instance: modelProvider,
       supportsResponsesItemReference,
     },
     model: stubUpstreamModel(),
@@ -64,7 +64,7 @@ const storedRow = (
 
 const classifyItems = async (
   sourceItems: readonly ResponsesInputItem[],
-  candidates: readonly ProviderCandidate[],
+  candidates: readonly ModelCandidate[],
 ) => {
   const store = createNonResponsesSourceStore(API_KEY_ID);
   return await classifyResponsesItemAffinity({

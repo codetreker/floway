@@ -19,9 +19,9 @@ import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@f
 // turn against the SUMMARIZATION_PROMPT).
 export type ResponsesAction = 'generate' | 'compact';
 
-export interface ModelProviderInstance {
+export interface Provider {
   upstream: string;
-  providerKind: UpstreamProviderKind;
+  kind: UpstreamProviderKind;
   name: string;
   // Public model ids the operator switched off for this upstream.
   disabledPublicModelIds: readonly string[];
@@ -29,7 +29,7 @@ export interface ModelProviderInstance {
   // record so registry helpers — routing and listing — read it from the
   // instance instead of re-fetching the row. `null` keeps the bare-id behavior.
   modelPrefix: ModelPrefixConfig | null;
-  provider: ModelProvider;
+  instance: ProviderInstance;
   supportsResponsesItemReference: boolean;
 }
 
@@ -107,7 +107,7 @@ export interface UpstreamCallOptions {
   headers: Headers;
 }
 
-export interface ModelProvider {
+export interface ProviderInstance {
   // Catalog refresh fetches a single resource and never enters the per-request
   // latency budget, so it takes the per-upstream fetcher directly instead of
   // the broader `UpstreamCallOptions` bag the data-plane `call*` methods use.

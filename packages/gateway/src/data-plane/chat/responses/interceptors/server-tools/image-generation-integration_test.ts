@@ -35,12 +35,12 @@ const stub = vi.hoisted((): BackendStub => ({ generationsCalls: [], editsForms: 
 const defaultCandidates = vi.hoisted(() => () => [{
   provider: {
     upstream: 'u',
-    providerKind: 'custom',
+    kind: 'custom',
     name: 'mock-image',
     disabledPublicModelIds: [],
     modelPrefix: null,
     supportsResponsesItemReference: false,
-    provider: {
+    instance: {
       getPricingForModelKey: () => null,
       callImagesGenerations: async (_model: unknown, body: Record<string, unknown>, _signal: unknown, opts: { recordUpstreamLatency: <T>(p: Promise<T>) => Promise<T> }) => {
         stub.generationsCalls.push(body);
@@ -133,9 +133,9 @@ const scriptedRun = (turns: ProtocolFrame<ResponsesStreamEvent>[][]) => {
 const makeCtx = (input: unknown[], action: 'generate' | 'edit' | 'auto' = 'auto', extraTool: Record<string, unknown> = {}): ResponsesInvocation => ({
   candidate: {
     provider: {
-      upstream: 'test-upstream', providerKind: 'custom', name: 'test',
+      upstream: 'test-upstream', kind: 'custom', name: 'test',
       disabledPublicModelIds: [], modelPrefix: null,
-      provider: {} as never, supportsResponsesItemReference: false,
+      instance: {} as never, supportsResponsesItemReference: false,
     },
     model: {
       id: 'm', limits: {}, kind: 'chat',
@@ -176,7 +176,7 @@ beforeEach(async () => {
   // "unknown upstream id: u".
   await repo.upstreams.save({
     id: 'u',
-    provider: 'custom',
+    kind: 'custom',
     name: 'mock-image',
     enabled: true,
     sortOrder: 0,
@@ -376,7 +376,7 @@ test('resolveImageCandidate renders model_not_supported when image-kind candidat
   stub.nextResolutionOverride = {
     candidates: [{
       provider: {
-        upstream: 'u', providerKind: 'custom', name: 'wrong-endpoint',
+        upstream: 'u', kind: 'custom', name: 'wrong-endpoint',
         disabledPublicModelIds: [], modelPrefix: null,
         supportsResponsesItemReference: false,
         provider: { getPricingForModelKey: () => null },

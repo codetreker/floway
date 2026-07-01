@@ -6,7 +6,7 @@ import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import { eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiPayload, GeminiStreamEvent } from '@floway-dev/protocols/gemini';
 import { type ExecuteResult, eventResult, type GeminiInvocation } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -22,7 +22,7 @@ const stubCtx: ChatGatewayCtx = {
 
 const invocation = (payload: GeminiPayload): GeminiInvocation => ({
   payload,
-  candidate: stubProviderCandidate(),
+  candidate: stubModelCandidate(),
   targetApi: 'messages',
   headers: new Headers(),
 });

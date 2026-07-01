@@ -4,13 +4,13 @@ import { parseChatCompletionsStream } from '@floway-dev/protocols/chat-completio
 import { kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesResult, toCompactPayloadShape } from '@floway-dev/protocols/responses';
-import { type ModelProvider, type ModelProviderInstance, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord, defaultsForProvider, publicModelId, resolveEffectiveFlags, streamingProviderCall } from '@floway-dev/provider';
+import { type ProviderInstance, type Provider, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord, defaultsForProvider, publicModelId, resolveEffectiveFlags, streamingProviderCall } from '@floway-dev/provider';
 
 const providerData = (model: UpstreamModel): { upstreamModelId: string } => model.providerData as { upstreamModelId: string };
 
 type AzureTypedFetch = (config: ReturnType<typeof assertAzureUpstreamRecord>['config'], init: RequestInit, options: UpstreamFetchOptions) => Promise<Response>;
 
-export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstance => {
+export const createAzureProvider = (record: UpstreamRecord): Provider => {
   const azure = assertAzureUpstreamRecord(record);
 
   const callStreaming = <TEvent>(
@@ -41,7 +41,7 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
     return { response, modelKey: upstreamModelId };
   };
 
-  const provider: ModelProvider = {
+  const instance: ProviderInstance = {
     getProvidedModels() {
       return Promise.resolve(azure.config.models.map(model => {
         const modelLayer = model.flagOverrides?.enabled ? model.flagOverrides.values : undefined;
@@ -106,11 +106,11 @@ export const createAzureProvider = (record: UpstreamRecord): ModelProviderInstan
 
   return {
     upstream: azure.id,
-    providerKind: 'azure',
+    kind: 'azure',
     name: azure.name,
     disabledPublicModelIds: azure.disabledPublicModelIds,
     modelPrefix: azure.modelPrefix,
-    provider,
+    instance,
     supportsResponsesItemReference: true,
   };
 };

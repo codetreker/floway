@@ -3,7 +3,7 @@ export type {
   GeminiInvocation,
   ChatTargetApi,
   MessagesInvocation,
-  ProviderCandidate,
+  ModelCandidate,
   ResponsesInvocation,
 } from './invocation.ts';
 
@@ -42,8 +42,8 @@ export type { AddressableForm, ModelPrefixConfig } from './model-prefix.ts';
 export { MODEL_PREFIX_MAX_LENGTH, MODEL_PREFIX_REGEX, normalizeModelPrefix } from './model-prefix.ts';
 
 export type {
-  ModelProvider,
-  ModelProviderInstance,
+  Provider,
+  ProviderInstance,
   ProviderCallResult,
   ProviderResponsesResult,
   ProviderStreamResult,

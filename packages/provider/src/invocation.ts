@@ -1,6 +1,6 @@
 import type { UpstreamModel } from './model.ts';
 import type { Fetcher } from './options.ts';
-import type { ModelProviderInstance, ResponsesAction } from './provider.ts';
+import type { Provider, ResponsesAction } from './provider.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
 import type { MessagesPayload } from '@floway-dev/protocols/messages';
@@ -11,15 +11,15 @@ export type ChatTargetApi = 'messages' | 'responses' | 'chat-completions';
 // One (provider, model) pair the resolver produced for an inbound id,
 // plus the per-request `Fetcher` minted for the provider's upstream. The
 // pair is the smallest unit the dispatch layer needs to make a wire call:
-// `provider.provider.callXxx(model, body, ...)` — upstream id / upstream
+// `provider.instance.callXxx(model, body, ...)` — upstream id / upstream
 // name / provider kind / capability flags come off `provider.*`, model id
 // / providerData / endpoints off `model.*`.
 //
 // Resolution narrows by `model.kind` only — choosing the inbound target
 // protocol from `model.endpoints` is the attempt layer's job, not part of
 // the candidate.
-export interface ProviderCandidate {
-  readonly provider: ModelProviderInstance;
+export interface ModelCandidate {
+  readonly provider: Provider;
   readonly model: UpstreamModel;
   readonly fetcher: Fetcher;
 }
@@ -33,7 +33,7 @@ export interface ProviderCandidate {
 // widening the provider call signature.
 export interface MessagesInvocation {
   payload: MessagesPayload;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly targetApi: ChatTargetApi;
   readonly headers: Headers;
 }
@@ -45,21 +45,21 @@ export interface ResponsesInvocation {
   // responses-compact-shim) and the gateway derives snapshot mode from the
   // post-chain action carried on the provider's tagged result.
   action: ResponsesAction;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly targetApi: ChatTargetApi;
   readonly headers: Headers;
 }
 
 export interface ChatCompletionsInvocation {
   payload: ChatCompletionsPayload;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly targetApi: ChatTargetApi;
   readonly headers: Headers;
 }
 
 export interface GeminiInvocation {
   payload: GeminiPayload;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly targetApi: ChatTargetApi;
   readonly headers: Headers;
 }

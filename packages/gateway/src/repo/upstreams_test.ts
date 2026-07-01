@@ -8,7 +8,7 @@ import type { SqlDatabase } from '@floway-dev/platform';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { assert, assertEquals, assertRejects } from '@floway-dev/test-utils';
 
-const upstream = (overrides: Partial<UpstreamRecord> & Pick<UpstreamRecord, 'id' | 'provider' | 'createdAt' | 'sortOrder'>): UpstreamRecord => ({
+const upstream = (overrides: Partial<UpstreamRecord> & Pick<UpstreamRecord, 'id' | 'kind' | 'createdAt' | 'sortOrder'>): UpstreamRecord => ({
   name: overrides.id,
   enabled: true,
   updatedAt: overrides.createdAt,
@@ -26,7 +26,7 @@ test('memory upstream repo saves, lists, updates, deletes, and clears rows', asy
 
   const custom = upstream({
     id: 'up_custom_a',
-    provider: 'custom',
+    kind: 'custom',
     name: 'Custom A',
     sortOrder: 2,
     createdAt: '2026-05-21T10:00:02.000Z',
@@ -34,7 +34,7 @@ test('memory upstream repo saves, lists, updates, deletes, and clears rows', asy
   });
   const copilot = upstream({
     id: 'up_copilot_a',
-    provider: 'copilot',
+    kind: 'copilot',
     name: 'Copilot A',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:03.000Z',
@@ -42,7 +42,7 @@ test('memory upstream repo saves, lists, updates, deletes, and clears rows', asy
   });
   const azure = upstream({
     id: 'up_azure_a',
-    provider: 'azure',
+    kind: 'azure',
     name: 'Azure A',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:01.000Z',
@@ -98,7 +98,7 @@ test('memory upstream repo deeply clones configs and flag overrides at the repo 
   const repo = new InMemoryRepo().upstreams;
   const original = upstream({
     id: 'up_custom_clone',
-    provider: 'custom',
+    kind: 'custom',
     sortOrder: 0,
     createdAt: '2026-05-21T10:00:00.000Z',
     config: {
@@ -143,7 +143,7 @@ test('memory upstream repo sorts flag overrides by key when saving rows', async 
   await repo.save(
     upstream({
       id: 'up_copilot_fixes',
-      provider: 'copilot',
+      kind: 'copilot',
       sortOrder: 0,
       createdAt: '2026-05-21T10:00:00.000Z',
       flagOverrides: { 'z-fix': true, 'a-fix': false, 'm-fix': true },
@@ -157,7 +157,7 @@ test('memory upstream repo sorts flag overrides by key when saving rows', async 
 const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
   const custom = upstream({
     id: 'up_custom_sql',
-    provider: 'custom',
+    kind: 'custom',
     name: 'Custom SQL',
     sortOrder: 2,
     createdAt: '2026-05-21T10:00:02.000Z',
@@ -168,7 +168,7 @@ const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
   });
   const copilot = upstream({
     id: 'up_copilot_sql',
-    provider: 'copilot',
+    kind: 'copilot',
     name: 'Copilot SQL',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:03.000Z',
@@ -177,7 +177,7 @@ const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
   });
   const azure = upstream({
     id: 'up_azure_sql',
-    provider: 'azure',
+    kind: 'azure',
     name: 'Azure SQL',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:01.000Z',
@@ -373,7 +373,7 @@ test('SQL upstream repo round-trips a non-null model_prefix', async () => {
   const now = new Date().toISOString();
   const record: UpstreamRecord = {
     id: 'up_prefix_rt',
-    provider: 'custom',
+    kind: 'custom',
     name: 'Prefix Round-Trip',
     enabled: true,
     sortOrder: 0,

@@ -9,9 +9,9 @@ import { pricingForCodexModelKey } from './pricing.ts';
 import { assertCodexUpstreamState, type CodexUpstreamState } from './state.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import { toCompactPayloadShape } from '@floway-dev/protocols/responses';
-import { defaultsForProvider, getProviderRepo, resolveEffectiveFlags, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type UpstreamCallOptions, type UpstreamRecord } from '@floway-dev/provider';
+import { defaultsForProvider, getProviderRepo, resolveEffectiveFlags, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type UpstreamCallOptions, type UpstreamRecord } from '@floway-dev/provider';
 
-export const createCodexProvider = async (record: UpstreamRecord): Promise<ModelProviderInstance> => {
+export const createCodexProvider = async (record: UpstreamRecord): Promise<Provider> => {
   assertCodexUpstreamRecord(record);
   assertCodexUpstreamState(record.state);
   const config: CodexUpstreamConfig = record.config;
@@ -68,7 +68,7 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
 
   const effects: CodexCallEffects = { persistRefreshTokenRotation, persistTerminalState };
 
-  const provider: ModelProvider = {
+  const instance: ProviderInstance = {
     getProvidedModels: async fetcher => {
       // A model-list refresh is the first thing a brand-new Codex upstream
       // does, and it is the only place outside the data plane that mints an
@@ -148,11 +148,11 @@ export const createCodexProvider = async (record: UpstreamRecord): Promise<Model
 
   return {
     upstream: record.id,
-    providerKind: 'codex',
+    kind: 'codex',
     name: record.name,
     disabledPublicModelIds: record.disabledPublicModelIds,
     modelPrefix: record.modelPrefix,
-    provider,
+    instance,
     supportsResponsesItemReference: false,
   };
 };

@@ -6,7 +6,7 @@ import { parseChatCompletionsStream } from '@floway-dev/protocols/chat-completio
 import { type ModelEndpoints, type ModelPricing, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesResult, toCompactPayloadShape } from '@floway-dev/protocols/responses';
-import { publicModelId, resolveEffectiveFlags, defaultsForProvider, streamingProviderCall, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
+import { publicModelId, resolveEffectiveFlags, defaultsForProvider, streamingProviderCall, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
 
 const rawModelIdOf = (model: UpstreamModel): string => model.providerData as string;
 
@@ -67,7 +67,7 @@ const finalizeCustomModels = (
   return models;
 };
 
-export const createCustomProvider = (record: UpstreamRecord): ModelProviderInstance => {
+export const createCustomProvider = (record: UpstreamRecord): Provider => {
   const { config } = assertCustomUpstreamRecord(record);
   const configuredEndpoints = config.endpoints;
   // Computed once for the auto-fetch layer: only the upstream layer applies to
@@ -170,7 +170,7 @@ export const createCustomProvider = (record: UpstreamRecord): ModelProviderInsta
     );
   };
 
-  const provider: ModelProvider = {
+  const instance: ProviderInstance = {
     getProvidedModels: async fetcher => {
       if (!config.modelsFetch.enabled) return manualModels;
       const response = await fetchCustomModels(config, fetcher);
@@ -221,11 +221,11 @@ export const createCustomProvider = (record: UpstreamRecord): ModelProviderInsta
 
   return {
     upstream: record.id,
-    providerKind: 'custom',
+    kind: 'custom',
     name: record.name,
     disabledPublicModelIds: record.disabledPublicModelIds,
     modelPrefix: record.modelPrefix,
-    provider,
+    instance,
     supportsResponsesItemReference: true,
   };
 };

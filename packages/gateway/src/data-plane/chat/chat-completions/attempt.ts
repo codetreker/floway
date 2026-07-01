@@ -12,7 +12,7 @@ import { createUpstreamLatencyRecorder } from '../shared/upstream-telemetry.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import type { ChatCompletionsMessage, ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import { type ProviderCandidate, type ExecuteResult } from '@floway-dev/provider';
+import { type ModelCandidate, type ExecuteResult } from '@floway-dev/provider';
 import { translateChatCompletionsViaMessages, translateChatCompletionsViaResponses } from '@floway-dev/translate';
 import { chatCompletionsViaResponsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
 
@@ -23,7 +23,7 @@ export const chatCompletionsTarget = chatTargetPicker(['chat-completions', 'mess
 export interface ChatCompletionsAttemptArgs {
   readonly payload: ChatCompletionsPayload;
   readonly ctx: ChatGatewayCtx;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly headers: Headers;
 }
 
@@ -75,7 +75,7 @@ export const chatCompletionsAttempt = {
 const rewriteOrRenderChatCompletionsFailure = async (
   payload: ChatCompletionsPayload,
   store: StatefulResponsesStore,
-  candidate: ProviderCandidate,
+  candidate: ModelCandidate,
 ): Promise<{ payload: ChatCompletionsPayload; failure?: undefined } | { payload?: undefined; failure: ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>> & { type: 'api-error' } }> => {
   try {
     const rewrittenMessages = await rewriteStoredResponsesItemsForCandidate(
@@ -106,12 +106,12 @@ const rewriteOrRenderChatCompletionsFailure = async (
 const callChatCompletionsAsExecuteResult = async (
   payload: ChatCompletionsPayload,
   ctx: ChatGatewayCtx,
-  candidate: ProviderCandidate,
+  candidate: ModelCandidate,
   headers: Headers,
 ): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> => {
   const { model: _model, ...body } = payload;
   const recorder = createUpstreamLatencyRecorder();
-  const providerResult = await candidate.provider.provider.callChatCompletions(
+  const providerResult = await candidate.provider.instance.callChatCompletions(
     candidate.model,
     body,
     ctx.abortSignal,

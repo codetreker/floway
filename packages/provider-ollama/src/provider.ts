@@ -27,7 +27,7 @@ import { parseChatCompletionsStream } from '@floway-dev/protocols/chat-completio
 import { type ModelEndpoints, type ModelPricing, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesResult, toCompactPayloadShape } from '@floway-dev/protocols/responses';
-import { publicModelId, resolveEffectiveFlags, defaultsForProvider, streamingProviderCall, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
+import { publicModelId, resolveEffectiveFlags, defaultsForProvider, streamingProviderCall, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
 
 // providerData carries the raw upstream id verbatim — the same value /api/tags
 // returns and the same value the gateway must send back on every inference
@@ -71,7 +71,7 @@ const finalizeOllamaModels = (
   return models;
 };
 
-export const createOllamaProvider = (record: UpstreamRecord): ModelProviderInstance => {
+export const createOllamaProvider = (record: UpstreamRecord): Provider => {
   const { config } = assertOllamaUpstreamRecord(record);
   const upstreamFlags = resolveEffectiveFlags(defaultsForProvider('ollama'), [record.flagOverrides]);
 
@@ -138,7 +138,7 @@ export const createOllamaProvider = (record: UpstreamRecord): ModelProviderInsta
   const rejectUnsupported = (capability: string) => () =>
     Promise.reject(new Error(`Ollama provider does not implement ${capability}`));
 
-  const provider: ModelProvider = {
+  const instance: ProviderInstance = {
     getProvidedModels: async fetcher => {
       const catalog = await fetchOllamaCatalog(config, fetcher);
       const auto = finalizeOllamaModels(
@@ -185,11 +185,11 @@ export const createOllamaProvider = (record: UpstreamRecord): ModelProviderInsta
 
   return {
     upstream: record.id,
-    providerKind: 'ollama',
+    kind: 'ollama',
     name: record.name,
     disabledPublicModelIds: record.disabledPublicModelIds,
     modelPrefix: record.modelPrefix,
-    provider,
+    instance,
     supportsResponsesItemReference: true,
   };
 };

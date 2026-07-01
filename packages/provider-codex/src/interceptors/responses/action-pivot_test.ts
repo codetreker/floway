@@ -36,7 +36,7 @@ const farFutureMs = Date.now() + 24 * 60 * 60 * 1000;
 
 const baseRecord: UpstreamRecord = {
   id: 'up_codex_pivot',
-  provider: 'codex',
+  kind: 'codex',
   name: 'Codex (pivot tester)',
   enabled: true,
   sortOrder: 0,
@@ -90,7 +90,7 @@ test('Codex terminal dispatches on post-chain ctx.action (interceptor flip gener
   // Generate-shaped body — carries tools, reasoning, temperature, etc. None
   // of these are allowed on /responses/compact. The pivot above flips action
   // to 'compact'; the terminal must narrow the body before sending upstream.
-  const result = await instance.provider.callResponses(
+  const result = await instance.instance.callResponses(
     { id: 'gpt-5.4', display_name: 'gpt-5.4', kind: 'chat', limits: {}, endpoints: { responses: {} }, enabledFlags: new Set() },
     {
       input: [{ type: 'message', role: 'user', content: 'hi' }],

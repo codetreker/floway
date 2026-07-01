@@ -1166,7 +1166,7 @@ class SqlUpstreamRepo implements UpstreamRepo {
       )
       .bind(
         upstream.id,
-        upstream.provider,
+        upstream.kind,
         upstream.name,
         upstream.enabled ? 1 : 0,
         upstream.sortOrder,
@@ -1238,7 +1238,7 @@ const toUpstreamRecord = (row: UpstreamRow): UpstreamRecord => {
 
   return {
     id: row.id,
-    provider: assertUpstreamProviderKind(row.provider),
+    kind: assertUpstreamProviderKind(row.provider),
     name: row.name,
     enabled: row.enabled !== 0,
     sortOrder: row.sort_order,

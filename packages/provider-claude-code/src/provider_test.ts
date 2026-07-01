@@ -42,7 +42,7 @@ const activeAccount: ClaudeCodeAccountCredential = {
 
 const makeRecord = (state: ClaudeCodeUpstreamState): UpstreamRecord => ({
   id: upstreamId,
-  provider: 'claude-code',
+  kind: 'claude-code',
   name: 'CC',
   enabled: true,
   sortOrder: 0,
@@ -109,7 +109,7 @@ describe('createClaudeCodeProvider — factory surface', () => {
   test('getProvidedModels mirrors the live /v1/models catalog under public aliases', async () => {
     stubModelsListFetch();
     const instance = await createClaudeCodeProvider(currentRecord);
-    const models = await instance.provider.getProvidedModels(noopUpstreamCallOptions().fetcher);
+    const models = await instance.instance.getProvidedModels(noopUpstreamCallOptions().fetcher);
     expect(models.map(m => m.id)).toEqual([
       'claude-fable-5',
       'claude-opus-4-7',
@@ -125,7 +125,7 @@ describe('createClaudeCodeProvider — factory surface', () => {
     // stays empty regardless of the other providers' defaults.
     stubModelsListFetch();
     const instance = await createClaudeCodeProvider(currentRecord);
-    const models = await instance.provider.getProvidedModels(noopUpstreamCallOptions().fetcher);
+    const models = await instance.instance.getProvidedModels(noopUpstreamCallOptions().fetcher);
     for (const m of models) {
       expect(m.enabledFlags.has('strip-billing-attribution')).toBe(false);
     }
@@ -133,14 +133,14 @@ describe('createClaudeCodeProvider — factory surface', () => {
 
   test('getPricingForModelKey wires through the pricing table (keyed by dated upstream id)', async () => {
     const instance = await createClaudeCodeProvider(currentRecord);
-    expect(instance.provider.getPricingForModelKey('claude-sonnet-4-5-20250929'))
+    expect(instance.instance.getPricingForModelKey('claude-sonnet-4-5-20250929'))
       .toEqual(pricingForClaudeCodeModelKey('claude-sonnet-4-5-20250929'));
-    expect(instance.provider.getPricingForModelKey('unknown-id')).toBeNull();
+    expect(instance.instance.getPricingForModelKey('unknown-id')).toBeNull();
   });
 
-  test('providerKind is "claude-code" and supportsResponsesItemReference is false', async () => {
+  test('kind is "claude-code" and supportsResponsesItemReference is false', async () => {
     const instance = await createClaudeCodeProvider(currentRecord);
-    expect(instance.providerKind).toBe('claude-code');
+    expect(instance.kind).toBe('claude-code');
     expect(instance.supportsResponsesItemReference).toBe(false);
     expect(instance.upstream).toBe(upstreamId);
   });
@@ -151,7 +151,7 @@ describe('createClaudeCodeProvider — callMessages routes through chain', () =>
     const instance = await createClaudeCodeProvider(currentRecord);
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
 
-    await instance.provider.callMessages(
+    await instance.instance.callMessages(
       upstreamModel,
       { max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] },
       undefined,
@@ -178,7 +178,7 @@ describe('createClaudeCodeProvider — callMessages routes through chain', () =>
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
 
     const userId = JSON.stringify({ device_id: 'd'.repeat(32), account_uuid: '', session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
-    await instance.provider.callMessages(
+    await instance.instance.callMessages(
       upstreamModel,
       {
         max_tokens: 16,
@@ -213,7 +213,7 @@ describe('createClaudeCodeProvider — callMessages routes through chain', () =>
     const instance = await createClaudeCodeProvider(currentRecord);
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
 
-    await instance.provider.callMessages(
+    await instance.instance.callMessages(
       upstreamModel,
       { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] },
       undefined,

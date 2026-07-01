@@ -26,7 +26,7 @@ const farFutureAccessToken: CodexAccessTokenEntry = {
 
 const makeRecord = (state: CodexUpstreamState): UpstreamRecord => ({
   id: upstreamId,
-  provider: 'codex',
+  kind: 'codex',
   name: 'Codex',
   enabled: true,
   sortOrder: 0,

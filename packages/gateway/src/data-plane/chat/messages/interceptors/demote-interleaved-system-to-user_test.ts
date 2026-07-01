@@ -7,7 +7,7 @@ import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import { type ExecuteResult, eventResult } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -30,7 +30,7 @@ interface InvocationOptions {
 
 const invocation = (payload: MessagesPayload, { flagOn = true }: InvocationOptions = {}): MessagesInvocation => ({
   payload,
-  candidate: stubProviderCandidate({
+  candidate: stubModelCandidate({
     model: {
       endpoints: { messages: {} },
       enabledFlags: flagOn ? new Set(['demote-interleaved-system-to-user']) : new Set(),

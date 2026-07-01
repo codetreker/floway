@@ -18,7 +18,7 @@ import { runInterceptors } from '@floway-dev/interceptor';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import { collectResponsesProtocolEventsToResult } from '@floway-dev/protocols/responses';
 import { type ResponsesPayload, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { type ProviderCandidate, eventResult, readUpstreamApiError, type ChatTargetApi, type ExecuteResult, type ProviderResponsesResult, type ResponsesAction, type ResponsesInvocation } from '@floway-dev/provider';
+import { type ModelCandidate, eventResult, readUpstreamApiError, type ChatTargetApi, type ExecuteResult, type ProviderResponsesResult, type ResponsesAction, type ResponsesInvocation } from '@floway-dev/provider';
 import { translateResponsesViaChatCompletions, translateResponsesViaMessages } from '@floway-dev/translate';
 
 // `/v1/responses` generate prefers the native Responses target, then the
@@ -32,7 +32,7 @@ export interface ResponsesAttemptInvokeArgs {
   readonly payload: ResponsesPayload;
   readonly action: ResponsesAction;
   readonly ctx: ChatGatewayCtx;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly headers: Headers;
 }
 
@@ -180,7 +180,7 @@ type RewriteOutcome =
 const rewriteOrRenderFailure = async (
   payload: ResponsesPayload,
   store: StatefulResponsesStore,
-  candidate: ProviderCandidate,
+  candidate: ModelCandidate,
 ): Promise<RewriteOutcome> => {
   try {
     return await rewriteResponsesItemsForCandidate(payload, store, candidate);
@@ -229,7 +229,7 @@ const dispatchResponses = async (
       // provider can decide for itself (every provider's streaming call
       // forces stream=true anyway).
       const { model: _model, stream: _stream, store: _store, ...body } = invocation.payload;
-      const providerResult = await candidate.provider.provider.callResponses(
+      const providerResult = await candidate.provider.instance.callResponses(
         candidate.model,
         body,
         invocation.action,
@@ -239,7 +239,7 @@ const dispatchResponses = async (
       return await providerResponsesResultToExecuteResult(providerResult, candidate, targetApi, ctx, recorder);
     }
     const { model: _model, ...body } = invocation.payload;
-    const providerResult = await candidate.provider.provider.callResponses(
+    const providerResult = await candidate.provider.instance.callResponses(
       candidate.model,
       body,
       invocation.action,
@@ -293,7 +293,7 @@ const dispatchResponses = async (
 // the provider executed.
 const providerResponsesResultToExecuteResult = async (
   providerResult: ProviderResponsesResult,
-  candidate: ProviderCandidate,
+  candidate: ModelCandidate,
   targetApi: ChatTargetApi,
   ctx: ChatGatewayCtx,
   recorder: ReturnType<typeof createUpstreamLatencyRecorder>,

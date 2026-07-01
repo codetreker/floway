@@ -9,10 +9,10 @@ import { doneFrame, eventFrame, type ModelEndpoints, type ProtocolFrame } from '
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { type ProviderCandidate, directFetcher, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions } from '@floway-dev/provider';
+import { type ModelCandidate, directFetcher, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
-const candidatesQueue: { readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean; readonly failedUpstreams: readonly string[] }[] = [];
+const candidatesQueue: { readonly candidates: readonly ModelCandidate[]; readonly sawModel: boolean; readonly failedUpstreams: readonly string[] }[] = [];
 vi.mock('../../providers/registry.ts', async importOriginal => {
   const original = await importOriginal<typeof import('../../providers/registry.ts')>();
   return {
@@ -29,7 +29,7 @@ const { geminiServe } = await import('./serve.ts');
 
 const API_KEY_ID = 'key_gemini_serve_test';
 
-const queueCandidates = (candidates: readonly ProviderCandidate[], sawModel = candidates.length > 0): void => {
+const queueCandidates = (candidates: readonly ModelCandidate[], sawModel = candidates.length > 0): void => {
   candidatesQueue.push({ candidates, sawModel, failedUpstreams: [] });
 };
 
@@ -110,7 +110,7 @@ const makeCandidate = (overrides: {
   callMessages?: (model: unknown, body: unknown, signal?: AbortSignal, opts?: UpstreamCallOptions) => Promise<ProviderStreamResult<MessagesStreamEvent>>;
   callResponses?: (model: unknown, body: unknown, action: ResponsesAction, signal?: AbortSignal, opts?: UpstreamCallOptions) => Promise<ProviderResponsesResult>;
   callMessagesCountTokens?: (model: unknown, body: unknown, signal?: AbortSignal, opts?: UpstreamCallOptions) => Promise<ProviderCallResult>;
-} = {}): ProviderCandidate => {
+} = {}): ModelCandidate => {
   const upstream = overrides.upstream ?? 'up_test';
   const targetApi = overrides.targetApi ?? 'chat-completions';
   // The gemini serve layer picks the target from model.endpoints (chat-completions
@@ -132,8 +132,8 @@ const makeCandidate = (overrides: {
   });
   return {
     provider: {
-      upstream, providerKind: 'custom', name: upstream,
-      disabledPublicModelIds: [], modelPrefix: null, provider, supportsResponsesItemReference: true,
+      upstream, kind: 'custom', name: upstream,
+      disabledPublicModelIds: [], modelPrefix: null, instance: provider, supportsResponsesItemReference: true,
     },
     model: stubUpstreamModel({ endpoints }),
     fetcher: directFetcher,

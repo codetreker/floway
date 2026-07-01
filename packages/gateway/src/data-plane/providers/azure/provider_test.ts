@@ -28,7 +28,7 @@ const azureRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord =>
 
   return {
     id: 'up_azure',
-    provider: 'azure',
+    kind: 'azure',
     name: 'Azure Resource',
     enabled: true,
     sortOrder: 0,
@@ -46,7 +46,7 @@ const azureRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord =>
 
 test('createAzureProvider projects configured models into upstream models', async () => {
   const instance = createAzureProvider(azureRecord({ flagOverrides: { 'vendor-kimi': true } }));
-  const models = await instance.provider.getProvidedModels(directFetcher);
+  const models = await instance.instance.getProvidedModels(directFetcher);
 
   assertEquals(instance.upstream, 'up_azure');
   assertEquals(instance.name, 'Azure Resource');
@@ -74,7 +74,7 @@ test('createAzureProvider projects configured models into upstream models', asyn
 
 test('createAzureProvider sends upstream model ids in OpenAI-shaped request bodies and model keys', async () => {
   const instance = createAzureProvider(azureRecord());
-  const [model] = await instance.provider.getProvidedModels(directFetcher);
+  const [model] = await instance.instance.getProvidedModels(directFetcher);
   const seen: Array<{ url: string; body: Record<string, unknown> }> = [];
 
   await withMockedFetch(
@@ -86,9 +86,9 @@ test('createAzureProvider sends upstream model ids in OpenAI-shaped request bodi
       return sseResponse();
     },
     async () => {
-      const chat = await instance.provider.callChatCompletions(model, { messages: [{ role: 'user', content: 'hello' }] }, undefined, noopUpstreamCallOptions());
-      const responses = await instance.provider.callResponses(model, { input: 'hello' }, 'generate', undefined, noopUpstreamCallOptions());
-      const embeddings = await instance.provider.callEmbeddings(model, { input: 'hello' }, undefined, noopUpstreamCallOptions());
+      const chat = await instance.instance.callChatCompletions(model, { messages: [{ role: 'user', content: 'hello' }] }, undefined, noopUpstreamCallOptions());
+      const responses = await instance.instance.callResponses(model, { input: 'hello' }, 'generate', undefined, noopUpstreamCallOptions());
+      const embeddings = await instance.instance.callEmbeddings(model, { input: 'hello' }, undefined, noopUpstreamCallOptions());
 
       assertEquals(chat.modelKey, 'gpt-prod');
       assertEquals(responses.modelKey, 'gpt-prod');
@@ -130,7 +130,7 @@ test('createAzureProvider supports Azure AI cross-provider models with explicit 
       },
     }),
   );
-  const [chatModel, responsesModel] = await instance.provider.getProvidedModels(directFetcher);
+  const [chatModel, responsesModel] = await instance.instance.getProvidedModels(directFetcher);
   const seen: Array<{ url: string; apiKey: string | null; body: Record<string, unknown> }> = [];
 
   assertEquals(chatModel.id, 'deepseek-v4-pro');
@@ -148,8 +148,8 @@ test('createAzureProvider supports Azure AI cross-provider models with explicit 
       return sseResponse();
     },
     async () => {
-      const chat = await instance.provider.callChatCompletions(chatModel, { messages: [{ role: 'user', content: 'hello' }] }, undefined, noopUpstreamCallOptions());
-      const responses = await instance.provider.callResponses(responsesModel, { input: 'hello' }, 'generate', undefined, noopUpstreamCallOptions());
+      const chat = await instance.instance.callChatCompletions(chatModel, { messages: [{ role: 'user', content: 'hello' }] }, undefined, noopUpstreamCallOptions());
+      const responses = await instance.instance.callResponses(responsesModel, { input: 'hello' }, 'generate', undefined, noopUpstreamCallOptions());
       assertEquals(chat.modelKey, 'deepseek-v4-pro');
       assertEquals(responses.modelKey, 'gpt-5.4-pro');
     },
@@ -193,7 +193,7 @@ test('createAzureProvider supports native Azure Anthropic Messages models', asyn
       },
     }),
   );
-  const [model] = await instance.provider.getProvidedModels(directFetcher);
+  const [model] = await instance.instance.getProvidedModels(directFetcher);
   const seen: Array<{ url: string; xApiKey: string | null; body: Record<string, unknown>; beta: string | null }> = [];
 
   assertEquals(model.id, 'claude-public');
@@ -210,8 +210,8 @@ test('createAzureProvider supports native Azure Anthropic Messages models', asyn
       return sseResponse();
     },
     async () => {
-      const messages = await instance.provider.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] }, undefined, { ...noopUpstreamCallOptions(), headers: new Headers({ 'anthropic-beta': 'context-1m' }) });
-      const count = await instance.provider.callMessagesCountTokens(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] }, undefined, noopUpstreamCallOptions());
+      const messages = await instance.instance.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] }, undefined, { ...noopUpstreamCallOptions(), headers: new Headers({ 'anthropic-beta': 'context-1m' }) });
+      const count = await instance.instance.callMessagesCountTokens(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] }, undefined, noopUpstreamCallOptions());
       assertEquals(messages.modelKey, 'claude-prod');
       assertEquals(count.modelKey, 'claude-prod');
     },
@@ -243,7 +243,7 @@ test('createAzureProvider forwards inbound anthropic-beta header through opts.he
       },
     }),
   );
-  const [model] = await instance.provider.getProvidedModels(directFetcher);
+  const [model] = await instance.instance.getProvidedModels(directFetcher);
   const seen: Array<string | null> = [];
 
   await withMockedFetch(
@@ -255,12 +255,12 @@ test('createAzureProvider forwards inbound anthropic-beta header through opts.he
       // The data plane plumbs the inbound `anthropic-beta` header straight
       // through `opts.headers`. Azure has no boundary filter, so whatever
       // arrives on `opts.headers` is what the wire sees.
-      await instance.provider.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, { ...noopUpstreamCallOptions(), headers: new Headers({ 'anthropic-beta': 'context-1m-2025-08-07,interleaved-thinking-2025-05-14' }) });
-      await instance.provider.callMessagesCountTokens(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, { ...noopUpstreamCallOptions(), headers: new Headers({ 'anthropic-beta': 'context-1m-2025-08-07' }) });
+      await instance.instance.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, { ...noopUpstreamCallOptions(), headers: new Headers({ 'anthropic-beta': 'context-1m-2025-08-07,interleaved-thinking-2025-05-14' }) });
+      await instance.instance.callMessagesCountTokens(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, { ...noopUpstreamCallOptions(), headers: new Headers({ 'anthropic-beta': 'context-1m-2025-08-07' }) });
       // No beta header → no header on the wire (the regression guard for the
       // pre-86ef9aa drop).
-      await instance.provider.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, noopUpstreamCallOptions());
-      await instance.provider.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, noopUpstreamCallOptions());
+      await instance.instance.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, noopUpstreamCallOptions());
+      await instance.instance.callMessages(model, { max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }, undefined, noopUpstreamCallOptions());
     },
   );
 
@@ -286,7 +286,7 @@ test('createAzureProvider applies per-model flag overrides on top of the upstrea
       },
     }),
   );
-  const models = await instance.provider.getProvidedModels(directFetcher);
+  const models = await instance.instance.getProvidedModels(directFetcher);
   const d1 = models.find(model => (model.providerData as { upstreamModelId: string }).upstreamModelId === 'd1');
   const d2 = models.find(model => (model.providerData as { upstreamModelId: string }).upstreamModelId === 'd2');
   if (!d1 || !d2) throw new Error('expected both models');
@@ -315,7 +315,7 @@ test('createAzureProvider skips the per-model layer when flagOverrides.enabled i
       },
     }),
   );
-  const [model] = await instance.provider.getProvidedModels(directFetcher);
+  const [model] = await instance.instance.getProvidedModels(directFetcher);
 
   assertEquals(model.enabledFlags.has('vendor-deepseek'), true);
 });
@@ -341,7 +341,7 @@ test('createAzureProvider attaches cost field from model config', async () => {
       },
     }),
   );
-  const models = await instance.provider.getProvidedModels(directFetcher);
+  const models = await instance.instance.getProvidedModels(directFetcher);
   assertEquals(models[0].cost, { input: 2.5, output: 15, input_cache_read: 0.25 });
   assertEquals(models[1].cost, undefined);
 });
@@ -366,15 +366,15 @@ test('createAzureProvider getPricingForModelKey resolves by upstream model id', 
       },
     }),
   );
-  assertEquals(instance.provider.getPricingForModelKey('gpt-prod'), { input: 2.5, output: 15 });
-  assertEquals(instance.provider.getPricingForModelKey('gpt-small'), null);
-  assertEquals(instance.provider.getPricingForModelKey('unknown'), null);
+  assertEquals(instance.instance.getPricingForModelKey('gpt-prod'), { input: 2.5, output: 15 });
+  assertEquals(instance.instance.getPricingForModelKey('gpt-small'), null);
+  assertEquals(instance.instance.getPricingForModelKey('unknown'), null);
 });
 
 test('createAzureProvider exposes image models and routes generations with api-version=preview', async () => {
   const record: UpstreamRecord = {
     id: 'az-image',
-    provider: 'azure',
+    kind: 'azure',
     name: 'azure-images',
     enabled: true,
     sortOrder: 0,
@@ -404,7 +404,7 @@ test('createAzureProvider exposes image models and routes generations with api-v
       return new Response(JSON.stringify({ data: [{ b64_json: 'x' }], usage: { input_tokens: 1, output_tokens: 2 } }), { status: 200, headers: new Headers({ 'content-type': 'application/json' }) });
     },
     async () => {
-      const provider = createAzureProvider(record).provider;
+      const provider = createAzureProvider(record).instance;
       const models = await provider.getProvidedModels(directFetcher);
       assertEquals(models[0].kind, 'image');
       assertEquals(models[0].endpoints, { imagesGenerations: {}, imagesEdits: {} });
@@ -421,7 +421,7 @@ test('createAzureProvider exposes image models and routes generations with api-v
 test('createAzureProvider callImagesEdits posts multipart with model replaced by upstream model id and api-version=preview', async () => {
   const record: UpstreamRecord = {
     id: 'az-image',
-    provider: 'azure',
+    kind: 'azure',
     name: 'azure-images',
     enabled: true,
     sortOrder: 0,
@@ -451,7 +451,7 @@ test('createAzureProvider callImagesEdits posts multipart with model replaced by
       return new Response(JSON.stringify({ data: [{ b64_json: 'x' }], usage: { input_tokens: 3, output_tokens: 4 } }), { status: 200, headers: new Headers({ 'content-type': 'application/json' }) });
     },
     async () => {
-      const provider = createAzureProvider(record).provider;
+      const provider = createAzureProvider(record).instance;
       const models = await provider.getProvidedModels(directFetcher);
       const form = new FormData();
       form.append('prompt', 'replace sky');

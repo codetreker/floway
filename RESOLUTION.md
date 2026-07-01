@@ -55,7 +55,7 @@ Catalog assembly returns two artefacts together:
 - `models: InternalModel[]` — public-id-keyed metadata (id, kind, limits,
   cost, plus the merged `endpoints`). `toPublicModel` projects each row
   onto the wire DTO at `/v1/models` and `/models`.
-- `upstreamsByPublicId: Map<string, ModelProviderInstance[]>` — every
+- `upstreamsByPublicId: Map<string, Provider[]>` — every
   upstream instance that emitted an entry under the given public id, in
   enumeration order. The control-plane catalog endpoint reads this to
   render per-model upstream chips without re-walking the catalog.
@@ -157,7 +157,7 @@ lookups against the same SWR-cached catalog fetch:
 For each branch that found a match:
 
 - If the catalog match's `kind === inboundKind`, push a
-  `ProviderCandidate { provider, model, fetcher }` into the result.
+  `ModelCandidate { provider, model, fetcher }` into the result.
 - If the match exists but `kind !== inboundKind`, set `sawAnyId = true`
   but do not push.
 
@@ -199,8 +199,8 @@ and `providerData`), and the dispatch layer reads from there.
 ## Candidate Shape
 
 ```ts
-interface ProviderCandidate {
-  readonly provider: ModelProviderInstance;
+interface ModelCandidate {
+  readonly provider: Provider;
   readonly model: UpstreamModel;
   readonly fetcher: Fetcher;
 }

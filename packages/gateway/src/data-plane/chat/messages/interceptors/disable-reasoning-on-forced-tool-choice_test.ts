@@ -7,7 +7,7 @@ import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import { type ExecuteResult, eventResult } from '@floway-dev/provider';
-import { stubProviderCandidate, testTelemetryModelIdentity, assertEquals } from '@floway-dev/test-utils';
+import { stubModelCandidate, testTelemetryModelIdentity, assertEquals } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -29,7 +29,7 @@ const invocation = (
   enabledFlags: ReadonlySet<string> = new Set(['disable-reasoning-on-forced-tool-choice']),
 ): MessagesInvocation => ({
   payload,
-  candidate: stubProviderCandidate({
+  candidate: stubModelCandidate({
     model: { endpoints: { messages: {} }, enabledFlags },
   }),
   targetApi: 'messages',

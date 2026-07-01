@@ -943,7 +943,7 @@ const toggleMandatory = (on: boolean) => {
             v-if="editable && config.flagOverrides?.enabled"
             :model-value="config.flagOverrides?.values ?? {}"
             :flags="flags"
-            :provider-kind="flagProviderKind"
+            :kind="flagProviderKind"
             :inherited-overrides="upstreamFlagOverrides"
             :name-prefix="`${row.uiId}-flag`"
             class="max-h-72"

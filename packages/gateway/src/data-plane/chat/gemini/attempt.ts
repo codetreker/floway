@@ -11,7 +11,7 @@ import { traverseTranslation } from '../shared/translate-traverse.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { GeminiPayload, GeminiStreamEvent } from '@floway-dev/protocols/gemini';
-import { type ProviderCandidate, plainResult, type ExecuteResult, type GeminiInvocation, type PlainResult } from '@floway-dev/provider';
+import { type ModelCandidate, plainResult, type ExecuteResult, type GeminiInvocation, type PlainResult } from '@floway-dev/provider';
 import { translateGeminiViaChatCompletions, translateGeminiViaMessages, translateGeminiViaResponses } from '@floway-dev/translate';
 
 // Gemini has no native upstream target in the provider API; prefer Chat
@@ -23,14 +23,14 @@ export const geminiCountTokensTarget = chatTargetPicker(['messages']);
 export interface GeminiAttemptGenerateArgs {
   readonly payload: GeminiPayload;
   readonly ctx: ChatGatewayCtx;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly headers: Headers;
 }
 
 export interface GeminiAttemptCountTokensArgs {
   readonly payload: GeminiPayload;
   readonly ctx: ChatGatewayCtx;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly headers: Headers;
 }
 

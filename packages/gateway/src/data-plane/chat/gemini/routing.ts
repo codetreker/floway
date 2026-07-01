@@ -2,14 +2,14 @@ import { classifyResponsesItemAffinity } from '../responses/items/affinity.ts';
 import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { RoutingDecision } from '../shared/routing.ts';
 import type { GeminiPayload } from '@floway-dev/protocols/gemini';
-import type { ProviderCandidate } from '@floway-dev/provider';
+import type { ModelCandidate } from '@floway-dev/provider';
 import { geminiViaResponsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
 
 export type GeminiRoutingDecision = RoutingDecision;
 
 export const planGeminiRouting = async (input: {
   readonly payload: GeminiPayload;
-  readonly candidates: readonly ProviderCandidate[];
+  readonly candidates: readonly ModelCandidate[];
   readonly ctx: ChatGatewayCtx;
 }): Promise<GeminiRoutingDecision> =>
   await classifyResponsesItemAffinity({

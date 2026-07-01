@@ -7,7 +7,7 @@ import { createNonResponsesSourceStore } from '../items/store.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import { collectResponsesProtocolEventsToResult, type ResponsesPayload, type ResponsesResult, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 import { eventResult, type ExecuteResult, type ResponsesInvocation } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -27,7 +27,7 @@ const makeInvocation = (
 ): ResponsesInvocation => ({
   payload: { model: 'test-model', input: [], ...payload } as ResponsesPayload,
   action: options.action ?? 'generate',
-  candidate: stubProviderCandidate({
+  candidate: stubModelCandidate({
     model: { enabledFlags: new Set(options.flagOn === false ? [] : ['responses-compact-shim']) },
   }),
   targetApi: options.targetApi ?? 'responses',

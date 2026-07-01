@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { clearInFlightForTesting, fetchUpstreamModelsCached } from './models-cache.ts';
 import { initRepo } from '../../repo/index.ts';
 import { InMemoryRepo } from '../../repo/memory.ts';
-import { directFetcher, type ModelProviderInstance, type UpstreamModel } from '@floway-dev/provider';
+import { directFetcher, type Provider, type UpstreamModel } from '@floway-dev/provider';
 import { stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const aModel = (id: string): UpstreamModel => stubUpstreamModel({ id });
@@ -11,14 +11,14 @@ const aModel = (id: string): UpstreamModel => stubUpstreamModel({ id });
 const stubInstance = (
   upstreamId: string,
   fetchFn: () => Promise<UpstreamModel[]>,
-): ModelProviderInstance => ({
+): Provider => ({
   upstream: upstreamId,
-  providerKind: 'custom',
+  kind: 'custom',
   name: upstreamId,
   disabledPublicModelIds: [],
   modelPrefix: null,
   supportsResponsesItemReference: false,
-  provider: stubProvider({ getProvidedModels: fetchFn }),
+  instance: stubProvider({ getProvidedModels: fetchFn }),
 });
 
 const setupRepo = (): InMemoryRepo => {

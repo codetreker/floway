@@ -21,7 +21,7 @@ export interface ProxyFallbackEntry {
 // `state` is gateway-managed runtime data.
 export interface UpstreamRecord {
   id: string;
-  provider: UpstreamProviderKind;
+  kind: UpstreamProviderKind;
   name: string;
   enabled: boolean;
   sortOrder: number;

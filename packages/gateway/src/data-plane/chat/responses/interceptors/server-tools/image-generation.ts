@@ -18,7 +18,7 @@ import type {
   ResponsesPayload,
   ResponsesTool,
 } from '@floway-dev/protocols/responses';
-import type { Fetcher, ModelProviderInstance, PerformanceTelemetryContext, ProviderCandidate, UpstreamModel } from '@floway-dev/provider';
+import type { Fetcher, Provider, PerformanceTelemetryContext, ModelCandidate, UpstreamModel } from '@floway-dev/provider';
 
 export const SHIM_TOOL_NAME = 'image_generation';
 
@@ -460,14 +460,14 @@ interface ShimState {
   imageDispatchCount: number;
 }
 
-const recordImageUsage = (state: ShimState, provider: ModelProviderInstance, model: UpstreamModel, modelKey: string, responseBody: unknown): void => {
+const recordImageUsage = (state: ShimState, provider: Provider, model: UpstreamModel, modelKey: string, responseBody: unknown): void => {
   const usage = tokenUsageFromImagesBody(responseBody);
   if (usage === null) return;
   const promise = recordTokenUsage(state.apiKeyId, {
     model: model.id,
     upstream: provider.upstream,
     modelKey,
-    cost: provider.provider.getPricingForModelKey(modelKey) ?? null,
+    cost: provider.instance.getPricingForModelKey(modelKey) ?? null,
   }, usage).catch((error: unknown) => {
     console.error('Failed to record image generation usage:', error);
   });
@@ -537,7 +537,7 @@ const serverError = (e: unknown): ImageError => ({
 const resolveImageCandidate = async (
   isEdit: boolean,
   state: ShimState,
-): Promise<{ ok: true; candidate: ProviderCandidate } | { ok: false; error: ImageError }> => {
+): Promise<{ ok: true; candidate: ModelCandidate } | { ok: false; error: ImageError }> => {
   const endpointKey = isEdit ? 'imagesEdits' : 'imagesGenerations';
   const endpointPath = isEdit ? '/images/edits' : '/images/generations';
   let resolution;
@@ -631,7 +631,7 @@ export const parseRetryAfterMs = (headers: Headers): number | null => {
 // unread body — intermediate failed responses are drained inside the loop so
 // the underlying socket can be reused while we sleep.
 const issueImageCall = async (
-  provider: ModelProviderInstance,
+  provider: Provider,
   model: UpstreamModel,
   fetcher: Fetcher,
   prompt: string,
@@ -643,8 +643,8 @@ const issueImageCall = async (
   for (let attempt = 0; ; attempt++) {
     const recorder = createUpstreamLatencyRecorder();
     const { response, modelKey } = await (isEdit
-      ? provider.provider.callImagesEdits(model, buildEditsForm(prompt, state.config, sources, stream), state.downstreamAbortSignal, { fetcher, recordUpstreamLatency: recorder.record, waitUntil: state.backgroundScheduler, headers: new Headers() })
-      : provider.provider.callImagesGenerations(model, buildGenerationsBody(prompt, state.config, stream), state.downstreamAbortSignal, { fetcher, recordUpstreamLatency: recorder.record, waitUntil: state.backgroundScheduler, headers: new Headers() }));
+      ? provider.instance.callImagesEdits(model, buildEditsForm(prompt, state.config, sources, stream), state.downstreamAbortSignal, { fetcher, recordUpstreamLatency: recorder.record, waitUntil: state.backgroundScheduler, headers: new Headers() })
+      : provider.instance.callImagesGenerations(model, buildGenerationsBody(prompt, state.config, stream), state.downstreamAbortSignal, { fetcher, recordUpstreamLatency: recorder.record, waitUntil: state.backgroundScheduler, headers: new Headers() }));
     const context: PerformanceTelemetryContext = {
       keyId: state.apiKeyId,
       model: model.id,
@@ -675,7 +675,7 @@ const issueImageCall = async (
 // outcome. Transport/backend failures become `{ok:false}` rather than
 // throwing, so the caller always produces a terminal image item.
 const consumeImageResponse = async (
-  provider: ModelProviderInstance,
+  provider: Provider,
   model: UpstreamModel,
   modelKey: string,
   response: Response,

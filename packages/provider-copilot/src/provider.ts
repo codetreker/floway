@@ -20,7 +20,7 @@ import { parseChatCompletionsStream, type ChatCompletionsPayload, type ChatCompl
 import { type ModelEndpointKey, type ModelEndpoints, type ProtocolFrame, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseAnthropicBetaHeader, parseMessagesStream, type MessagesPayload, type MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesInputItem, type ResponsesPayload, type ResponsesResult } from '@floway-dev/protocols/responses';
-import { COMPACTION_TRIGGER, compactionResponse, eventResult, getProviderRepo, readUpstreamApiError, streamingProviderCall, apiErrorToResponse, defaultsForProvider, resolveEffectiveFlags, type ExecuteResult, type ModelProvider, type ModelProviderInstance, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
+import { COMPACTION_TRIGGER, compactionResponse, eventResult, getProviderRepo, readUpstreamApiError, streamingProviderCall, apiErrorToResponse, defaultsForProvider, resolveEffectiveFlags, type ExecuteResult, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamModel, type UpstreamRecord } from '@floway-dev/provider';
 
 interface CopilotProviderData {
   rawModels: CopilotRawModel[];
@@ -164,7 +164,7 @@ const finalizeCopilotModels = (rawModels: CopilotRawModel[], enabledFlags: Reado
   return models;
 };
 
-export const createCopilotProvider = async (record: UpstreamRecord): Promise<ModelProviderInstance> => {
+export const createCopilotProvider = async (record: UpstreamRecord): Promise<Provider> => {
   const copilot = assertCopilotUpstreamRecord(record);
   const upstreamConfig = { id: copilot.id, githubToken: copilot.config.githubToken };
   // Computed once: only the upstream layer applies for this provider kind
@@ -266,7 +266,7 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Mod
     throw new Error(`Copilot boundary chain produced unexpected ExecuteResult shape '${result.type}'`);
   };
 
-  const provider: ModelProvider = {
+  const instance: ProviderInstance = {
     getProvidedModels: async fetcher => {
       const fresh = await getProviderRepo().upstreams.getById(copilot.id);
       if (!fresh) throw new Error(`Copilot upstream ${copilot.id} disappeared mid-request`);
@@ -450,11 +450,11 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Mod
 
   return {
     upstream: copilot.id,
-    providerKind: 'copilot',
+    kind: 'copilot',
     name: copilot.name,
     disabledPublicModelIds: copilot.disabledPublicModelIds,
     modelPrefix: copilot.modelPrefix,
-    provider,
+    instance,
     supportsResponsesItemReference: false,
   };
 };

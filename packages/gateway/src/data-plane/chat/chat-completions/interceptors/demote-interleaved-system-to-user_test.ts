@@ -6,7 +6,7 @@ import { createNonResponsesSourceStore } from '../../responses/items/store.ts';
 import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -27,7 +27,7 @@ const invocation = (
   enabledFlags: ReadonlySet<string> = new Set(['demote-interleaved-system-to-user']),
 ): ChatCompletionsInvocation => ({
   payload,
-  candidate: stubProviderCandidate({ model: { enabledFlags } }),
+  candidate: stubModelCandidate({ model: { enabledFlags } }),
   targetApi: 'chat-completions',
   headers: new Headers(),
 });

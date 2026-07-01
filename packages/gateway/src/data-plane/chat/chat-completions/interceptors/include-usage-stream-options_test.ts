@@ -6,7 +6,7 @@ import { createNonResponsesSourceStore } from '../../responses/items/store.ts';
 import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -24,7 +24,7 @@ const okEvents = () => Promise.resolve(eventResult((async function* () {})(), te
 
 const invocation = (payload: ChatCompletionsPayload): ChatCompletionsInvocation => ({
   payload,
-  candidate: stubProviderCandidate(),
+  candidate: stubModelCandidate(),
   targetApi: 'chat-completions',
   headers: new Headers(),
 });

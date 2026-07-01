@@ -62,7 +62,7 @@ export const imagesGenerations = async (c: Context): Promise<Response> => {
     modelServesEndpoint: model => model.endpoints.imagesGenerations !== undefined,
     call: (provider, model, opts) => {
       const { model: _model, ...body } = request.body;
-      return provider.provider.callImagesGenerations(model, body, undefined, opts);
+      return provider.instance.callImagesGenerations(model, body, undefined, opts);
     },
     response: { format: 'json', extractBilling: tokenUsageFromImagesBody },
   });
@@ -103,7 +103,7 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
     kind: 'image',
     modelServesEndpoint: model => model.endpoints.imagesEdits !== undefined,
     call: (provider, model, opts) => {
-      // ModelProvider.callImagesEdits takes ownership of the FormData and
+      // ProviderInstance.callImagesEdits takes ownership of the FormData and
       // appends the upstream-specific model/deployment id; allocate a fresh
       // copy per candidate so the contract holds even if cross-candidate
       // fallback is ever extended to try a second match. File-blob entries
@@ -113,7 +113,7 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
         if (name === 'model') continue;
         passthrough.append(name, value);
       }
-      return provider.provider.callImagesEdits(model, passthrough, undefined, opts);
+      return provider.instance.callImagesEdits(model, passthrough, undefined, opts);
     },
     response: { format: 'json', extractBilling: tokenUsageFromImagesBody },
   });

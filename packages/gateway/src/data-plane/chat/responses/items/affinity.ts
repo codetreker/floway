@@ -4,7 +4,7 @@ import type { StoredResponsesItem } from '../../../../repo/types.ts';
 import type { ChatServeFailure } from '../../shared/errors.ts';
 import type { RoutingDecision } from '../../shared/routing.ts';
 import type { ResponsesInputItem } from '@floway-dev/protocols/responses';
-import type { ProviderCandidate } from '@floway-dev/provider';
+import type { ModelCandidate } from '@floway-dev/provider';
 import type { ResponsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
 
 type StoredResponsesAffinity = 'forcing' | 'portable' | 'downgradable' | 'non_affinity';
@@ -99,9 +99,9 @@ const collectStoredResponsesItemRefs = async <TSourceItems>(
 };
 
 const orderCandidatesByStoredResponsesAffinity = (
-  candidates: readonly ProviderCandidate[],
+  candidates: readonly ModelCandidate[],
   preferredUpstreamIds: ReadonlySet<string>,
-): readonly ProviderCandidate[] => {
+): readonly ModelCandidate[] => {
   const preferred = [...preferredUpstreamIds].reverse();
   if (preferred.length === 0) return candidates;
 
@@ -117,7 +117,7 @@ export const classifyResponsesItemAffinity = async <TSourceItems>(input: {
   sourceItems: TSourceItems;
   view: ResponsesItemsView<TSourceItems>;
   store: StatefulResponsesStore;
-  candidates: readonly ProviderCandidate[];
+  candidates: readonly ModelCandidate[];
   // Items the caller will stage as inputs after the affinity walk; passed
   // here so `loadInputItems` can pre-load any stored row whose content hash
   // matches one of them. Without this, a duplicate user message resent on

@@ -6,7 +6,7 @@ import { createNonResponsesSourceStore } from '../items/store.ts';
 import { doneFrame } from '@floway-dev/protocols/common';
 import type { ResponsesPayload } from '@floway-dev/protocols/responses';
 import { eventResult, type ResponsesInvocation } from '@floway-dev/provider';
-import { assertEquals, stubProviderCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubModelCandidate, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubCtx: ChatGatewayCtx = {
   apiKeyId: 'test-key',
@@ -32,7 +32,7 @@ const okEvents = () =>
 
 const invocation = (payload: ResponsesPayload, enabledFlags: ReadonlySet<string> = new Set(['vendor-deepseek'])): ResponsesInvocation => ({
   payload,
-  candidate: stubProviderCandidate({ model: { enabledFlags } }),
+  candidate: stubModelCandidate({ model: { enabledFlags } }),
   targetApi: 'responses',
   headers: new Headers(),
   action: 'generate',

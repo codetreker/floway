@@ -104,7 +104,7 @@ export const completions = async (c: Context): Promise<Response> => {
     kind: 'chat',
     modelServesEndpoint: model => model.endpoints.completions !== undefined,
     call: (provider, model, opts) =>
-      provider.provider.callCompletions(model, upstreamBody, ctx.abortSignal, opts),
+      provider.instance.callCompletions(model, upstreamBody, ctx.abortSignal, opts),
     response: request.wantsStream
       ? { format: 'sse', transformFrame, settleUsage }
       : {

@@ -11,7 +11,7 @@ import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { type ProviderCandidate, directFetcher, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
+import { type ModelCandidate, directFetcher, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 const API_KEY_ID = 'key_attempt_test';
@@ -56,16 +56,16 @@ const makeProviderEvents = async function* (events: readonly ResponsesStreamEven
   yield doneFrame();
 };
 
-const makeCandidate = (callResponses: (model: UpstreamModel, body: Omit<ResponsesPayload, 'model'>, action: ResponsesAction, signal: AbortSignal | undefined, opts: UpstreamCallOptions) => Promise<ProviderResponsesResult>): ProviderCandidate => {
+const makeCandidate = (callResponses: (model: UpstreamModel, body: Omit<ResponsesPayload, 'model'>, action: ResponsesAction, signal: AbortSignal | undefined, opts: UpstreamCallOptions) => Promise<ProviderResponsesResult>): ModelCandidate => {
   const provider = stubProvider({ callResponses });
   return {
     provider: {
       upstream: 'up_test',
-      providerKind: 'custom',
+      kind: 'custom',
       name: 'up_test',
       disabledPublicModelIds: [],
       modelPrefix: null,
-      provider,
+      instance: provider,
       supportsResponsesItemReference: true,
     },
     model: stubUpstreamModel(),
@@ -371,10 +371,10 @@ test('generate inherits invocation headers across translation to Messages', asyn
       };
     },
   });
-  const candidate: ProviderCandidate = {
+  const candidate: ModelCandidate = {
     provider: {
-      upstream: 'up_test', providerKind: 'custom', name: 'up_test',
-      disabledPublicModelIds: [], modelPrefix: null, provider: messagesProvider, supportsResponsesItemReference: true,
+      upstream: 'up_test', kind: 'custom', name: 'up_test',
+      disabledPublicModelIds: [], modelPrefix: null, instance: messagesProvider, supportsResponsesItemReference: true,
     },
     model: upstreamModel,
     fetcher: directFetcher,

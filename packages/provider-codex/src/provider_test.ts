@@ -11,7 +11,7 @@ const freshAccessToken: CodexAccessTokenEntry = { token: 'at', expiresAt: farFut
 
 const baseRecord: UpstreamRecord = {
   id: 'up_codex',
-  provider: 'codex',
+  kind: 'codex',
   name: 'Codex Plus',
   enabled: true,
   sortOrder: 0,
@@ -71,7 +71,7 @@ const oauthTokenResponse = (overrides: Partial<{ access_token: string; refresh_t
 describe('createCodexProvider', () => {
   test('returns an instance carrying provider kind and identity', async () => {
     const instance = await createCodexProvider(baseRecord);
-    expect(instance.providerKind).toBe('codex');
+    expect(instance.kind).toBe('codex');
     expect(instance.upstream).toBe('up_codex');
     expect(instance.name).toBe('Codex Plus');
     expect(instance.supportsResponsesItemReference).toBe(false);
@@ -80,7 +80,7 @@ describe('createCodexProvider', () => {
   test('getProvidedModels uses the cached access token when fresh and surfaces every catalog entry', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(modelsResponse());
     const instance = await createCodexProvider(baseRecord);
-    const models = await instance.provider.getProvidedModels(directFetcher);
+    const models = await instance.instance.getProvidedModels(directFetcher);
     // Provider surfaces both visible and hidden upstream models — operators
     // can dispatch to `codex-auto-review` even though ChatGPT's UI hides it.
     expect(models.map(m => m.id)).toEqual(['gpt-5.4', 'codex-auto-review']);
@@ -98,7 +98,7 @@ describe('createCodexProvider', () => {
       throw new Error(`unexpected fetch ${url}`);
     });
     const instance = await createCodexProvider(baseRecord);
-    const models = await instance.provider.getProvidedModels(directFetcher);
+    const models = await instance.instance.getProvidedModels(directFetcher);
     expect(models.map(m => m.id)).toEqual(['gpt-5.4', 'codex-auto-review']);
     const urls = fetchSpy.mock.calls.map(c => typeof c[0] === 'string' ? c[0] : (c[0] as URL | Request).toString());
     expect(urls.some(u => u.includes('/oauth/token'))).toBe(true);
@@ -115,7 +115,7 @@ describe('createCodexProvider', () => {
   test('getProvidedModels propagates catalog fetch failures', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('upstream down', { status: 502 }));
     const instance = await createCodexProvider(baseRecord);
-    await expect(instance.provider.getProvidedModels(directFetcher)).rejects.toThrow(/Codex \/models fetch failed/);
+    await expect(instance.instance.getProvidedModels(directFetcher)).rejects.toThrow(/Codex \/models fetch failed/);
   });
 
   test('getProvidedModels propagates OAuth refresh failures', async () => {
@@ -126,7 +126,7 @@ describe('createCodexProvider', () => {
       throw new Error(`unexpected fetch ${url}`);
     });
     const instance = await createCodexProvider(baseRecord);
-    await expect(instance.provider.getProvidedModels(directFetcher)).rejects.toThrow(/Codex OAuth session terminated/);
+    await expect(instance.instance.getProvidedModels(directFetcher)).rejects.toThrow(/Codex OAuth session terminated/);
   });
 
   test('getProvidedModels resolves operator flag overrides into every UpstreamModel', async () => {
@@ -141,7 +141,7 @@ describe('createCodexProvider', () => {
       flagOverrides: { 'responses-web-search-shim': true },
     };
     const instance = await createCodexProvider(recordWithOverride);
-    const models = await instance.provider.getProvidedModels(directFetcher);
+    const models = await instance.instance.getProvidedModels(directFetcher);
     for (const m of models) {
       expect(m.enabledFlags.has('responses-web-search-shim')).toBe(true);
     }
@@ -150,7 +150,7 @@ describe('createCodexProvider', () => {
   test('callResponses round-trips through fetch transport', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
     const instance = await createCodexProvider(baseRecord);
-    const result = await instance.provider.callResponses(
+    const result = await instance.instance.callResponses(
       { id: 'gpt-5.4', display_name: 'gpt-5.4', kind: 'chat', limits: {}, endpoints: { responses: {} }, enabledFlags: new Set() },
       { input: [{ type: 'message', role: 'user', content: 'hi' }], stream: true },
       'generate',
@@ -164,7 +164,7 @@ describe('createCodexProvider', () => {
   test('callResponses re-reads state per request (operator re-import takes effect)', async () => {
     getByIdSpy.mockResolvedValueOnce({ ...baseRecord, state: { accounts: [{ chatgptAccountId: 'acc', refresh_token: 'rt_v1', state: 'session_terminated', state_updated_at: '2026-01-02T00:00:00Z', accessToken: null, quotaSnapshot: null }] } as CodexUpstreamState });
     const instance = await createCodexProvider(baseRecord);
-    const result = await instance.provider.callResponses(
+    const result = await instance.instance.callResponses(
       { id: 'gpt-5.4', display_name: 'gpt-5.4', kind: 'chat', limits: {}, endpoints: { responses: {} }, enabledFlags: new Set() },
       { input: [], stream: true },
       'generate',
@@ -187,7 +187,7 @@ describe('createCodexProvider', () => {
     const model = { id: 'gpt-5.4', display_name: 'gpt-5.4', kind: 'chat', limits: {}, endpoints: { responses: {} }, enabledFlags: new Set<string>() };
     // @ts-expect-error: each method has a different body type; we only assert
     // the synthetic 405 envelope is what comes back.
-    const result = await instance.provider[method](model, {}, undefined, noopUpstreamCallOptions()) as { response: Response };
+    const result = await instance.instance[method](model, {}, undefined, noopUpstreamCallOptions()) as { response: Response };
     expect(result.response.status).toBe(405);
     const body = await result.response.json() as { error: { type: string; message: string } };
     expect(body.error.type).toBe('method_not_allowed');

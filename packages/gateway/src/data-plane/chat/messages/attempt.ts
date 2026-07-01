@@ -14,7 +14,7 @@ import { createUpstreamLatencyRecorder } from '../shared/upstream-telemetry.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesMessage, MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
-import type { ProviderCandidate, ExecuteResult, PlainResult } from '@floway-dev/provider';
+import type { ModelCandidate, ExecuteResult, PlainResult } from '@floway-dev/provider';
 import { translateMessagesViaChatCompletions, translateMessagesViaResponses } from '@floway-dev/translate';
 import { messagesViaResponsesItemsView } from '@floway-dev/translate/via-responses/responses-items';
 
@@ -29,14 +29,14 @@ export const messagesCountTokensTarget = chatTargetPicker(['messages']);
 export interface MessagesAttemptGenerateArgs {
   readonly payload: MessagesPayload;
   readonly ctx: ChatGatewayCtx;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly headers: Headers;
 }
 
 export interface MessagesAttemptCountTokensArgs {
   readonly payload: MessagesPayload;
   readonly ctx: ChatGatewayCtx;
-  readonly candidate: ProviderCandidate;
+  readonly candidate: ModelCandidate;
   readonly headers: Headers;
 }
 
@@ -57,7 +57,7 @@ export const messagesAttempt = {
       if (targetApi === 'messages') {
         const { model: _model, ...body } = invocation.payload;
         const recorder = createUpstreamLatencyRecorder();
-        const providerResult = await candidate.provider.provider.callMessages(
+        const providerResult = await candidate.provider.instance.callMessages(
           candidate.model,
           body,
           ctx.abortSignal,
@@ -109,7 +109,7 @@ export const messagesAttempt = {
     const recorder = createUpstreamLatencyRecorder();
     const response = await runInterceptors(invocation, ctx, messagesCountTokensInterceptors, async () => {
       const { model: _model, ...body } = invocation.payload;
-      const { response } = await candidate.provider.provider.callMessagesCountTokens(
+      const { response } = await candidate.provider.instance.callMessagesCountTokens(
         candidate.model,
         body,
         ctx.abortSignal,
@@ -135,7 +135,7 @@ export const messagesAttempt = {
 const rewriteOrRenderMessagesFailure = async (
   payload: MessagesPayload,
   store: StatefulResponsesStore,
-  candidate: ProviderCandidate,
+  candidate: ModelCandidate,
 ): Promise<{ payload: MessagesPayload; failure?: undefined } | { payload?: undefined; failure: ExecuteResult<ProtocolFrame<MessagesStreamEvent>> & { type: 'api-error' } }> => {
   try {
     const rewrittenMessages = await rewriteStoredResponsesItemsForCandidate(

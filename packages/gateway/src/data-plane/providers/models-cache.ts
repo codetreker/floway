@@ -1,6 +1,6 @@
 import { getRepo } from '../../repo/index.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
-import type { Fetcher, ModelProviderInstance, UpstreamModel } from '@floway-dev/provider';
+import type { Fetcher, Provider, UpstreamModel } from '@floway-dev/provider';
 
 // Soft TTL: a fetched row is served verbatim within this window with no
 // upstream call. Past SOFT but within HARD, the stored row is still served
@@ -45,12 +45,12 @@ const memoInFlight = (
 const errorMessage = (err: unknown): string => err instanceof Error ? err.message : String(err);
 
 const runFetch = async (
-  instance: ModelProviderInstance,
+  instance: Provider,
   fetcher: Fetcher,
   key: string,
 ): Promise<UpstreamModel[]> => {
   try {
-    const models = [...await instance.provider.getProvidedModels(fetcher)];
+    const models = [...await instance.instance.getProvidedModels(fetcher)];
     await getRepo().modelsCache.put(key, { fetchedAt: Date.now(), models });
     return models;
   } catch (err) {
@@ -63,7 +63,7 @@ const runFetch = async (
 };
 
 export const fetchUpstreamModelsCached = async (
-  instance: ModelProviderInstance,
+  instance: Provider,
   opts: ModelsCacheFetchOptions,
 ): Promise<UpstreamModel[]> => {
   const { scheduler, fetcher, force } = opts;

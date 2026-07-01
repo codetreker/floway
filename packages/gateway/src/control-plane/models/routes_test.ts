@@ -6,7 +6,7 @@ import { assertEquals, jsonResponse, withMockedFetch } from '@floway-dev/test-ut
 
 const azureUpstream = (): UpstreamRecord => ({
   id: 'up_azure_models',
-  provider: 'azure',
+  kind: 'azure',
   name: 'Azure Models',
   enabled: true,
   sortOrder: 200,

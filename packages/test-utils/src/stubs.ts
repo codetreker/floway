@@ -1,4 +1,4 @@
-import { directFetcher, type ModelProvider, type ModelProviderInstance, type ProviderCandidate, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
+import { directFetcher, type ProviderInstance, type Provider, type ModelCandidate, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
 
 // No-op UpstreamCallOptions factory for tests calling provider methods
 // directly: identity recordUpstreamLatency satisfies the contract without
@@ -44,7 +44,7 @@ const autoWrap = <T>(impl: T | undefined): T | undefined => {
   }) as unknown as T;
 };
 
-export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvider => ({
+export const stubProvider = (overrides: Partial<ProviderInstance> = {}): ProviderInstance => ({
   getProvidedModels: overrides.getProvidedModels ?? (() => Promise.resolve([])),
   getPricingForModelKey: overrides.getPricingForModelKey ?? (() => null),
   callCompletions: autoWrap(overrides.callCompletions) ?? (() => Promise.reject(new Error('stubProvider.callCompletions was called'))),
@@ -57,14 +57,14 @@ export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvi
   callImagesEdits: autoWrap(overrides.callImagesEdits) ?? (() => Promise.reject(new Error('stubProvider.callImagesEdits was called'))),
 });
 
-export const stubProviderCandidate = (overrides: { model?: Partial<UpstreamModel>; provider?: ModelProviderInstance } = {}): ProviderCandidate => {
+export const stubModelCandidate = (overrides: { model?: Partial<UpstreamModel>; provider?: Provider } = {}): ModelCandidate => {
   const provider = overrides.provider ?? {
     upstream: 'test-upstream',
-    providerKind: 'custom',
+    kind: 'custom',
     name: 'Test Upstream',
     disabledPublicModelIds: [],
     modelPrefix: null,
-    provider: stubProvider(),
+    instance: stubProvider(),
     supportsResponsesItemReference: false,
   };
   return {

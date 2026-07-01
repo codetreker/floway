@@ -10,7 +10,7 @@ import type { ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-comp
 import { doneFrame, eventFrame, type ModelEndpoints, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesPayload, ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import { type ProviderCandidate, directFetcher, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions } from '@floway-dev/provider';
+import { type ModelCandidate, directFetcher, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-dev/test-utils';
 
 // `enumerateModelCandidates` is the only seam between serve and the
@@ -20,7 +20,7 @@ import { assert, assertEquals, stubProvider, stubUpstreamModel } from '@floway-d
 // `sawModel` defaults to true when at least one candidate was queued; the
 // `model-missing` failure tests queue an empty list and expect `sawModel:
 // false` so the serve renders 404 rather than 400.
-const candidatesQueue: { readonly candidates: readonly ProviderCandidate[]; readonly sawModel: boolean; readonly failedUpstreams: readonly string[] }[] = [];
+const candidatesQueue: { readonly candidates: readonly ModelCandidate[]; readonly sawModel: boolean; readonly failedUpstreams: readonly string[] }[] = [];
 vi.mock('../../providers/registry.ts', async importOriginal => {
   const original = await importOriginal<typeof import('../../providers/registry.ts')>();
   return {
@@ -38,7 +38,7 @@ const { expandPreviousResponseId } = await import('./serve-prep.ts');
 
 const API_KEY_ID = 'key_serve_test';
 
-const queueCandidates = (candidates: readonly ProviderCandidate[], sawModel = candidates.length > 0): void => {
+const queueCandidates = (candidates: readonly ModelCandidate[], sawModel = candidates.length > 0): void => {
   candidatesQueue.push({ candidates, sawModel, failedUpstreams: [] });
 };
 
@@ -103,7 +103,7 @@ const makeCandidate = (overrides: {
   callResponses?: (model: unknown, body: unknown, action: ResponsesAction, signal?: AbortSignal, opts?: UpstreamCallOptions) => Promise<ProviderResponsesResult>;
   callMessages?: (model: unknown, body: unknown, signal?: AbortSignal, opts?: UpstreamCallOptions) => Promise<ProviderStreamResult<MessagesStreamEvent>>;
   callChatCompletions?: (model: unknown, body: unknown, signal?: AbortSignal, opts?: UpstreamCallOptions) => Promise<ProviderStreamResult<ChatCompletionsStreamEvent>>;
-} = {}): ProviderCandidate => {
+} = {}): ModelCandidate => {
   const upstream = overrides.upstream ?? 'up_test';
   const provider = stubProvider({
     callResponses: overrides.callResponses,
@@ -113,11 +113,11 @@ const makeCandidate = (overrides: {
   return {
     provider: {
       upstream,
-      providerKind: 'custom',
+      kind: 'custom',
       name: upstream,
       disabledPublicModelIds: [],
       modelPrefix: null,
-      provider,
+      instance: provider,
       supportsResponsesItemReference: true,
     },
     // Default keeps stubUpstreamModel's three-endpoint map intact; tests that
