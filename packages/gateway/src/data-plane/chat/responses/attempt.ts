@@ -6,6 +6,7 @@ import { drainAsync, syntheticEventsFromResult, wrapResponsesOutputForStorage } 
 import { rewriteResponsesItemsForCandidate, type RewrittenResponsesPayload } from './items/rewrite.ts';
 import type { StatefulResponsesStore } from './items/store.ts';
 import { tokenUsageFromResponsesResult } from './usage.ts';
+import { applyRulesToUpstreamResponses } from '../../model-aliases/apply-rules.ts';
 import { recordPerformanceLatency, requireRecordedDurationMs } from '../../shared/telemetry/performance.ts';
 import { chatCompletionsAttempt } from '../chat-completions/attempt.ts';
 import { messagesAttempt } from '../messages/attempt.ts';
@@ -222,6 +223,7 @@ const dispatchResponses = async (
   switch (targetApi) {
   case 'responses': {
     const recorder = createUpstreamLatencyRecorder();
+    if (candidate.rules !== undefined) applyRulesToUpstreamResponses(invocation.payload, candidate.rules);
     if (invocation.action === 'compact') {
       // The compact wire body drops `stream` and `store` — `store` is a
       // gateway-only snapshot-persistence hint that the upstream compact

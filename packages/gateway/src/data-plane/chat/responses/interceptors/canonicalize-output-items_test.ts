@@ -19,6 +19,7 @@ const stubCtx: ChatGatewayCtx = {
   dump: null,
   backgroundScheduler: () => {},
   requestStartedAt: 0,
+  responseHeaders: new Headers(),
   store: createNonResponsesSourceStore('test-key'),
 };
 

@@ -76,14 +76,14 @@ export const prepareResponsesServePlan = async (args: {
   const { payload, ctx } = args;
   const { store } = ctx;
   const prepared = await expandPreviousResponseId(payload, store);
-  const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
+  const { candidates, sawModel, failedUpstreams } = await enumerateModelCandidates({
     upstreamIds: ctx.upstreamIds,
     model: prepared.model,
     kind: 'chat',
     scheduler: ctx.backgroundScheduler,
     currentColo: ctx.currentColo,
   });
-  const viable = enumerated.filter(c => responsesTarget.canServe(c.model.endpoints));
+  const viable = candidates.filter(c => responsesTarget.canServe(c.model.endpoints));
   const decision = await classifyResponsesItemAffinity({
     sourceItems: prepared.input,
     view: responsesItemsView,

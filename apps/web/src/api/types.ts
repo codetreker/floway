@@ -1,16 +1,29 @@
 // Control-plane DTOs the SPA consumes — serialized shapes the gateway emits at /api.
 
 import type {
+  AliasRules,
+  AliasSelection,
+  AliasTarget,
+  AnnouncedMetadata,
   BillingDimension,
+  ChatAliasRules,
+  ChatModelInfo,
+  ModelAlias,
   ModelEndpointKey,
   ModelEndpoints,
   ModelKind,
   ModelPricing,
+  PublicModel,
+  PublicModelLimits,
 } from '@floway-dev/protocols/common';
 import type { AddressableForm, ModelPrefixConfig } from '@floway-dev/provider/model-prefix';
 
 export type { BillingDimension, ModelEndpointKey, ModelEndpoints, ModelKind, ModelPricing };
 export type { AddressableForm, ModelPrefixConfig };
+export type {
+  AliasRules, AliasSelection, AliasTarget, AnnouncedMetadata, ChatAliasRules, ChatModelInfo, ModelAlias,
+  PublicModel, PublicModelLimits,
+};
 
 export type UpstreamProviderKind = 'custom' | 'azure' | 'copilot' | 'codex' | 'claude-code' | 'ollama';
 
@@ -38,7 +51,7 @@ export interface UpstreamModelConfig {
   kind: ModelKind;
   endpoints: ModelEndpoints;
   display_name?: string;
-  limits?: ModelLimits;
+  limits?: PublicModelLimits;
   cost?: ModelPricing;
   flagOverrides?: { enabled: boolean; values: Record<string, boolean> };
   chat?: UpstreamChatConfig;
@@ -57,7 +70,7 @@ export interface CustomRawModel {
   name?: string;
   created?: number;
   owned_by?: string;
-  limits?: ModelLimits;
+  limits?: PublicModelLimits;
   cost?: ModelPricing;
   kind?: ModelKind;
 }
@@ -320,26 +333,6 @@ export interface ApiKey {
   last_used_at: string | null;
   upstream_ids: string[] | null;
   dump_retention_seconds: number | null;
-}
-
-export interface ModelEndpointInfo {
-  url: string;
-  doc?: string;
-}
-
-export interface ModelLimits {
-  max_context_window_tokens?: number;
-  max_prompt_tokens?: number;
-  max_output_tokens?: number;
-}
-
-export interface PublicModel {
-  id: string;
-  display_name?: string;
-  limits?: ModelLimits;
-  endpoints?: Record<string, ModelEndpointInfo>;
-  cost?: ModelPricing;
-  kind?: ModelKind;
 }
 
 export interface ControlPlaneModel extends PublicModel {

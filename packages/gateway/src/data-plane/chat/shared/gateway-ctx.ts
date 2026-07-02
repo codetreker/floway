@@ -22,10 +22,14 @@ export interface GatewayCtx {
   // provider-call boundary.
   readonly runtimeLocation: string;
   readonly currentColo: string;
-  // Null when the api key has no retention configured, in which case the
-  // respond layer's `ctx.dump?.X(...)` calls collapse to no-ops and
-  // `ctx.dump?.finalize(response) ?? response` returns the response unchanged.
+  // Null when the api key has no retention configured, in which case
+  // `finalizeGatewayResponse` short-circuits the dump tee and returns the
+  // response untouched.
   readonly dump: DumpAccumulator | null;
+  // Headers staged during request processing and written onto the
+  // outbound response by `finalizeGatewayResponse`, regardless of how
+  // the responder built the body.
+  readonly responseHeaders: Headers;
 }
 
 // Chat-protocol ctx — `GatewayCtx` plus the request-scoped stored-items
@@ -80,7 +84,16 @@ export const createGatewayCtxFromHono = (c: AuthedContext, opts: CreateGatewayCt
     runtimeLocation: colo,
     currentColo: colo,
     dump,
+    responseHeaders: new Headers(),
   };
+};
+
+// Run the dump-accumulator's finalize tee on the outgoing Response. Every
+// inbound HTTP wrapper returns its response through this seam so the dump
+// pipeline applies uniformly across happy-path, error, and passthrough paths.
+export const finalizeGatewayResponse = (ctx: GatewayCtx, response: Response): Response => {
+  for (const [name, value] of ctx.responseHeaders) response.headers.set(name, value);
+  return ctx.dump?.finalize(response) ?? response;
 };
 
 // Chat-protocol counterpart of `createGatewayCtxFromHono`. Calls the base

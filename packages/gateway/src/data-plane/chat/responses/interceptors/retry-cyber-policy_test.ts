@@ -40,6 +40,7 @@ const stubCtx = (overrides: { abortSignal?: AbortSignal } = {}): ChatGatewayCtx 
   runtimeLocation: 'TEST',
   currentColo: 'TEST',
   dump: null,
+  responseHeaders: new Headers(),
   backgroundScheduler: () => {},
   requestStartedAt: 0,
   store: createNonResponsesSourceStore('test-key'),
@@ -155,6 +156,7 @@ const performanceFor = (modelKey: string) => ({
   runtimeLocation: 'TEST',
   currentColo: 'TEST',
   dump: null,
+  responseHeaders: new Headers(),
 });
 
 const upstreamCyberPolicyError = (message: string): ExecuteResult<ProtocolFrame<ResponsesStreamEvent>> => ({

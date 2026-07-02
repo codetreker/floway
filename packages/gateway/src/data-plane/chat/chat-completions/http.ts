@@ -4,7 +4,7 @@ import { chatCompletionsServe } from './serve.ts';
 import type { AuthedContext } from '../../../middleware/auth.ts';
 import { inboundHeadersForUpstream } from '../../shared/inbound-headers.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
-import { createChatGatewayCtxFromHono, createGatewayCtxFromHono, type ChatGatewayCtx, type GatewayCtx } from '../shared/gateway-ctx.ts';
+import { createChatGatewayCtxFromHono, createGatewayCtxFromHono, finalizeGatewayResponse, type ChatGatewayCtx, type GatewayCtx } from '../shared/gateway-ctx.ts';
 import { readRequestBody, type RequestBody } from '../shared/request-body.ts';
 import { providerModelsUnavailableResponse } from '../shared/upstream-models-error.ts';
 import type { ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
@@ -26,7 +26,7 @@ const respondWithInternalError = async (c: AuthedContext, error: unknown, reques
   const effectiveCtx = ctx ?? createGatewayCtxFromHono(c, { wantsStream: false, requestBody });
   const result = internalErrorResult(502, toInternalDebugError(error));
   const { response } = await respondChatCompletions(c, result, false, false, effectiveCtx);
-  return (effectiveCtx.dump?.finalize(response) ?? response);
+  return finalizeGatewayResponse(effectiveCtx, response);
 };
 
 // Pre-stream caller-input failure raised by a translator → Chat
@@ -55,7 +55,7 @@ export const chatCompletionsHttp = {
       ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody, model: payload.model }, createNonResponsesSourceStore);
       const result = await chatCompletionsServe.generate({ payload, ctx, headers: inboundHeadersForUpstream(c) });
       const { response } = await respondChatCompletions(c, result, wantsStream, includeUsageChunk, ctx);
-      return (ctx.dump?.finalize(response) ?? response);
+      return finalizeGatewayResponse(ctx, response);
     } catch (error) {
       return await respondToThrow(c, error, requestBody, ctx);
     }

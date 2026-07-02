@@ -25,14 +25,13 @@
 
 import type { Context } from 'hono';
 
-import { CODEX_AUTO_REVIEW_ALIAS, CODEX_AUTO_REVIEW_TARGET } from './auto-review-alias.ts';
 import { parseCodexVersion, resolveCodexCatalog, type CodexCatalog } from './catalog.ts';
 import { applyContextWindowFromRegistry, type ContextWindowResolver } from './context-window.ts';
 import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getCurrentColo } from '../../runtime/runtime-info.ts';
-import { getModels } from '../providers/registry.ts';
+import { enumerateAddressableModelIds, listedRealModels } from '../shared/listing/addressable.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
 import type { Fetcher } from '@floway-dev/provider';
 
@@ -56,28 +55,20 @@ const computeCatalog = async (
   fetcherForUpstream: (upstreamId: string) => Fetcher,
   scheduler: BackgroundScheduler,
 ): Promise<CodexCatalog> => {
-  const [catalog, { models: internalModels }] = await Promise.all([
+  const [catalog, callerAddressable] = await Promise.all([
     resolveCodexCatalog(userAgent),
-    getModels(upstreamIds, fetcherForUpstream, scheduler),
+    enumerateAddressableModelIds(upstreamIds, fetcherForUpstream, scheduler),
   ]);
-  const slugContextWindow = new Map<string, number>();
-  for (const m of internalModels) {
-    const limit = m.limits.max_context_window_tokens;
-    if (typeof limit === 'number') slugContextWindow.set(m.id, limit);
-  }
-  const registrySlugs = new Set(internalModels.map(m => m.id));
+  const realModels = listedRealModels(callerAddressable);
+  const registrySlugs = new Set(realModels.map(m => m.id));
+  const callerById = new Map(callerAddressable.map(entry => [entry.id, entry] as const));
+
   const filtered: CodexCatalog = {
-    models: catalog.models.filter(m => {
-      if (registrySlugs.has(m.slug)) return true;
-      if (m.slug === CODEX_AUTO_REVIEW_ALIAS && registrySlugs.has(CODEX_AUTO_REVIEW_TARGET)) return true;
-      return false;
-    }),
+    models: catalog.models.filter(m => registrySlugs.has(m.slug)),
   };
-  // codex-auto-review has no upstream of its own and gets rewritten to
-  // CODEX_AUTO_REVIEW_TARGET at request time, so its catalog entry should
-  // advertise the target's actual window — bundled's value would otherwise
-  // leak the OpenAI 1p limits through the alias.
-  const contextWindowOf: ContextWindowResolver = slug => slugContextWindow.get(slug === CODEX_AUTO_REVIEW_ALIAS ? CODEX_AUTO_REVIEW_TARGET : slug) ?? null;
+
+  const contextWindowOf: ContextWindowResolver = slug =>
+    callerById.get(slug)?.model.limits.max_context_window_tokens ?? null;
   return applyContextWindowFromRegistry(filtered, contextWindowOf);
 };
 

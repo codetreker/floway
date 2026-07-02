@@ -4,7 +4,7 @@ import { geminiServe } from './serve.ts';
 import type { AuthedContext } from '../../../middleware/auth.ts';
 import { inboundHeadersForUpstream } from '../../shared/inbound-headers.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
-import { createChatGatewayCtxFromHono, type ChatGatewayCtx } from '../shared/gateway-ctx.ts';
+import { createChatGatewayCtxFromHono, finalizeGatewayResponse, type ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { readRequestBody, type RequestBody } from '../shared/request-body.ts';
 import type { GeminiContent, GeminiPayload } from '@floway-dev/protocols/gemini';
 import { internalErrorResult, ProviderModelsUnavailableError, toInternalDebugError } from '@floway-dev/provider';
@@ -73,11 +73,11 @@ const respondWithGeminiError = async (
       body: new TextEncoder().encode(body),
     };
     const { response } = await respondGemini(c, apiErrorResult, wantsStream, ctx);
-    return (ctx.dump?.finalize(response) ?? response);
+    return finalizeGatewayResponse(ctx, response);
   }
   const internalResult = internalErrorResult(500, toInternalDebugError(error));
   const { response } = await respondGemini(c, internalResult, wantsStream, ctx);
-  return (ctx.dump?.finalize(response) ?? response);
+  return finalizeGatewayResponse(ctx, response);
 };
 
 // Single entry for `/v1beta/models/:modelAction`. Splits the model and action
@@ -103,7 +103,7 @@ const runGeminiGenerate = async (c: AuthedContext, model: string, wantsStream: b
   try {
     const result = await geminiServe.generate({ payload, ctx, model, headers: inboundHeadersForUpstream(c) });
     const { response } = await respondGemini(c, result, wantsStream, ctx);
-    return (ctx.dump?.finalize(response) ?? response);
+    return finalizeGatewayResponse(ctx, response);
   } catch (error) {
     return await respondWithGeminiError(c, error, ctx, wantsStream);
   }
@@ -118,7 +118,7 @@ const runGeminiCountTokens = async (c: AuthedContext, model: string): Promise<Re
   try {
     const result = await geminiServe.countTokens({ payload, ctx, model, headers: inboundHeadersForUpstream(c) });
     const { response } = await respondGemini(c, result, false, ctx);
-    return (ctx.dump?.finalize(response) ?? response);
+    return finalizeGatewayResponse(ctx, response);
   } catch (error) {
     return await respondWithGeminiError(c, error, ctx, false);
   }

@@ -4,20 +4,29 @@ import { initRepo } from '../../../repo/index.ts';
 import { InMemoryRepo } from '../../../repo/memory.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
 import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
-import { doneFrame, eventFrame, type ModelEndpoints, type ProtocolFrame } from '@floway-dev/protocols/common';
+import { type AliasRules, doneFrame, eventFrame, type ModelEndpoints, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ResponsesResult, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
 import { type ModelCandidate, defaultsForProvider, directFetcher, type ProviderCallResult, type ProviderResponsesResult, type ProviderStreamResult, type ResponsesAction, type UpstreamCallOptions } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubInternalModel, stubProviderModel } from '@floway-dev/test-utils';
 
-const candidatesQueue: { readonly candidates: readonly ModelCandidate[]; readonly sawModel: boolean; readonly failedUpstreams: readonly string[] }[] = [];
+// Mock the resolver seam so each test hands the serve exactly the provider
+// candidates it wants, optionally with an alias-rules overlay attached.
+interface QueuedResolution {
+  readonly candidates: readonly ModelCandidate[];
+  readonly sawModel: boolean;
+  readonly failedUpstreams: readonly string[];
+}
+const resolutionsQueue: QueuedResolution[] = [];
+const lastResolveCall: { model?: string } = {};
 vi.mock('../../providers/registry.ts', async importOriginal => {
   const original = await importOriginal<typeof import('../../providers/registry.ts')>();
   return {
     ...original,
-    enumerateModelCandidates: vi.fn(async () => {
-      const next = candidatesQueue.shift();
-      if (next === undefined) throw new Error('serve_test: no candidates enqueued');
+    enumerateModelCandidates: vi.fn(async ({ model }: { model: string }) => {
+      lastResolveCall.model = model;
+      const next = resolutionsQueue.shift();
+      if (next === undefined) throw new Error('serve_test: no resolution enqueued');
       return next;
     }),
   };
@@ -27,11 +36,19 @@ const { messagesServe } = await import('./serve.ts');
 
 const API_KEY_ID = 'key_messages_serve_test';
 
-const queueCandidates = (candidates: readonly ModelCandidate[], sawModel = candidates.length > 0): void => {
-  candidatesQueue.push({ candidates, sawModel, failedUpstreams: [] });
+const queueResolution = (
+  candidates: readonly ModelCandidate[],
+  extra: { sawModel?: boolean; aliasRules?: AliasRules } = {},
+): void => {
+  const rules = extra.aliasRules;
+  resolutionsQueue.push({
+    candidates: rules !== undefined ? candidates.map(c => ({ ...c, rules })) : candidates,
+    sawModel: extra.sawModel ?? candidates.length > 0,
+    failedUpstreams: [],
+  });
 };
 
-afterEach(() => { candidatesQueue.length = 0; });
+afterEach(() => { resolutionsQueue.length = 0; });
 
 const installRepo = (): InMemoryRepo => {
   const repo = new InMemoryRepo();
@@ -46,6 +63,7 @@ const makeGatewayCtx = (): ChatGatewayCtx => ({
   runtimeLocation: 'TEST',
   currentColo: 'TEST',
   dump: null,
+  responseHeaders: new Headers(),
   backgroundScheduler: () => {},
   requestStartedAt: 0,
   store: createNonResponsesSourceStore(API_KEY_ID),
@@ -182,7 +200,7 @@ test('generate routes a native Messages candidate end to end', async () => {
     modelKey: 'test-model-key',
     headers: new Headers(),
   }));
-  queueCandidates([makeCandidate({ upstream: 'up_a', callMessages })]);
+  queueResolution([makeCandidate({ upstream: 'up_a', callMessages })]);
 
   const result = await messagesServe.generate({
     payload: makePayload(),
@@ -203,7 +221,7 @@ test('generate translates through the Responses target when only that endpoint i
     modelKey: 'responses-model-key',
     headers: new Headers(),
   }));
-  queueCandidates([makeCandidate({ upstream: 'up_r', endpoints: { responses: {} }, callResponses })]);
+  queueResolution([makeCandidate({ upstream: 'up_r', endpoints: { responses: {} }, callResponses })]);
 
   const result = await messagesServe.generate({
     payload: makePayload(),
@@ -226,7 +244,7 @@ test('generate falls through to the next candidate when the first yields an upst
   const secondCall = vi.fn(async (): Promise<ProviderStreamResult<MessagesStreamEvent>> => ({
     ok: true, events: makeProtocolFrames(makeMessagesResultEvents('msg_second')), modelKey: 'second-key', headers: new Headers(),
   }));
-  queueCandidates([
+  queueResolution([
     makeCandidate({ upstream: 'up_a', callMessages: firstCall }),
     makeCandidate({ upstream: 'up_b', callMessages: secondCall }),
   ]);
@@ -249,7 +267,7 @@ test('generate surfaces the last upstream error verbatim when every candidate fa
   installRepo();
   const firstError = new Response('first', { status: 503 });
   const lastError = new Response('last', { status: 502 });
-  queueCandidates([
+  queueResolution([
     makeCandidate({ upstream: 'up_a', callMessages: async () => ({ ok: false, response: firstError, modelKey: 'first-key' }) }),
     makeCandidate({ upstream: 'up_b', callMessages: async () => ({ ok: false, response: lastError, modelKey: 'last-key' }) }),
   ]);
@@ -272,7 +290,7 @@ test('generate stops at the first candidate when the payload has no reasoning ca
     modelKey: 'test-model-key',
     headers: new Headers(),
   }));
-  queueCandidates([
+  queueResolution([
     makeCandidate({ upstream: 'up_a', callMessages }),
     makeCandidate({ upstream: 'up_b', callMessages }),
   ]);
@@ -289,7 +307,7 @@ test('generate stops at the first candidate when the payload has no reasoning ca
 
 test('generate renders model-missing when no candidates are available', async () => {
   installRepo();
-  queueCandidates([]);
+  queueResolution([]);
 
   const result = await messagesServe.generate({
     payload: makePayload({ model: 'unknown-model' }),
@@ -309,7 +327,7 @@ test('generate filters out candidates whose endpoints do not satisfy the message
   const callMessages = vi.fn();
   // messagesGenerateTarget prefers messages > responses > chat-completions; an
   // endpoints-only `completions` candidate matches none and is filtered out.
-  queueCandidates([makeCandidate({ upstream: 'up_x', endpoints: { completions: {} }, callMessages })]);
+  queueResolution([makeCandidate({ upstream: 'up_x', endpoints: { completions: {} }, callMessages })]);
 
   const result = await messagesServe.generate({
     payload: makePayload({ model: 'wrong-endpoint-model' }),
@@ -334,7 +352,7 @@ test('countTokens proxies the upstream measurement response as a plain result', 
     }),
     modelKey: 'test-model-key',
   }));
-  queueCandidates([makeCandidate({ upstream: 'up_a', callMessagesCountTokens })]);
+  queueResolution([makeCandidate({ upstream: 'up_a', callMessagesCountTokens })]);
 
   const result = await messagesServe.countTokens({
     payload: makePayload(),
@@ -351,7 +369,7 @@ test('countTokens proxies the upstream measurement response as a plain result', 
 
 test('countTokens renders model-missing as a 404 when no candidates are available', async () => {
   installRepo();
-  queueCandidates([]);
+  queueResolution([]);
 
   const result = await messagesServe.countTokens({
     payload: makePayload({ model: 'unknown-model' }),
@@ -371,7 +389,7 @@ test('countTokens filters out candidates whose endpoints do not satisfy the mess
   const callMessagesCountTokens = vi.fn();
   // messagesCountTokensTarget = chatTargetPicker(['messages']); a candidate
   // exposing only chatCompletions matches none and is filtered out.
-  queueCandidates([makeCandidate({ upstream: 'up_x', endpoints: { chatCompletions: {} }, callMessagesCountTokens })]);
+  queueResolution([makeCandidate({ upstream: 'up_x', endpoints: { chatCompletions: {} }, callMessagesCountTokens })]);
 
   const result = await messagesServe.countTokens({
     payload: makePayload({ model: 'wrong-endpoint-model' }),
@@ -415,7 +433,7 @@ test('claude-code candidate preserves x-anthropic-billing-header system block th
     };
   });
 
-  queueCandidates([
+  queueResolution([
     makeCandidate({
       upstream: 'up_cc',
       kind: 'claude-code',
@@ -470,7 +488,7 @@ test('copilot candidate strips x-anthropic-billing-header system block via the d
     };
   });
 
-  queueCandidates([
+  queueResolution([
     makeCandidate({
       upstream: 'up_co',
       kind: 'copilot',
@@ -497,4 +515,58 @@ test('copilot candidate strips x-anthropic-billing-header system block via the d
   assertIsArray<{ text: string }>(observed.system);
   assertEquals(observed.system.length, 1);
   assertEquals(observed.system[0].text, 'You are a helpful assistant.');
+});
+
+test('alias resolution swaps the inbound model id for the target and overlays rules onto the Messages IR', async () => {
+  installRepo();
+  const capturedBodies: MessagesPayload[] = [];
+  const callMessages = vi.fn(async (_model: unknown, body: unknown): Promise<ProviderStreamResult<MessagesStreamEvent>> => {
+    capturedBodies.push({ ...(body as Omit<MessagesPayload, 'model'>), model: 'claude-opus-4-7' });
+    return { ok: true, events: makeProtocolFrames(makeMessagesResultEvents()), modelKey: 'claude-opus-4-7' };
+  });
+  // Alias flow shape: the resolver returns candidates carrying the target's
+  // upstream catalog id AND the alias's rule overlay on `candidate.rules`.
+  // Serve normalizes `payload.model` to `candidate.model.id`; the attempt
+  // reads the overlay directly off `candidate.rules` at wire-call time.
+  const candidate = makeCandidate({ upstream: 'up_cf', callMessages });
+  Object.assign(candidate.model, { id: 'claude-opus-4-7' });
+  queueResolution([candidate], { aliasRules: { reasoning: { effort: 'high', budget_tokens: 2048 }, serviceTier: 'fast' } });
+
+  const payload = makePayload({ model: 'claude-fast' });
+  const result = await messagesServe.generate({
+    payload,
+    ctx: makeGatewayCtx(),
+    headers: new Headers(),
+  });
+
+  await collectEvents(assertResultType(result, 'events').events);
+
+  // The resolver saw the inbound alias id verbatim; serve rewrote
+  // payload.model to the target id before the attempt.
+  assertEquals(lastResolveCall.model, 'claude-fast');
+  assertEquals(payload.model, 'claude-opus-4-7');
+  const observed = capturedBodies[0]!;
+  assertEquals(observed.output_config?.effort, 'high');
+  assertEquals(observed.thinking?.budget_tokens, 2048);
+  // The serviceTier=fast → speed=fast bridge lands the alias rule on
+  // Anthropic's native Fast Mode field.
+  assertEquals(observed.speed, 'fast');
+});
+
+test('alias whose targets have no kind-matching binding surfaces as the regular model-missing 404', async () => {
+  installRepo();
+  queueResolution([], { sawModel: false });
+
+  const result = await messagesServe.generate({
+    payload: makePayload({ model: 'claude-fast' }),
+    ctx: makeGatewayCtx(),
+    headers: new Headers(),
+  });
+
+  assertEquals(result.type, 'api-error');
+  if (result.type !== 'api-error') throw new Error('unreachable');
+  assertEquals(result.status, 404);
+  const body = JSON.parse(new TextDecoder().decode(result.body));
+  assertEquals(body.error.type, 'not_found_error');
+  assertEquals(body.error.message, 'Model claude-fast is not available on any configured upstream.');
 });

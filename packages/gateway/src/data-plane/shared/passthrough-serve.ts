@@ -132,9 +132,17 @@ export const passthroughServe = async (input: PassthroughServeContext): Promise<
     // unprefixed + prefixed addressable surfaces fan out across upstreams,
     // a dated-suffix retry catches `-YYYYMMDD` ids the catalog only lists
     // in base form, and the kind filter rejects models of the wrong
-    // family before they reach `modelServesEndpoint`. Iteration order
+    // family before they reach the endpoint check below. Iteration order
     // follows configured sort_order across upstreams, with the unprefixed
     // branch pushed before the prefixed one within a single upstream.
+    // The first candidate whose endpoint-key check passes wins.
+    //
+    // Alias resolution is a top-of-chain step inside the resolver: an alias
+    // id walks every target in `selection` order, tags each returned
+    // candidate with that target's rule overlay, and dedups across the
+    // flattened list. Passthrough aliases carry empty rules, so the tag
+    // is a no-op in practice — the alias flow only changes which id the
+    // gateway addresses upstream.
     const { candidates, sawModel, failedUpstreams } = await enumerateModelCandidates({
       upstreamIds: ctx.upstreamIds,
       model,

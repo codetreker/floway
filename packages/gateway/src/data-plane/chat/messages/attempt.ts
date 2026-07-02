@@ -1,5 +1,6 @@
 import { messagesInterceptors, messagesCountTokensInterceptors } from './interceptors/index.ts';
 import type { MessagesInvocation } from './interceptors/types.ts';
+import { applyRulesToUpstreamMessages } from '../../model-aliases/apply-rules.ts';
 import { requireRecordedDurationMs } from '../../shared/telemetry/performance.ts';
 import { chatCompletionsAttempt } from '../chat-completions/attempt.ts';
 import { responsesAttempt } from '../responses/attempt.ts';
@@ -56,6 +57,7 @@ export const messagesAttempt = {
     };
     return await runInterceptors(invocation, ctx, messagesInterceptors, async () => {
       if (targetApi === 'messages') {
+        if (candidate.rules !== undefined) applyRulesToUpstreamMessages(invocation.payload, candidate.rules);
         const { model: _model, ...body } = invocation.payload;
         const recorder = createUpstreamLatencyRecorder();
         const providerResult = await candidate.provider.instance.callMessages(
@@ -109,6 +111,7 @@ export const messagesAttempt = {
     };
     const recorder = createUpstreamLatencyRecorder();
     const response = await runInterceptors(invocation, ctx, messagesCountTokensInterceptors, async () => {
+      if (candidate.rules !== undefined) applyRulesToUpstreamMessages(invocation.payload, candidate.rules);
       const { model: _model, ...body } = invocation.payload;
       const { response } = await candidate.provider.instance.callMessagesCountTokens(
         providerModelOf(candidate),

@@ -112,32 +112,47 @@ Inputs:
   `chat` kind and narrows further via its endpoint-key predicate
   (`endpoints.completions !== undefined`).
 
-The resolver is a two-function call chain:
+The resolver is a two-branch chain — an inline alias check at the top,
+otherwise the real-catalog walk:
 
 ```
-enumerateModelCandidates({upstreamIds, model, kind, ...})        ← entry
-  └─ enumerateRealModelCandidates(modelId, kind, providers, ...) ← per-id walk
-       └─ for each provider, evaluate the prefix / unprefixed branches
-          against that upstream's SWR-cached catalog, filtering by `kind`
-          inside the loop
+enumerateModelCandidates({upstreamIds, model, kind, ...})            ← entry
+  ├─ alias lookup: getRepo().modelAliases.getByName(model)
+  │     └─ if matched: walk EVERY target in selection-mode order,
+  │        delegating each to the real-catalog walk; tag each returned
+  │        candidate with that target's rule overlay; flatten across
+  │        targets and dedup by (model.id, upstream, rules)
+  └─ otherwise: real-catalog walk on the inbound id
+       └─ enumerateRealModelCandidates per provider (dated-suffix retry
+          if the first pass matched nothing)
 ```
 
 ### `enumerateModelCandidates` — entry
 
 1. List the visible providers through `listModelProviders(upstreamIds)` in
-   configured `sort_order`. An empty list yields zero candidates with
-   `sawModel: false`; the caller's failure renderer surfaces the resulting
-   `model-missing` 404 without a separate throw at this layer.
-2. Call `enumerateRealModelCandidates(model, kind, ...)`. If the inner
-   walk returns at least one candidate, OR the inner walk's `sawAnyId` is
-   true (the inbound id exists in some catalog under any kind), OR the
-   inbound id does not match `/-\d{8}$/`, return that result verbatim
-   (lifting `sawAnyId` up as `sawModel`).
-3. Otherwise the inbound id was unknown to every visible upstream AND it
-   matches the dated-suffix shape. Strip the trailing eight digits and
-   call `enumerateRealModelCandidates(stripped, kind, ...)` once.
-   `failedUpstreams` from the two attempts is deduplicated; `sawModel`
-   becomes the retry's `sawAnyId`.
+   configured `sort_order`.
+2. Look the inbound id up in the alias repo. When it names an alias:
+   walk EVERY target in `selection`-mode order (`first-available` walks
+   declaration order; `random` shuffles); for each target, delegate to
+   the real-catalog walk (dated-suffix retry included) and tag each
+   returned candidate with that target's `rules` overlay. Flatten
+   across targets (target order preserved) and dedup by
+   `(model.id, provider.upstream, rules)` — same physical binding with
+   distinct rules stays as two candidates so both variants can be
+   attempted; identical triples collapse. The caller's `iterateCandidates`
+   loop then cascades across the flat list, so a target's upstreams all
+   failing over falls through into the next target's candidates instead
+   of hard-failing at the first target. When no target has kind-matching
+   candidates, the resolver returns empty candidates + `sawModel: false`,
+   which surfaces as the regular model-missing 404 with the alias name
+   in the wording.
+3. When the inbound id is not an alias, run the real-catalog walk
+   directly. If the walk returns at least one candidate, OR its
+   `sawAnyId` is true (the id exists in some catalog under any kind), OR
+   the id does not match `/-\d{8}$/`, return that result verbatim.
+   Otherwise strip the trailing eight digits and run the real-catalog
+   walk once more; `failedUpstreams` from the two attempts is
+   deduplicated.
 
 A wrong-kind match (`sawAnyId=true, candidates=[]`) does **not** trigger
 the dated-suffix retry — the suffix strip cannot turn a wrong-kind model
@@ -200,6 +215,56 @@ holds the emitting upstream's `ProviderModel` (with `providerData` and
 `enabledFlags`); the dispatch layer reads that entry via
 `providerModelOf(candidate)`.
 
+## Alias Resolution
+
+Alias resolution is a top-of-chain step inside `enumerateModelCandidates`
+— an alias id matches inside the same call the non-alias path uses, so
+the whole pipeline stays a single two-branch function. The resolver
+looks the inbound id up in the alias repo; if it names an alias, it
+walks EVERY target in `selection`-mode order and delegates each target
+to the real-catalog walk (with dated-suffix retry). Every candidate
+returned by a target walk is tagged with that target's `rules` overlay
+and pushed onto a flat list; the resolver then dedups by
+`(model.id, provider.upstream, rules)` — identical triples collapse,
+but the same physical binding with distinct rules stays as two
+candidates so the operator can pin one binding under two rule variants.
+
+The rule overlay rides on the `ModelCandidate.rules` field. Dispatch
+reads it in each attempt's terminal wire call, right before destructuring
+`payload.model` out of the body, via
+`applyRulesToUpstream{ChatCompletions,Responses,Messages}` in
+`data-plane/model-aliases/apply-rules.ts`. Passthrough seams thread
+alias-origin candidates through the same iteration but never observe
+non-empty rules (passthrough alias kinds — `embedding`, `image` — carry
+`{}` by schema; the apply-rules call is a no-op).
+
+The `payload.model` normalization is unconditional across every chat
+serve site (`chat-completions`, `messages`, `responses`): each attempt
+sees `payload.model === candidate.model.id`, whether the inbound id was
+an alias name, a prefix-addressable variant like `cop/gpt-5.4`, a dated
+suffix like `claude-opus-4-7-20250929`, or a bare public id. The wire
+body drops `payload.model` at the last step; the provider layer stamps
+the emitting upstream's own id from `providerModelOf(candidate)`.
+Gemini omits the normalization because its inbound model rides on the
+URL path, not the body — dispatch keys off `candidate.model.id`
+directly.
+
+By construction alias names never re-enter the alias layer: the target
+id is a real model id, so the shadow pattern (an alias whose first
+target matches its own name) resolves to the real model on the first
+pass.
+
+The alias-resolved target id, not the alias name, is what dispatch
+addresses upstream. When no target has kind-matching candidates, the
+resolver returns empty candidates + `sawModel: false`, and the caller
+renders the regular model-missing 404 with the alias name (still on
+`payload.model`) in the wording. The upstream response's `model` field
+reports the model that actually served the request, so a client that
+wants to attribute a response to a particular target can compare that
+against the id it sent. Alias listing behavior on `/v1/models`,
+`/v1beta/models`, and the Codex catalog is covered in the alias
+implementation notes under `data-plane/model-aliases/`.
+
 ## Candidate Shape
 
 ```ts
@@ -207,6 +272,7 @@ interface ModelCandidate {
   readonly provider: Provider;
   readonly model: InternalModel;
   readonly fetcher: Fetcher;
+  readonly rules?: AliasRules;
 }
 ```
 
@@ -222,6 +288,12 @@ interface ModelCandidate {
 - `fetcher` is the per-request proxy-chain-bound `Fetcher` for the
   candidate's upstream, minted once at resolution time and carried with
   the candidate that dispatches.
+- `rules` is present only on candidates minted by the alias walk — it
+  carries the picked target's rule overlay so each attempt's terminal
+  wire call can apply it against the target IR via
+  `applyRulesToUpstream{ChatCompletions,Responses,Messages}`. Absent
+  (undefined) on direct-resolution candidates; present (possibly `{}`)
+  on alias-origin candidates.
 
 A target protocol (e.g. `messages` / `responses` / `chat-completions`) is
 deliberately **not** part of the candidate — see Endpoint Selection.

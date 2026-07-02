@@ -134,6 +134,7 @@ const applyGenerationConfig = (request: CanonicalResponsesPayload, generationCon
 
   if (generationConfig.responseSchema !== undefined) {
     request.text = {
+      ...request.text,
       format: {
         type: 'json_schema',
         json_schema: {
@@ -143,7 +144,7 @@ const applyGenerationConfig = (request: CanonicalResponsesPayload, generationCon
       },
     };
   } else if (generationConfig.responseMimeType === 'application/json') {
-    request.text = { format: { type: 'json_object' } };
+    request.text = { ...request.text, format: { type: 'json_object' } };
   }
 
   const effort = geminiReasoningEffort(generationConfig.thinkingConfig);

@@ -10,7 +10,7 @@
 
 import type { Context } from 'hono';
 
-import { createGatewayCtxFromHono } from '../chat/shared/gateway-ctx.ts';
+import { createGatewayCtxFromHono, finalizeGatewayResponse } from '../chat/shared/gateway-ctx.ts';
 import { readRequestBody } from '../chat/shared/request-body.ts';
 import { passthroughApiError, passthroughServe } from '../shared/passthrough-serve.ts';
 import { tokenUsageFromImagesBody } from '../shared/telemetry/usage.ts';
@@ -48,8 +48,7 @@ export const imagesGenerations = async (c: Context): Promise<Response> => {
   const request = prepareImagesGenerationsRequest(requestBody.bytes);
   if (request.type === 'invalid') {
     ctx.dump?.error('gateway');
-    const response = passthroughApiError(c, request.message, 400);
-    return (ctx.dump?.finalize(response) ?? response);
+    return finalizeGatewayResponse(ctx, passthroughApiError(c, request.message, 400));
   }
 
   ctx.dump?.requestedModel(request.model);
@@ -66,7 +65,7 @@ export const imagesGenerations = async (c: Context): Promise<Response> => {
     },
     response: { format: 'json', extractBilling: tokenUsageFromImagesBody },
   });
-  return (ctx.dump?.finalize(response) ?? response);
+  return finalizeGatewayResponse(ctx, response);
 };
 
 export const imagesEdits = async (c: Context): Promise<Response> => {
@@ -83,15 +82,13 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
     // parser's error text. The wording is enough for a client to know
     // they sent the wrong content type or a malformed body.
     ctx.dump?.error('gateway');
-    const response = passthroughApiError(c, 'Image edits request body must be a valid multipart/form-data payload.', 400);
-    return (ctx.dump?.finalize(response) ?? response);
+    return finalizeGatewayResponse(ctx, passthroughApiError(c, 'Image edits request body must be a valid multipart/form-data payload.', 400));
   }
 
   const modelRaw = form.get('model');
   if (typeof modelRaw !== 'string' || modelRaw.length === 0) {
     ctx.dump?.error('gateway');
-    const response = passthroughApiError(c, 'Image edits request body must include a model field.', 400);
-    return (ctx.dump?.finalize(response) ?? response);
+    return finalizeGatewayResponse(ctx, passthroughApiError(c, 'Image edits request body must include a model field.', 400));
   }
 
   ctx.dump?.requestedModel(modelRaw);
@@ -117,5 +114,5 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
     },
     response: { format: 'json', extractBilling: tokenUsageFromImagesBody },
   });
-  return (ctx.dump?.finalize(response) ?? response);
+  return finalizeGatewayResponse(ctx, response);
 };

@@ -1,5 +1,6 @@
 import { chatCompletionsInterceptors } from './interceptors/index.ts';
 import type { ChatCompletionsInvocation } from './interceptors/types.ts';
+import { applyRulesToUpstreamChatCompletions } from '../../model-aliases/apply-rules.ts';
 import { messagesAttempt } from '../messages/attempt.ts';
 import { responsesAttempt } from '../responses/attempt.ts';
 import { rewriteStoredResponsesItemsForCandidate } from '../responses/items/rewrite.ts';
@@ -109,6 +110,7 @@ const callChatCompletionsAsExecuteResult = async (
   candidate: ModelCandidate,
   headers: Headers,
 ): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEvent>>> => {
+  if (candidate.rules !== undefined) applyRulesToUpstreamChatCompletions(payload, candidate.rules);
   const { model: _model, ...body } = payload;
   const recorder = createUpstreamLatencyRecorder();
   const providerResult = await candidate.provider.instance.callChatCompletions(

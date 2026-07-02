@@ -122,6 +122,14 @@ const chatSchema = z.object({
   reasoning: reasoningSchema.optional(),
 });
 
+// Shared limits shape used by both the upstream-model schema and the
+// alias's announced-metadata override.
+const limitsSchema = z.object({
+  max_context_window_tokens: z.number().optional(),
+  max_prompt_tokens: z.number().optional(),
+  max_output_tokens: z.number().optional(),
+});
+
 // Mirrors the runtime UpstreamModelConfig in @floway-dev/provider.
 // Azure and custom upstreams share this per-model entry; the canonical
 // per-model endpoint validation lives in the runtime validator.
@@ -146,11 +154,7 @@ const upstreamModelSchema = z.object({
     enabled: z.boolean(),
     values: flagOverrideValuesSchema,
   }).optional(),
-  limits: z.object({
-    max_context_window_tokens: z.number().optional(),
-    max_prompt_tokens: z.number().optional(),
-    max_output_tokens: z.number().optional(),
-  }).optional(),
+  limits: limitsSchema.optional(),
   chat: chatSchema.optional(),
 }).refine(
   m => m.chat === undefined || m.kind === undefined || m.kind === 'chat',
@@ -593,6 +597,115 @@ export const searchConfigSchema = z.object({
   jina: z.object({ apiKey: z.string() }),
 });
 
+// --- model aliases ---
+
+// Per-target chat rules. Field names mirror the IR slot each value overlays.
+// Values forward verbatim — no capability narrowing here, so an operator
+// can drive a feature the catalog hasn't advertised yet. All open-string
+// fields (`effort` + `summary` on the reasoning sub-block below,
+// `verbosity` + `serviceTier` on the outer rules schema) accept any
+// string for the same reason; the dashboard pins canonical presets as
+// combobox suggestions.
+const chatAliasReasoningSchema = z.object({
+  effort: z.string().min(1).optional(),
+  budget_tokens: z.number().int().nonnegative().optional(),
+  adaptive: z.boolean().optional(),
+  summary: z.string().min(1).optional(),
+}).strict();
+
+const chatAliasRulesSchema = z.object({
+  reasoning: chatAliasReasoningSchema.optional(),
+  verbosity: z.string().min(1).optional(),
+  serviceTier: z.string().min(1).optional(),
+}).strict();
+
+// Rules are validated against the alias-level kind in the superRefine pass
+// below — chat-kind aliases accept ChatAliasRules; other kinds require an
+// empty object. Each target_model_id is opaque (no `/` semantics in the
+// alias layer), so the only structural check is non-emptiness.
+const aliasTargetSchema = z.object({
+  target_model_id: z.string().min(1),
+  rules: z.record(z.string(), z.unknown()),
+});
+
+// Operator override for an alias's announced /v1/models payload. Both
+// sub-fields are independently optional, and the listing pipeline falls
+// back to the rule-aware automatic computation for any TOP-LEVEL
+// sub-block (`limits` / `chat`) the operator did not provide — a present
+// sub-block replaces the computed counterpart wholesale, not per-leaf.
+// `chatSchema` and `limitsSchema` are the same shapes the upstream-model
+// surface validates, so the override carries the catalog's full
+// vocabulary.
+const announcedMetadataSchema = z.object({
+  limits: limitsSchema.optional(),
+  chat: chatSchema.optional(),
+});
+
+const aliasBaseShape = {
+  name: z.string().min(1),
+  kind: z.enum(['chat', 'embedding', 'image']),
+  selection: z.enum(['random', 'first-available']),
+  display_name: z.string().min(1).nullable(),
+  visible_in_models_list: z.boolean(),
+  targets: z.array(aliasTargetSchema).min(1),
+  announced_metadata: announcedMetadataSchema.nullable(),
+  sort_order: z.number().int().optional(),
+};
+
+const aliasBodyCore = z.object(aliasBaseShape);
+
+// superRefine cross-validates each target's `rules` against the alias-level
+// kind. Chat: parse through `chatAliasRulesSchema` and surface the inner
+// issue verbatim. Embedding / image: the slot must be `{}` until a future
+// schema lands. `announced_metadata.chat` is bound to the same invariant:
+// a chat block on a non-chat alias would land on the InternalModel row and
+// leak an incoherent `chat: {...}` sidecar onto `/v1/models` for a row
+// whose `kind` says it does not carry one.
+const aliasBodyRulesRefinement = (
+  value: z.infer<typeof aliasBodyCore>,
+  ctx: z.core.$RefinementCtx,
+): void => {
+  value.targets.forEach((target, index) => {
+    if (value.kind === 'chat') {
+      const parsed = chatAliasRulesSchema.safeParse(target.rules);
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          ctx.issues.push({
+            code: 'custom',
+            message: issue.message,
+            path: ['targets', index, 'rules', ...issue.path],
+            input: target.rules,
+          });
+        }
+      }
+      return;
+    }
+    if (Object.keys(target.rules).length !== 0) {
+      ctx.issues.push({
+        code: 'custom',
+        message: `rules must be empty for kind=${value.kind}`,
+        path: ['targets', index, 'rules'],
+        input: target.rules,
+      });
+    }
+  });
+  if (value.kind !== 'chat' && value.announced_metadata?.chat !== undefined) {
+    ctx.issues.push({
+      code: 'custom',
+      message: `announced_metadata.chat is only allowed for kind='chat' aliases`,
+      path: ['announced_metadata', 'chat'],
+      input: value.announced_metadata.chat,
+    });
+  }
+};
+
+// Create and update share the same body shape — the difference is operational:
+// create rejects PK collisions, update reads the path `:name` as the old name
+// and treats a different `body.name` as a rename. Splitting them keeps the
+// type names self-documenting at the RPC-client surface.
+export const createAliasBody = aliasBodyCore.superRefine(aliasBodyRulesRefinement);
+export const updateAliasBody = aliasBodyCore.superRefine(aliasBodyRulesRefinement);
+
 // --- data transfer ---
 
 export const importBody = z.object({
@@ -623,6 +736,18 @@ const usageBaseQuery = {
 };
 
 export const tokenUsageQuery = z.object(usageBaseQuery);
+
+// Dashboard `/api/models` accepts two query knobs. `aliases=false` skips the
+// alias-merge pass — the alias edit dialog and shadow detection need the
+// raw real-model set. `include_unlisted=true` extends the payload with the
+// addressable-but-not-listed surface (prefix-form alternates, Copilot
+// variant ids, provider-side redirects), so the alias dialog combobox sees
+// every id the data-plane resolver would accept.
+export const modelsQuery = z.object({
+  aliases: z.enum(['true', 'false']).optional(),
+  include_unlisted: z.enum(['true', 'false']).optional(),
+});
+
 export const searchUsageQuery = z.object({
   ...usageBaseQuery,
   provider: z.string().optional(),

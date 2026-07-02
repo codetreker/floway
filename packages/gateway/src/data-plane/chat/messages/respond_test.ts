@@ -538,6 +538,7 @@ const makeRespondCtx = (): ChatGatewayCtx => ({
   requestStartedAt: 0,
   currentColo: 'TEST',
   dump: null,
+  responseHeaders: new Headers(),
   store: createNonResponsesSourceStore('key_respond_test'),
 });
 
