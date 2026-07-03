@@ -7,46 +7,61 @@
 // (`{"object":"list","data":[...]}`) we serve at `/v1/models`.
 //
 // Pipeline: codex publishes a bundled catalog per release (see catalog.ts);
-// we filter that catalog down to the slugs the registry actually advertises
-// (so the codex client never sees a model the gateway can't serve), then
-// rewrite each entry's `context_window` / `max_context_window` from the
-// registry (see context-window.ts) so the codex client sees the same
-// limits the data plane will actually enforce.
-//
-// Latency: codex aborts the catalog fetch after 5 s
-// (`MODELS_REFRESH_TIMEOUT` in codex-rs/model-provider/src/models_endpoint.rs)
-// and silently falls back to its binary-bundled catalog on miss. The
-// registry leg can cost ~4 s on a slow path, leaving almost no margin
-// once Worker cold-start is added on top. We cache the resolved response
-// in the per-colo Cache API keyed on `(client_version, upstream filter)`
-// so the slow path runs at most once per colo per cache window; subsequent
-// callers get the cached body in milliseconds and the registry call is
-// skipped entirely.
+// for each chat-kind model the registry lists as addressable, we call
+// `synthesizeCatalogEntry(model, base?)` with the segment-matched bundled
+// entry as `base` (or `undefined` when no bundled entry matches). The
+// synthesizer builds the codex-shaped entry from that base plus the
+// registry-owned overlays it announces (see synthesize.ts for the exact
+// field precedence rules).
 
 import type { Context } from 'hono';
 
-import { parseCodexVersion, resolveCodexCatalog, type CodexCatalog } from './catalog.ts';
-import { applyContextWindowFromRegistry, type ContextWindowResolver } from './context-window.ts';
+import { resolveCodexCatalog, type CatalogModel, type CodexCatalog } from './catalog.ts';
+import { synthesizeCatalogEntry } from './synthesize.ts';
 import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getCurrentColo } from '../../runtime/runtime-info.ts';
-import { enumerateAddressableModelIds, listedRealModels } from '../shared/listing/addressable.ts';
+import { enumerateAddressableModelIds, type AddressableIdEntry } from '../shared/listing/addressable.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
 import type { Fetcher } from '@floway-dev/provider';
 
-// Five minutes is short enough to pick up an upstream catalog change within
-// one or two codex sessions but long enough that an active user only ever
-// pays the slow path on the first request after a deploy or a quiet hour.
-const CACHE_TTL_SECONDS = 300;
+// Pure transformation: bundled catalog + addressable entries →
+// codex-shaped catalog (drops unlisted alternates and non-chat kinds).
+// Extracted so tests can drive the mapping logic without standing up the
+// addressable-enumeration pipeline.
+export const assembleCatalog = (
+  bundled: CodexCatalog,
+  addressable: readonly AddressableIdEntry[],
+): CodexCatalog => {
+  const bundledBySlug = new Map<string, CatalogModel>();
+  for (const m of bundled.models) bundledBySlug.set(m.slug.toLowerCase(), m);
 
-const cacheKeyFor = (clientVersion: string, upstreamIds: readonly string[] | null): Request => {
-  const ids = upstreamIds === null ? 'all' : [...upstreamIds].sort().join(',');
-  // Synthetic URL: never resolves on the public internet, only used as the
-  // Workers Cache API key. Auth headers on the original request never enter
-  // this key, so two clients with different api keys but the same upstream
-  // filter share the cache entry.
-  return new Request(`https://floway.invalid/codex-models?v=${encodeURIComponent(clientVersion)}&u=${encodeURIComponent(ids)}`);
+  // Match against bundled by walking segments from the trailing leaf back
+  // toward the prefix, so a publicId like `openrouter/gpt-5.5/gpt-5.4`
+  // binds against `gpt-5.4` rather than the earlier `gpt-5.5` segment that
+  // happens to collide with a bundled slug. Split on both `/` (model-prefix
+  // segments) and `:` (OpenRouter-style `:variant` suffixes) — a variant
+  // tag on the leaf falls through the walk without accidentally binding.
+  const matchBundled = (publicId: string): CatalogModel | undefined => {
+    const segments = publicId.toLowerCase().split(/[/:]/);
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const hit = bundledBySlug.get(segments[i]);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  };
+
+  const models: CatalogModel[] = [];
+  for (const entry of addressable) {
+    // Prefix-addressable alternates that the listing surface did not
+    // publish stay off the codex picker too — they are routable at
+    // request time but never surface as their own picker row.
+    if (entry.unlisted !== undefined) continue;
+    if (entry.model.kind !== 'chat') continue;
+    models.push(synthesizeCatalogEntry(entry.model, matchBundled(entry.model.id)));
+  }
+  return { models };
 };
 
 const computeCatalog = async (
@@ -55,44 +70,17 @@ const computeCatalog = async (
   fetcherForUpstream: (upstreamId: string) => Fetcher,
   scheduler: BackgroundScheduler,
 ): Promise<CodexCatalog> => {
-  const [catalog, callerAddressable] = await Promise.all([
+  const [bundled, addressable] = await Promise.all([
     resolveCodexCatalog(userAgent),
     enumerateAddressableModelIds(upstreamIds, fetcherForUpstream, scheduler),
   ]);
-  const realModels = listedRealModels(callerAddressable);
-  const registrySlugs = new Set(realModels.map(m => m.id));
-  const callerById = new Map(callerAddressable.map(entry => [entry.id, entry] as const));
-
-  const filtered: CodexCatalog = {
-    models: catalog.models.filter(m => registrySlugs.has(m.slug)),
-  };
-
-  const contextWindowOf: ContextWindowResolver = slug =>
-    callerById.get(slug)?.model.limits.max_context_window_tokens ?? null;
-  return applyContextWindowFromRegistry(filtered, contextWindowOf);
+  return assembleCatalog(bundled, addressable);
 };
 
 export const codexModels = async (c: Context): Promise<Response> => {
   const userAgent = c.req.header('user-agent');
   const upstreamIds = effectiveUpstreamIdsFromContext(c);
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default ?? null;
-  const cacheKey = cache === null ? null : cacheKeyFor(
-    c.req.query('client_version') ?? parseCodexVersion(userAgent) ?? 'unknown',
-    upstreamIds,
-  );
-
-  if (cache !== null && cacheKey !== null) {
-    const hit = await cache.match(cacheKey);
-    if (hit !== undefined) return hit;
-  }
-
   const fetcherForUpstream = await createPerRequestFetcher(getCurrentColo(c.req.raw));
   const scheduler = backgroundSchedulerFromContext(c);
-  const response = Response.json(await computeCatalog(userAgent, upstreamIds, fetcherForUpstream, scheduler), {
-    headers: { 'cache-control': `public, max-age=${CACHE_TTL_SECONDS}` },
-  });
-  if (cache !== null && cacheKey !== null) {
-    scheduler(cache.put(cacheKey, response.clone()));
-  }
-  return response;
+  return Response.json(await computeCatalog(userAgent, upstreamIds, fetcherForUpstream, scheduler));
 };
