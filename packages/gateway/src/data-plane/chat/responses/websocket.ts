@@ -5,10 +5,12 @@ import { PreviousResponseNotFoundError } from './serve-prep.ts';
 import { responsesServe } from './serve.ts';
 import { tokenUsageFromResponsesResult } from './usage.ts';
 import type { AuthedContext } from '../../../middleware/auth.ts';
+import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { inboundHeadersForUpstream } from '../../shared/inbound-headers.ts';
 import { createChatGatewayCtxFromHono, type ChatGatewayCtx, type GatewayCtx } from '../shared/gateway-ctx.ts';
 import { SourceStreamState, eventResultMetadata, recordPerformance, recordUsage } from '../shared/respond.ts';
 import { DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS, type StreamCompletion } from '../shared/stream/sse.ts';
+import type { BackgroundScheduler } from '@floway-dev/platform';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import { RESPONSES_MISSING_TERMINAL_MESSAGE } from '@floway-dev/protocols/responses';
 import { isResponsesTerminalEvent, type ResponsesPayload, type ResponsesResult, type ResponsesStreamEvent } from '@floway-dev/protocols/responses';
@@ -93,9 +95,51 @@ const createResponsesWebSocketEvents = (c: AuthedContext): ResponsesWebSocketHan
   let activeAbortController: AbortController | undefined;
   let queue = Promise.resolve();
 
+  // ── Session-scoped BackgroundScheduler ──────────────────────────────────
+  //
+  // The runtime's default scheduler on Cloudflare is
+  // `promise => c.executionCtx.waitUntil(promise)`. That call is only legal
+  // during the fetch invocation; once the fetch handler returns the 101
+  // upgrade, subsequent waitUntil calls made from message-event handlers
+  // are silently dropped (the promise never runs, the isolate has no
+  // registered reason to defer eviction for it). Every per-message background
+  // task — dump.finalize, recordPerformance, recordUsage — would therefore
+  // lose its write.
+  //
+  // Fix: give the ctx a scheduler that doesn't depend on the fetch's
+  // execution context at all. `sessionScheduler` tracks the task in
+  // `pendingWork`; the isolate stays alive throughout because we register
+  // ONE lifetime promise up-front (while the fetch handler is still
+  // running, so this waitUntil IS legal) that only resolves when
+  // (WS closed ∧ pendingWork drained).
+  //
+  // The drain uses a `while (size > 0)` loop rather than a single
+  // `Promise.allSettled(pendingWork)` snapshot: the in-flight message
+  // handler running at close time may still enqueue a final
+  // dump.finalize / recordPerformance from its finally/catch after
+  // `sessionClosed` resolves. The loop keeps going until the Set is
+  // genuinely empty, which is bounded because `closed = true` short-
+  // circuits future message handlers at the top of `handleClientMessage`.
+  const pendingWork = new Set<Promise<unknown>>();
+  let sessionClosedResolve: (() => void) | undefined;
+  const sessionClosed = new Promise<void>(resolve => { sessionClosedResolve = resolve; });
+  const sessionScheduler: BackgroundScheduler = promise => {
+    const tracked: Promise<unknown> = Promise.resolve(promise)
+      .catch(err => console.error('[ws-background]', err))
+      .finally(() => { pendingWork.delete(tracked); });
+    pendingWork.add(tracked);
+  };
+  backgroundSchedulerFromContext(c)((async () => {
+    await sessionClosed;
+    while (pendingWork.size > 0) {
+      await Promise.allSettled([...pendingWork]);
+    }
+  })());
+
   const closeActiveRequest = (): void => {
     closed = true;
     activeAbortController?.abort();
+    sessionClosedResolve?.();
   };
 
   return {
@@ -108,7 +152,7 @@ const createResponsesWebSocketEvents = (c: AuthedContext): ResponsesWebSocketHan
           const abortController = new AbortController();
           activeAbortController = abortController;
           try {
-            await handleClientMessage(c, socket, session, event.data, abortController, () => closed);
+            await handleClientMessage(c, socket, session, event.data, abortController, () => closed, sessionScheduler);
           } finally {
             if (activeAbortController === abortController) activeAbortController = undefined;
           }
@@ -130,6 +174,7 @@ const handleClientMessage = async (
   data: unknown,
   downstreamAbortController: AbortController,
   isClosed: () => boolean,
+  backgroundScheduler: BackgroundScheduler,
 ): Promise<void> => {
   const signal = downstreamAbortController.signal;
   let eventId: string | undefined;
@@ -172,6 +217,7 @@ const handleClientMessage = async (
       requestBody: { bytes: requestBytes, streamError: null },
       method: 'WS',
       model: payload.model,
+      backgroundScheduler,
     }, apiKeyId => session.createStore(apiKeyId, payload.store ?? undefined));
 
     let result;

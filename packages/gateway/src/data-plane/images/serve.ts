@@ -10,6 +10,7 @@
 
 import type { Context } from 'hono';
 
+import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { createGatewayCtxFromHono, finalizeGatewayResponse } from '../chat/shared/gateway-ctx.ts';
 import { readRequestBody } from '../chat/shared/request-body.ts';
 import { passthroughApiError, passthroughServe } from '../shared/passthrough-serve.ts';
@@ -44,7 +45,7 @@ const prepareImagesGenerationsRequest = (bytes: Uint8Array): PreparedRequest => 
 
 export const imagesGenerations = async (c: Context): Promise<Response> => {
   const requestBody = await readRequestBody(c);
-  const ctx = createGatewayCtxFromHono(c, { wantsStream: false, requestBody });
+  const ctx = createGatewayCtxFromHono(c, { wantsStream: false, requestBody, backgroundScheduler: backgroundSchedulerFromContext(c) });
   const request = prepareImagesGenerationsRequest(requestBody.bytes);
   if (request.type === 'invalid') {
     ctx.dump?.error('gateway');
@@ -73,7 +74,7 @@ export const imagesEdits = async (c: Context): Promise<Response> => {
   // c.req.raw.body internally; re-parsing from the captured bytes via a fresh
   // Response keeps the dump capture honest without a second read on the wire.
   const requestBody = await readRequestBody(c);
-  const ctx = createGatewayCtxFromHono(c, { wantsStream: false, requestBody });
+  const ctx = createGatewayCtxFromHono(c, { wantsStream: false, requestBody, backgroundScheduler: backgroundSchedulerFromContext(c) });
   let form: FormData;
   try {
     form = await new Response(requestBody.bytes as BodyInit, { headers: { 'content-type': c.req.header('content-type') ?? '' } }).formData();

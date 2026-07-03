@@ -4,6 +4,7 @@ import { respondResponses } from './respond.ts';
 import { PreviousResponseNotFoundError } from './serve-prep.ts';
 import { responsesServe } from './serve.ts';
 import type { AuthedContext } from '../../../middleware/auth.ts';
+import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { inboundHeadersForUpstream } from '../../shared/inbound-headers.ts';
 import { createChatGatewayCtxFromHono, createGatewayCtxFromHono, finalizeGatewayResponse, type ChatGatewayCtx, type GatewayCtx } from '../shared/gateway-ctx.ts';
 import { readRequestBody, type RequestBody } from '../shared/request-body.ts';
@@ -41,7 +42,7 @@ const previousResponseNotFoundResponse = (id: string): Response =>
 const respondWithInternalError = async (c: AuthedContext, error: unknown, requestBody: RequestBody, ctx?: GatewayCtx): Promise<Response> => {
   const verbatim = providerModelsUnavailableResponse(error);
   if (verbatim !== null) return verbatim;
-  const effectiveCtx = ctx ?? createGatewayCtxFromHono(c, { wantsStream: false, requestBody });
+  const effectiveCtx = ctx ?? createGatewayCtxFromHono(c, { wantsStream: false, requestBody, backgroundScheduler: backgroundSchedulerFromContext(c) });
   const result = internalErrorResult(502, toInternalDebugError(error));
   const { response } = await respondResponses(c, result, false, effectiveCtx);
   return finalizeGatewayResponse(effectiveCtx, response);
@@ -57,7 +58,7 @@ const respondToThrow = async (c: AuthedContext, error: unknown, requestBody: Req
     return ctx ? finalizeGatewayResponse(ctx, response) : response;
   }
   if (error instanceof TranslatorInputError) {
-    const effectiveCtx = ctx ?? createGatewayCtxFromHono(c, { wantsStream: false, requestBody });
+    const effectiveCtx = ctx ?? createGatewayCtxFromHono(c, { wantsStream: false, requestBody, backgroundScheduler: backgroundSchedulerFromContext(c) });
     const { response } = await respondResponses(c, translatorInputErrorResult(error), false, effectiveCtx);
     return finalizeGatewayResponse(effectiveCtx, response);
   }
@@ -74,7 +75,7 @@ export const responsesHttp = {
     try {
       const payload = parsePayload(requestBody);
       const wantsStream = payload.stream === true;
-      ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody, model: payload.model }, apiKeyId => createResponsesHttpStore(apiKeyId, payload.store ?? undefined));
+      ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody, model: payload.model, backgroundScheduler: backgroundSchedulerFromContext(c) }, apiKeyId => createResponsesHttpStore(apiKeyId, payload.store ?? undefined));
       const result = await responsesServe.generate({ payload, ctx, headers: inboundHeadersForUpstream(c) });
       const { response } = await respondResponses(c, result, wantsStream, ctx);
       return finalizeGatewayResponse(ctx, response);
@@ -88,7 +89,7 @@ export const responsesHttp = {
     let ctx: ChatGatewayCtx | undefined;
     try {
       const payload = parsePayload(requestBody);
-      ctx = createChatGatewayCtxFromHono(c, { wantsStream: false, requestBody, model: payload.model }, apiKeyId => createResponsesHttpStore(apiKeyId, payload.store ?? undefined));
+      ctx = createChatGatewayCtxFromHono(c, { wantsStream: false, requestBody, model: payload.model, backgroundScheduler: backgroundSchedulerFromContext(c) }, apiKeyId => createResponsesHttpStore(apiKeyId, payload.store ?? undefined));
       const result = await responsesServe.compact({ payload, ctx, headers: inboundHeadersForUpstream(c) });
       if (result.type === 'result') {
         ctx.dump?.success(result.modelIdentity, result.usage);

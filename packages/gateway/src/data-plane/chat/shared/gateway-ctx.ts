@@ -1,7 +1,6 @@
 import type { RequestBody } from './request-body.ts';
 import { type DumpAccumulator, openDumpAccumulator } from '../../../dump/accumulator.ts';
 import { apiKeyFromContext, type AuthedContext, effectiveUpstreamIdsFromContext } from '../../../middleware/auth.ts';
-import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { getCurrentColo } from '../../../runtime/runtime-info.ts';
 import type { StatefulResponsesStore } from '../responses/items/store.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
@@ -63,14 +62,22 @@ export interface CreateGatewayCtxOptions {
   // outright-error turn carries model attribution. Omit only on error
   // fallback paths where payload parsing itself failed.
   model?: string;
+  // Sink for every background task the ctx spawns (dump write, upstream
+  // telemetry, performance recording, usage recording). Provided by the
+  // call site so the correct lifetime binding is chosen: HTTP handlers
+  // pass `backgroundSchedulerFromContext(c)` (the runtime's fetch-scoped
+  // scheduler); the WS Responses transport builds a session-scoped
+  // scheduler backed by one lifetime `waitUntil` registered while the
+  // fetch handler is still active, so per-message tasks fired after the
+  // 101 upgrade has returned still complete.
+  backgroundScheduler: BackgroundScheduler;
 }
 
 export const createGatewayCtxFromHono = (c: AuthedContext, opts: CreateGatewayCtxOptions): GatewayCtx => {
   const controller = opts.downstreamAbortController ?? (opts.wantsStream ? new AbortController() : undefined);
   const apiKey = apiKeyFromContext(c);
   const upstreamIds = effectiveUpstreamIdsFromContext(c);
-  const backgroundScheduler = backgroundSchedulerFromContext(c);
-  const dump = openDumpAccumulator(c, opts.method ?? c.req.method, apiKey, opts.requestBody, backgroundScheduler);
+  const dump = openDumpAccumulator(c, opts.method ?? c.req.method, apiKey, opts.requestBody, opts.backgroundScheduler);
   if (opts.model !== undefined) dump?.requestedModel(opts.model);
   const colo = getCurrentColo(c.req.raw);
   return {
@@ -79,7 +86,7 @@ export const createGatewayCtxFromHono = (c: AuthedContext, opts: CreateGatewayCt
     abortSignal: controller?.signal,
     wantsStream: opts.wantsStream,
     downstreamAbortController: controller,
-    backgroundScheduler,
+    backgroundScheduler: opts.backgroundScheduler,
     requestStartedAt: performance.now(),
     runtimeLocation: colo,
     currentColo: colo,

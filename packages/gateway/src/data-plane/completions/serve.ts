@@ -10,6 +10,7 @@ import type { Context } from 'hono';
 
 import { tokenUsageFromCompletionsUsage } from './usage.ts';
 import type { TokenUsage } from '../../repo/types.ts';
+import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { createGatewayCtxFromHono, finalizeGatewayResponse } from '../chat/shared/gateway-ctx.ts';
 import { readRequestBody } from '../chat/shared/request-body.ts';
 import { passthroughApiError, passthroughServe } from '../shared/passthrough-serve.ts';
@@ -62,6 +63,7 @@ export const completions = async (c: Context): Promise<Response> => {
   const ctx = createGatewayCtxFromHono(c, {
     wantsStream: request.type === 'ok' ? request.wantsStream : false,
     requestBody,
+    backgroundScheduler: backgroundSchedulerFromContext(c),
   });
   if (request.type === 'invalid') {
     ctx.dump?.error('gateway');

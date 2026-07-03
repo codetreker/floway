@@ -2,6 +2,7 @@ import { translatorInputErrorResult } from './errors.ts';
 import { geminiInternalRpcErrorResponse, geminiRpcErrorResponse, respondGemini } from './respond.ts';
 import { geminiServe } from './serve.ts';
 import type { AuthedContext } from '../../../middleware/auth.ts';
+import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { inboundHeadersForUpstream } from '../../shared/inbound-headers.ts';
 import { createNonResponsesSourceStore } from '../responses/items/store.ts';
 import { createChatGatewayCtxFromHono, finalizeGatewayResponse, type ChatGatewayCtx } from '../shared/gateway-ctx.ts';
@@ -99,7 +100,7 @@ const runGeminiGenerate = async (c: AuthedContext, model: string, wantsStream: b
   const payload = parseGeminiBodyBytes(requestBody, body => body as GeminiPayload);
   if (payload instanceof Response) return payload;
 
-  const ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody, model }, createNonResponsesSourceStore);
+  const ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody, model, backgroundScheduler: backgroundSchedulerFromContext(c) }, createNonResponsesSourceStore);
   try {
     const result = await geminiServe.generate({ payload, ctx, model, headers: inboundHeadersForUpstream(c) });
     const { response } = await respondGemini(c, result, wantsStream, ctx);
@@ -114,7 +115,7 @@ const runGeminiCountTokens = async (c: AuthedContext, model: string): Promise<Re
   const payload = parseGeminiBodyBytes(requestBody, parseGeminiCountTokensPayload);
   if (payload instanceof Response) return payload;
 
-  const ctx = createChatGatewayCtxFromHono(c, { wantsStream: false, requestBody, model }, createNonResponsesSourceStore);
+  const ctx = createChatGatewayCtxFromHono(c, { wantsStream: false, requestBody, model, backgroundScheduler: backgroundSchedulerFromContext(c) }, createNonResponsesSourceStore);
   try {
     const result = await geminiServe.countTokens({ payload, ctx, model, headers: inboundHeadersForUpstream(c) });
     const { response } = await respondGemini(c, result, false, ctx);
