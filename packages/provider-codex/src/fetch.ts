@@ -9,8 +9,6 @@ import {
 } from './constants.ts';
 import { sha256Uuid } from './ids.ts';
 import {
-  getCodexQuota,
-  isCodexRateLimited,
   parseCodexQuotaHeaders,
   putCodexQuota,
 } from './quota.ts';
@@ -76,17 +74,6 @@ const prepareCodexCall = async (opts: CodexBackendCallBase): Promise<{ ok: true;
 
   if (opts.account.state !== 'active') {
     return { ok: false, response: await wrapSynthetic(synthetic503(`Codex upstream is ${opts.account.state}`)) };
-  }
-
-  const now = new Date();
-  const quotaSnapshot = await getCodexQuota(opts.upstreamId, opts.account.chatgptAccountId);
-  if (isCodexRateLimited(quotaSnapshot, now)) {
-    return {
-      ok: false,
-      response: await wrapSynthetic(
-        synthetic429(`Codex upstream rate-limited until ${quotaSnapshot!.ratelimited_until!}`, quotaSnapshot!.ratelimited_until!, now),
-      ),
-    };
   }
 
   try {
@@ -497,14 +484,6 @@ const synthetic503 = (message: string): Response => new Response(JSON.stringify(
   status: 503,
   headers: { 'content-type': 'application/json' },
 });
-
-const synthetic429 = (message: string, retryAtIso: string, now: Date): Response => {
-  const retryAfterSeconds = Math.max(0, Math.ceil((new Date(retryAtIso).getTime() - now.getTime()) / 1000));
-  return new Response(JSON.stringify({ error: { type: 'codex_rate_limited', message, retry_at: retryAtIso } }), {
-    status: 429,
-    headers: { 'content-type': 'application/json', 'retry-after': String(retryAfterSeconds) },
-  });
-};
 
 // Codex backend serves SSE without setting `content-type: text/event-stream`
 // (observed in production: only x-codex-* + standard CDN headers come back).

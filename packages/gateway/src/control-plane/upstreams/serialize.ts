@@ -1,5 +1,5 @@
 import type { ModelPrefixConfig, ProxyFallbackEntry, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
-import type { CodexQuotaSnapshot } from '@floway-dev/provider-codex';
+import type { CodexQuotaSnapshotMap } from '@floway-dev/provider-codex';
 
 export interface ModelsCacheStatus {
   fetchedAt: number | null;
@@ -25,7 +25,7 @@ export interface SerializedUpstreamRecord {
   // warmed.
   modelsCache?: ModelsCacheStatus;
   // Present only for kind === 'codex'.
-  codex_quota?: CodexQuotaSnapshot | null;
+  codex_quota?: CodexQuotaSnapshotMap | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);

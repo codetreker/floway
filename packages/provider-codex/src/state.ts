@@ -18,11 +18,13 @@ export interface CodexAccessTokenEntry {
 
 // Most recent quota observation derived from upstream response headers.
 // `fetchedAt` is unix ms; `data` is the parsed snapshot, validated by quota.ts
-// at the boundary where it's read for dashboard display / rate-limit checks.
+// at the boundary where it's read for dashboard display.
 export interface CodexQuotaSnapshotEntry {
   fetchedAt: number;
   data: CodexQuotaSnapshot;
 }
+
+export type CodexQuotaSnapshotMapEntry = Record<string, CodexQuotaSnapshotEntry>;
 
 // One account's autonomous credential state, joined back to its identity in
 // CodexUpstreamConfig.accounts via `chatgptAccountId`.
@@ -50,7 +52,7 @@ export interface CodexAccountCredential {
   // normalizes absent → `null` on a shallow copy, so consumers can rely on
   // the typed `null` slot here.
   accessToken: CodexAccessTokenEntry | null;
-  quotaSnapshot: CodexQuotaSnapshotEntry | null;
+  quotaSnapshot: CodexQuotaSnapshotMapEntry | null;
 }
 
 // Account-pool state. v1 always carries exactly one entry; the asserter
@@ -128,6 +130,21 @@ const assertCodexQuotaSnapshotEntry = (value: unknown, where: string): void => {
   }
 };
 
+const isUnsafeMapKey = (key: string): boolean => key === '' || key === '__proto__' || key === 'constructor' || key === 'prototype';
+
+const assertCodexQuotaSnapshotMapEntry = (value: unknown, where: string): void => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(`${where} must be a plain object`);
+  }
+  const obj = value as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (isUnsafeMapKey(key)) {
+      throw new TypeError(`${where} has invalid active limit key '${key}'`);
+    }
+    assertCodexQuotaSnapshotEntry(obj[key], `${where}.${key}`);
+  }
+};
+
 const assertCodexAccountCredential = (value: unknown, where: string): void => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`${where} must be a plain object`);
@@ -167,7 +184,7 @@ const assertCodexAccountCredential = (value: unknown, where: string): void => {
     assertCodexAccessTokenEntry(obj.accessToken, `${where}.accessToken`);
   }
   if (obj.quotaSnapshot !== undefined && obj.quotaSnapshot !== null) {
-    assertCodexQuotaSnapshotEntry(obj.quotaSnapshot, `${where}.quotaSnapshot`);
+    assertCodexQuotaSnapshotMapEntry(obj.quotaSnapshot, `${where}.quotaSnapshot`);
   }
 };
 

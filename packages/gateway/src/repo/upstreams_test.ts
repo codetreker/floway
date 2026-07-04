@@ -646,6 +646,137 @@ test('migration 0047 backfills openaiDeviceId on legacy Codex rows and leaves po
   }
 });
 
+test('migration 0048 rebuckets Codex quota snapshots by active limit', async () => {
+  const db = await createMigratedSqlJsDatabase();
+  try {
+    for (const filename of [...migrationSqlByFilename.keys()].filter(f => f >= '0010_unified_upstreams.sql' && f < '0048_codex_quota_snapshot_active_limit_map.sql').toSorted()) {
+      applySqlJsFile(db, filename);
+    }
+
+    db.run(`INSERT INTO upstreams (id, provider, name, enabled, sort_order, created_at, updated_at, config_json, state_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json)
+            VALUES
+              ('up_codex_premium', 'codex', 'Codex Premium', 1, 0, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-premium', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-premium',
+                  'openaiDeviceId', '11111111-2222-4333-8444-555555555555',
+                  'quotaSnapshot', json_extract(json_object(
+                    'premium', json_object(
+                      'data', json_object('active_limit', 'premium', 'observed_at', '2026-06-05T00:00:00.000Z', 'primary_used_percent', 42),
+                      'fetchedAt', 1700000000000
+                    )
+                  ), '$.premium'),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_codex_missing_limit', 'codex', 'Codex Missing Limit', 1, 1, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-missing', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-missing',
+                  'openaiDeviceId', '22222222-3333-4444-8555-666666666666',
+                  'quotaSnapshot', json_extract(json_object(
+                    'unknown', json_object(
+                      'data', json_object('observed_at', '2026-06-05T01:00:00.000Z'),
+                      'fetchedAt', 1700000001000
+                    )
+                  ), '$.unknown'),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_codex_unsafe_limit', 'codex', 'Codex Unsafe Limit', 1, 2, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-unsafe', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-unsafe',
+                  'openaiDeviceId', '33333333-4444-4555-8666-777777777777',
+                  'quotaSnapshot', json_extract(json_object(
+                    'unknown', json_object(
+                      'data', json_object('active_limit', 'constructor', 'observed_at', '2026-06-05T02:00:00.000Z'),
+                      'fetchedAt', 1700000002000
+                    )
+                  ), '$.unknown'),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_codex_map', 'codex', 'Codex Map', 1, 3, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-map', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-map',
+                  'openaiDeviceId', '44444444-5555-4666-8777-888888888888',
+                  'quotaSnapshot', json_object(
+                    'premium', json_object('data', json_object('active_limit', 'premium', 'observed_at', '2026-06-05T03:00:00.000Z'), 'fetchedAt', 1700000003000)
+                  ),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_custom', 'custom', 'Custom', 1, 4, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('baseUrl', 'https://a.example/v1', 'apiKey', 'k', 'authStyle', 'bearer'),
+                json_object('accounts', json_array(json_object('quotaSnapshot', json_object('premium', json_object('data', json_object('active_limit', 'premium'), 'fetchedAt', 1))))),
+                '[]', '[]', '[]')`);
+
+    applySqlJsFile(db, '0048_codex_quota_snapshot_active_limit_map.sql');
+
+    const rows = sqlJsRows<{ id: string; stateJson: string; snapshot: string }>(
+      db,
+      `SELECT
+        id,
+        state_json AS stateJson,
+        json_extract(state_json, '$.accounts[0].quotaSnapshot') AS snapshot
+       FROM upstreams
+       ORDER BY id`,
+    );
+    const snapshotFor = (id: string): unknown => JSON.parse(rows.find(r => r.id === id)!.snapshot);
+
+    assertEquals(snapshotFor('up_codex_premium'), {
+      premium: {
+        data: { active_limit: 'premium', observed_at: '2026-06-05T00:00:00.000Z', primary_used_percent: 42 },
+        fetchedAt: 1700000000000,
+      },
+    });
+    assertEquals(rows.find(r => r.id === 'up_codex_premium')!.stateJson, JSON.stringify({
+      accounts: [{
+        accessToken: null,
+        chatgptAccountId: 'acc-premium',
+        openaiDeviceId: '11111111-2222-4333-8444-555555555555',
+        quotaSnapshot: {
+          premium: {
+            data: { active_limit: 'premium', observed_at: '2026-06-05T00:00:00.000Z', primary_used_percent: 42 },
+            fetchedAt: 1700000000000,
+          },
+        },
+        refresh_token: 'rt',
+        state: 'active',
+        state_updated_at: '2026-06-05T00:00:00.000Z',
+      }],
+    }));
+    assertEquals(snapshotFor('up_codex_missing_limit'), {
+      unknown: { data: { observed_at: '2026-06-05T01:00:00.000Z' }, fetchedAt: 1700000001000 },
+    });
+    assertEquals(snapshotFor('up_codex_unsafe_limit'), {
+      unknown: { data: { active_limit: 'constructor', observed_at: '2026-06-05T02:00:00.000Z' }, fetchedAt: 1700000002000 },
+    });
+    assertEquals(snapshotFor('up_codex_map'), {
+      premium: { data: { active_limit: 'premium', observed_at: '2026-06-05T03:00:00.000Z' }, fetchedAt: 1700000003000 },
+    });
+    assertEquals(snapshotFor('up_custom'), {
+      premium: { data: { active_limit: 'premium' }, fetchedAt: 1 },
+    });
+  } finally {
+    db.close();
+  }
+});
+
 type FakeUpstreamRow = {
   id: string;
   provider: string;

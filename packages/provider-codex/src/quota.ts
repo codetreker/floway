@@ -1,4 +1,4 @@
-import { readCodexUpstreamState, type CodexQuotaSnapshotEntry, type CodexUpstreamState } from './state.ts';
+import { readCodexUpstreamState, type CodexQuotaSnapshotMapEntry, type CodexUpstreamState } from './state.ts';
 import { getProviderRepo } from '@floway-dev/provider';
 
 export interface CodexQuotaSnapshot {
@@ -21,6 +21,17 @@ export interface CodexQuotaSnapshot {
   ratelimited_until?: string;
 }
 
+export type CodexQuotaSnapshotMap = Record<string, CodexQuotaSnapshot>;
+
+export const CODEX_QUOTA_UNKNOWN_ACTIVE_LIMIT = 'unknown';
+
+const isUnsafeActiveLimitKey = (key: string): boolean => key === '__proto__' || key === 'constructor' || key === 'prototype';
+
+export const codexQuotaActiveLimitKey = (snapshot: CodexQuotaSnapshot): string => {
+  const key = snapshot.active_limit?.trim();
+  return key && !isUnsafeActiveLimitKey(key) ? key : CODEX_QUOTA_UNKNOWN_ACTIVE_LIMIT;
+};
+
 const TTL_FLOOR_MS = 24 * 60 * 60 * 1000;
 
 interface ParseCodexQuotaOptions {
@@ -34,7 +45,9 @@ export const parseCodexQuotaHeaders = (headers: Headers, options: ParseCodexQuot
 
   const setString = (key: keyof CodexQuotaSnapshot, header: string): void => {
     const v = headers.get(header);
-    if (v !== null) assign[key] = v;
+    if (v === null) return;
+    const trimmed = v.trim();
+    if (trimmed !== '') assign[key] = trimmed;
   };
   const setNumber = (key: keyof CodexQuotaSnapshot, header: string): void => {
     const v = headers.get(header);
@@ -96,29 +109,32 @@ const findAccountIndex = (state: CodexUpstreamState, accountId: string): number 
 const replaceAccountQuota = (
   state: CodexUpstreamState,
   index: number,
-  entry: CodexQuotaSnapshotEntry,
+  quotaSnapshot: CodexQuotaSnapshotMapEntry,
 ): CodexUpstreamState => ({
   ...state,
-  accounts: state.accounts.map((account, i) => (i === index ? { ...account, quotaSnapshot: entry } : account)),
+  accounts: state.accounts.map((account, i) => (i === index ? { ...account, quotaSnapshot } : account)),
 });
 
-// Returns the most recent snapshot when still within its computed TTL.
-// Stale snapshots read as null — the next upstream response will overwrite
-// them. state_json is unbounded, so freshness is gated inline by
+// Returns all fresh quota snapshots keyed by active limit. Stale buckets read as
+// absent — the next upstream response for that active limit will overwrite it.
+// state_json is unbounded, so freshness is gated inline by
 // computeCodexQuotaTtlMs.
 export const getCodexQuota = async (
   upstreamId: string,
   accountId: string,
-): Promise<CodexQuotaSnapshot | null> => {
+): Promise<CodexQuotaSnapshotMap | null> => {
   const fresh = await getProviderRepo().upstreams.getById(upstreamId);
   if (!fresh) return null;
   const state = readCodexUpstreamState(fresh.state);
   const account = state.accounts.find(a => a.chatgptAccountId === accountId);
   if (!account?.quotaSnapshot) return null;
   const now = new Date();
-  const ttlMs = computeCodexQuotaTtlMs(account.quotaSnapshot.data, now);
-  if (now.getTime() - account.quotaSnapshot.fetchedAt > ttlMs) return null;
-  return account.quotaSnapshot.data;
+  const freshSnapshots: CodexQuotaSnapshotMap = {};
+  for (const [key, entry] of Object.entries(account.quotaSnapshot)) {
+    const ttlMs = computeCodexQuotaTtlMs(entry.data, now);
+    if (now.getTime() - entry.fetchedAt <= ttlMs) freshSnapshots[key] = entry.data;
+  }
+  return Object.keys(freshSnapshots).length ? freshSnapshots : null;
 };
 
 export const putCodexQuota = async (
@@ -131,11 +147,8 @@ export const putCodexQuota = async (
   const state = readCodexUpstreamState(fresh.state);
   const idx = findAccountIndex(state, accountId);
   if (idx < 0) throw new Error(`putCodexQuota: Codex account ${accountId} not found in upstream ${upstreamId}`);
-  const next = replaceAccountQuota(state, idx, { fetchedAt: Date.now(), data: snapshot });
+  const currentQuota = state.accounts[idx].quotaSnapshot ?? {};
+  const nextQuota = { ...currentQuota, [codexQuotaActiveLimitKey(snapshot)]: { fetchedAt: Date.now(), data: snapshot } };
+  const next = replaceAccountQuota(state, idx, nextQuota);
   await getProviderRepo().upstreams.saveState(upstreamId, next, { expectedState: fresh.state });
-};
-
-export const isCodexRateLimited = (snapshot: CodexQuotaSnapshot | null, now: Date): boolean => {
-  if (!snapshot?.ratelimited_until) return false;
-  return new Date(snapshot.ratelimited_until).getTime() > now.getTime();
 };

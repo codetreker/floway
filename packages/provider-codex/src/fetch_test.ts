@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { CODEX_ORIGINATOR, CODEX_USER_AGENT } from './constants.ts';
 import { callCodexResponses, callCodexResponsesCompact, type CodexCallEffects } from './fetch.ts';
-import type { CodexAccessTokenEntry, CodexAccountCredential, CodexQuotaSnapshotEntry, CodexUpstreamState } from './state.ts';
+import type { CodexAccessTokenEntry, CodexAccountCredential, CodexQuotaSnapshotMapEntry, CodexUpstreamState } from './state.ts';
 import type { ResponsesResult } from '@floway-dev/protocols/responses';
 import { initProviderRepo, type Fetcher, type UpstreamRecord } from '@floway-dev/provider';
 import { noopUpstreamCallOptions, stubProviderModel } from '@floway-dev/test-utils';
@@ -51,7 +51,7 @@ const seedAccountState = (overrides: Partial<CodexAccountCredential>): void => {
   currentRecord = makeRecord({ accounts: [{ ...activeAccount, ...overrides }] });
 };
 
-const readQuotaEntry = (): CodexQuotaSnapshotEntry | null =>
+const readQuotaEntry = (): CodexQuotaSnapshotMapEntry | null =>
   (currentRecord.state as CodexUpstreamState).accounts[0].quotaSnapshot;
 
 // putCodexQuota fires-and-forgets via .catch(() => {}); yield to the task
@@ -109,24 +109,23 @@ describe('callCodexResponses — gates', () => {
       expect(await result.response.text()).toMatch(/session_terminated/);
     }
   });
-
-  test('refuses while rate-limited window is open', async () => {
-    vi.useFakeTimers().setSystemTime(new Date('2026-06-05T00:30:00.000Z'));
+  test('continues to upstream when a cached rate-limited quota snapshot is still open', async () => {
     seedAccountState({
+      accessToken: farFutureAccessToken,
       quotaSnapshot: {
-        fetchedAt: new Date('2026-06-05T00:00:00.000Z').getTime(),
-        data: { observed_at: '2026-06-05T00:00:00.000Z', ratelimited_until: '2026-06-05T01:00:00.000Z' },
+        premium: {
+          fetchedAt: new Date('2026-06-05T00:00:00.000Z').getTime(),
+          data: { observed_at: '2026-06-05T00:00:00.000Z', active_limit: 'premium', ratelimited_until: '2026-06-05T01:00:00.000Z' },
+        },
       },
     });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
     const result = await callCodexResponses({
       upstreamId, account: activeAccount,
       model, body: { input: [], stream: true }, headers: new Headers(), effects: makeEffects(), call: noopUpstreamCallOptions(),
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.response.status).toBe(429);
-      expect(result.response.headers.get('retry-after')).toBeTruthy();
-    }
+    expect(result.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -182,8 +181,8 @@ describe('callCodexResponses — upstream classification', () => {
     expect(result.ok).toBe(true);
     await flushMicrotasks();
     const stored = readQuotaEntry();
-    expect(stored?.data.primary_used_percent).toBe(42);
-    expect(stored?.data.ratelimited_until).toBeUndefined();
+    expect(stored?.premium.data.primary_used_percent).toBe(42);
+    expect(stored?.premium.data.ratelimited_until).toBeUndefined();
   });
 
   test('upstream body has store:false and stream:true forced even if caller passes otherwise', async () => {
@@ -665,6 +664,7 @@ describe('callCodexResponses — upstream classification', () => {
   test('429 → quota with ratelimited_until, return upstream 429', async () => {
     seedFreshAccessToken();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorJson(429, { error: { type: 'usage_limit_reached', message: 'cap reached', resets_in_seconds: 7200 } }, {
+      'x-codex-active-limit': 'premium',
       'x-codex-primary-reset-after-seconds': '3600',
       'x-codex-secondary-reset-after-seconds': '7200',
     }));
@@ -676,7 +676,7 @@ describe('callCodexResponses — upstream classification', () => {
     if (!result.ok) expect(result.response.status).toBe(429);
     await flushMicrotasks();
     const stored = readQuotaEntry();
-    expect(stored?.data.ratelimited_until).toBeTruthy();
+    expect(stored?.premium.data.ratelimited_until).toBeTruthy();
   });
 
   test('5xx passes through without touching state', async () => {
@@ -773,20 +773,23 @@ describe('callCodexResponses — recorder contract', () => {
     expect(recorder.durationMs()).toBeGreaterThanOrEqual(0);
   });
 
-  test('rate-limited gate satisfies an enforcing recorder once', async () => {
-    vi.useFakeTimers().setSystemTime(new Date('2026-06-05T00:30:00.000Z'));
+  test('cached rate-limited quota does not synthetic-return before the upstream fetch', async () => {
     seedAccountState({
+      accessToken: farFutureAccessToken,
       quotaSnapshot: {
-        fetchedAt: new Date('2026-06-05T00:00:00.000Z').getTime(),
-        data: { observed_at: '2026-06-05T00:00:00.000Z', ratelimited_until: '2026-06-05T01:00:00.000Z' },
+        premium: {
+          fetchedAt: new Date('2026-06-05T00:00:00.000Z').getTime(),
+          data: { observed_at: '2026-06-05T00:00:00.000Z', active_limit: 'premium', ratelimited_until: '2026-06-05T01:00:00.000Z' },
+        },
       },
     });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
     const recorder = enforcingRecorder();
     const result = await callCodexResponses({
       upstreamId, account: activeAccount,
       model, body: { input: [], stream: true }, headers: new Headers(), effects: makeEffects(), call: recorder.options,
     });
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
     expect(recorder.invocations()).toBe(1);
     expect(() => recorder.durationMs()).not.toThrow();
   });
@@ -921,6 +924,7 @@ describe('callCodexResponsesCompact', () => {
   test('429 → quota with ratelimited_until, return upstream 429', async () => {
     seedFreshAccessToken();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorJson(429, { error: { type: 'usage_limit_reached', message: 'cap reached' } }, {
+      'x-codex-active-limit': 'premium',
       'x-codex-primary-reset-after-seconds': '3600',
       'x-codex-secondary-reset-after-seconds': '7200',
     }));
@@ -932,7 +936,7 @@ describe('callCodexResponsesCompact', () => {
     if (!result.ok) expect(result.response.status).toBe(429);
     await flushMicrotasks();
     const stored = readQuotaEntry();
-    expect(stored?.data.ratelimited_until).toBeTruthy();
+    expect(stored?.premium.data.ratelimited_until).toBeTruthy();
   });
 
   test('5xx passes through verbatim without touching state', async () => {

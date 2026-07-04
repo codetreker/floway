@@ -165,6 +165,8 @@ export interface CodexQuotaSnapshot {
   ratelimited_until?: string;
 }
 
+export type CodexQuotaSnapshotMap = Record<string, CodexQuotaSnapshot>;
+
 // Claude Code identity + state shapes. Mirror the redacted projections in
 // packages/gateway/src/control-plane/upstreams/serialize.ts: refreshToken
 // lives in state and surfaces only as the boolean `refreshTokenSet`, and
@@ -302,7 +304,7 @@ export type UpstreamRecord =
   | (UpstreamRecordBase & { kind: 'custom'; config: CustomUpstreamConfig; state: null })
   | (UpstreamRecordBase & { kind: 'azure'; config: AzureUpstreamConfig; state: null })
   | (UpstreamRecordBase & { kind: 'copilot'; config: CopilotUpstreamConfig; state: CopilotUpstreamState | null })
-  | (UpstreamRecordBase & { kind: 'codex'; config: CodexUpstreamConfig; state: CodexUpstreamState | null; codex_quota?: CodexQuotaSnapshot | null })
+  | (UpstreamRecordBase & { kind: 'codex'; config: CodexUpstreamConfig; state: CodexUpstreamState | null; codex_quota?: CodexQuotaSnapshotMap | null })
   | (UpstreamRecordBase & { kind: 'claude-code'; config: ClaudeCodeUpstreamConfig; state: ClaudeCodeUpstreamState | null })
   | (UpstreamRecordBase & { kind: 'ollama'; config: OllamaUpstreamConfig; state: null });
 

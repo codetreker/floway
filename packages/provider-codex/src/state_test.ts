@@ -77,19 +77,31 @@ describe('assertCodexUpstreamState', () => {
   test('accepts quotaSnapshot absent / null / populated', () => {
     expect(() => assertCodexUpstreamState({ accounts: [{ ...goodAccount, quotaSnapshot: null }] })).not.toThrow();
     expect(() => assertCodexUpstreamState({
-      accounts: [{ ...goodAccount, quotaSnapshot: { fetchedAt: 1_700_000_000_000, data: { observed_at: '2026-06-05T00:00:00Z' } } }],
+      accounts: [{
+        ...goodAccount,
+        quotaSnapshot: { premium: { fetchedAt: 1_700_000_000_000, data: { observed_at: '2026-06-05T00:00:00Z' } } },
+      }],
     })).not.toThrow();
   });
   test('rejects malformed quotaSnapshot', () => {
     expect(() => assertCodexUpstreamState({
-      accounts: [{ ...goodAccount, quotaSnapshot: { fetchedAt: 'soon', data: {} } }],
+      accounts: [{ ...goodAccount, quotaSnapshot: { premium: { fetchedAt: 'soon', data: {} } } }],
     })).toThrow(/fetchedAt/);
     expect(() => assertCodexUpstreamState({
-      accounts: [{ ...goodAccount, quotaSnapshot: { fetchedAt: 1, data: 'oops' } }],
+      accounts: [{ ...goodAccount, quotaSnapshot: { premium: { fetchedAt: 1, data: 'oops' } } }],
     })).toThrow(/data/);
     expect(() => assertCodexUpstreamState({
-      accounts: [{ ...goodAccount, quotaSnapshot: { fetchedAt: 1, data: {}, extra: 1 } }],
+      accounts: [{ ...goodAccount, quotaSnapshot: { premium: { fetchedAt: 1, data: {}, extra: 1 } } }],
     })).toThrow(/extra/);
+    expect(() => assertCodexUpstreamState({
+      accounts: [{ ...goodAccount, quotaSnapshot: { premium: 123 } }],
+    })).toThrow(/premium/);
+    expect(() => assertCodexUpstreamState({
+      accounts: [{ ...goodAccount, quotaSnapshot: { '': { fetchedAt: 1, data: {} } } }],
+    })).toThrow(/invalid active limit key/);
+    expect(() => assertCodexUpstreamState({
+      accounts: [{ ...goodAccount, quotaSnapshot: { constructor: { fetchedAt: 1, data: {} } } }],
+    })).toThrow(/invalid active limit key/);
   });
 
   test('rejects missing / empty openaiDeviceId', () => {
@@ -112,7 +124,7 @@ describe('readCodexUpstreamState', () => {
       accounts: [{
         ...goodAccount,
         accessToken: { token: 'at', expiresAt: 1_700_000_000_000, refreshedAt: '2026-06-05T00:00:00Z' },
-        quotaSnapshot: { fetchedAt: 1_700_000_000_000, data: { observed_at: '2026-06-05T00:00:00Z' } },
+        quotaSnapshot: { premium: { fetchedAt: 1_700_000_000_000, data: { observed_at: '2026-06-05T00:00:00Z' } } },
       }],
     };
     const out = readCodexUpstreamState(populated);

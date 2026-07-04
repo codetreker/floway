@@ -46,7 +46,7 @@ import {
   refreshClaudeCodeAccessToken,
 } from '@floway-dev/provider-claude-code';
 import {
-  type CodexQuotaSnapshot,
+  type CodexQuotaSnapshotMap,
   type CodexUpstreamConfig,
   type CodexUpstreamState,
   CODEX_AUTHORIZE_URL,
@@ -65,13 +65,13 @@ import { clearInProcessCopilotTokenCache, exchangeCopilotToken, readCopilotUpstr
 import { assertCustomUpstreamRecord, fetchCustomModels } from '@floway-dev/provider-custom';
 import { assertOllamaUpstreamRecord, createOllamaProvider } from '@floway-dev/provider-ollama';
 
-// Serialize for the HTTP response, attaching the live codex_quota snapshot
+// Serialize for the HTTP response, attaching the live codex_quota snapshot map
 // when the row is a Codex upstream and the SWR models-cache freshness for
 // every row. Keeps serialize.ts free of provider I/O and a global repo handle,
 // while ensuring every response shape carries the panels the dashboard
 // expects.
 const serializeForResponse = async (record: UpstreamRecord): Promise<SerializedUpstreamRecord> => {
-  let codexQuotaPromise: Promise<CodexQuotaSnapshot | null> | null = null;
+  let codexQuotaPromise: Promise<CodexQuotaSnapshotMap | null> | null = null;
   if (record.kind === 'codex') {
     assertCodexUpstreamRecord(record);
     codexQuotaPromise = getCodexQuota(record.id, record.config.accounts[0].chatgptAccountId);
