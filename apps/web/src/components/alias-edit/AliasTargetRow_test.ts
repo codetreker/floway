@@ -1,10 +1,11 @@
-import { mount } from '@vue/test-utils';
+import { mount, type VueWrapper } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 
 import AliasTargetRow from './AliasTargetRow.vue';
 import { buildRealModel } from '../../api/test-fixtures.ts';
 import type { AliasTarget, ControlPlaneModel } from '../../api/types.ts';
+import { Select } from '@floway-dev/ui';
 
 const target = (over: Partial<AliasTarget> = {}): AliasTarget => ({
   target_model_id: 'gpt-5',
@@ -85,5 +86,28 @@ describe('AliasTargetRow', () => {
     const html = w.html();
     expect(html).toContain('text-amber-300');
     expect(html).toContain('low, medium');
+  });
+
+  it('clears budget_tokens when adaptive is switched to on', async () => {
+    const w = mountRow({
+      modelValue: { target_model_id: 'gpt-5', rules: { reasoning: { budget_tokens: 4096 } } },
+    });
+    await w.find('button[aria-label="Toggle target row"]').trigger('click');
+    await nextTick();
+
+    // The chat rule body has one Select (Adaptive); target-id uses Combobox
+    // and Selection lives on the parent dialog, so findComponent is safe.
+    // Cast is necessary because Select is a generic SFC whose type args
+    // don't flow through findComponent's overloads.
+    const adaptive = w.findComponent(Select) as unknown as VueWrapper<Record<string, unknown>>;
+    expect(adaptive.exists()).toBe(true);
+    adaptive.vm.$emit('update:modelValue', 'on');
+    await nextTick();
+
+    const events = w.emitted<[AliasTarget]>('update:modelValue') ?? [];
+    expect(events.length).toBeGreaterThan(0);
+    const latest = events[events.length - 1][0];
+    expect(latest.rules.reasoning?.adaptive).toBe(true);
+    expect(latest.rules.reasoning?.budget_tokens).toBeUndefined();
   });
 });

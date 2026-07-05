@@ -50,6 +50,19 @@ export const computeRuleWarnings = (
     }
   }
 
+  // Cross-field structural check runs before the catalog-range check so
+  // `warningFor` (which returns the first hit per field) surfaces the
+  // actionable "these two fields conflict" hint over the softer
+  // "target doesn't advertise this feature" advisory. Adaptive mode
+  // auto-determines the budget on the wire; the control-plane schema
+  // also rejects this combination.
+  if (rules.reasoning?.adaptive === true && rules.reasoning?.budget_tokens !== undefined) {
+    out.push({
+      field: 'reasoning.budget_tokens',
+      message: 'Adaptive reasoning auto-determines the budget — this value is ignored. Remove it or turn Adaptive off.',
+    });
+  }
+
   if (rules.reasoning?.budget_tokens !== undefined) {
     const range = reasoning?.budget_tokens;
     if (range === undefined) {
