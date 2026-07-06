@@ -1,5 +1,5 @@
 import type { UsageRecord } from '../../repo/types.ts';
-import { BILLING_DIMENSIONS, type BillingDimension, unitPriceForDimension } from '@floway-dev/protocols/common';
+import { BILLING_DIMENSIONS, type BillingDimension, resolveEffectivePricing, unitPriceForDimension } from '@floway-dev/protocols/common';
 
 export interface DisplayUsageRecord {
   keyId: string;
@@ -20,15 +20,15 @@ export interface DisplayUsageByUserRecord {
   cost: number;
 }
 
-// Cost is pure addition over the dimension rows: Σ tokens × unit_price / 1e6.
-// No subtraction is needed because the counts are disjoint and each dimension
-// already carries its own resolved unit price snapshot.
+// Cost is a pure sum over disjoint per-dimension token counts:
+// Σ tokens × unit_price / 1e6. No subtraction needed.
 const recordCostUsd = (record: UsageRecord): number => {
+  const effective = resolveEffectivePricing(record.cost, record.tier);
   let total = 0;
   for (const dimension of BILLING_DIMENSIONS) {
     const tokens = record.tokens[dimension] ?? 0;
     if (tokens === 0) continue;
-    const unitPrice = unitPriceForDimension(record.cost, dimension);
+    const unitPrice = unitPriceForDimension(effective, dimension);
     if (unitPrice !== null) total += tokens * unitPrice;
   }
   return total / 1e6;

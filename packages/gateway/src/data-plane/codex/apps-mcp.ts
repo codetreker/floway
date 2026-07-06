@@ -3,7 +3,7 @@
 // whose URL is derived from `chatgpt_base_url` by
 // `codex_apps_mcp_url_for_base_url` (codex-rs/codex-mcp/src/mcp/mod.rs:422-446):
 // when the base contains neither `/backend-api` nor `/api/codex`, codex
-// appends `/api/codex/apps` to it. floway's `chatgpt_base_url` is set to the
+// appends `/api/codex/apps` to it. Floway's `chatgpt_base_url` is set to the
 // codex namespace root, so this is the path the rmcp client actually POSTs to.
 //
 // The dashboard's recommended `~/.codex/config.toml` snippet sets

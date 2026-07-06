@@ -1,8 +1,7 @@
 import { test } from 'vitest';
 
 import { buildCustomUpstreamRecord, copilotModels, flushAsyncWork, requestApp, setupAppTest } from '../../test-helpers.ts';
-import { clearModelsStore } from '@floway-dev/provider';
-import { clearCopilotTokenCache } from '@floway-dev/provider-copilot';
+import { clearInProcessCopilotTokenCache } from '@floway-dev/provider-copilot';
 import { jsonResponse, withMockedFetch, assertEquals, assertExists } from '@floway-dev/test-utils';
 
 test('/v1/images/generations rejects malformed JSON body with 400', async () => {
@@ -33,7 +32,7 @@ test('/v1/images/generations 404s when no upstream provides the model', async ()
       const url = new URL(request.url);
       if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
       if (url.pathname === '/copilot_internal/v2/token') {
-        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
       }
       if (url.pathname === '/models') {
         return jsonResponse(copilotModels([{ id: 'copilot-chat', supported_endpoints: ['/chat/completions'] }]));
@@ -76,19 +75,20 @@ test('/v1/images/edits rejects multipart body without model field with 400', asy
 test('/v1/images/generations rejects model on custom upstream without /images/generations capability', async () => {
   const { apiKey, repo } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  clearModelsStore();
-  await clearCopilotTokenCache();
+  clearInProcessCopilotTokenCache();
 
   // Chat-only custom upstream. Its /models response advertises gpt-4o
-  // (which the id heuristic leaves as the chat fallback), so the model exists
-  // in the registry but no binding accepts an images_generations request.
+  // (which the id heuristic leaves as the chat fallback), so the resolver
+  // returns `sawModel=true` with zero candidates after the kind filter
+  // — distinguishing wrong-kind from unknown-id at the resolver layer.
   await repo.upstreams.save(buildCustomUpstreamRecord({
     id: 'up_chat_only',
     name: 'Chat Only Provider',
     sortOrder: 100,
     config: {
       baseUrl: 'https://chat.example.com',
-      bearerToken: 'sk-chat',
+      authStyle: 'bearer',
+      apiKey: 'sk-chat',
       endpoints: { chatCompletions: {} },
     },
   }));
@@ -116,18 +116,16 @@ test('/v1/images/generations rejects model on custom upstream without /images/ge
 
 test('/v1/images/generations forwards a JSON request through a custom upstream and records usage', async () => {
   const { apiKey, repo } = await setupAppTest();
-  // setupAppTest seeds only a Copilot upstream by default; register a custom
-  // upstream whose /models response declares the requested image model.
-  clearModelsStore();
-  await clearCopilotTokenCache();
+  clearInProcessCopilotTokenCache();
   await repo.upstreams.save(buildCustomUpstreamRecord({
     id: 'up_images',
     name: 'Custom Image Provider',
     sortOrder: 100,
     config: {
       baseUrl: 'https://images.example.com',
-      bearerToken: 'sk-images',
-      endpoints: {  },
+      authStyle: 'bearer',
+      apiKey: 'sk-images',
+      endpoints: {},
     },
   }));
 
@@ -137,9 +135,9 @@ test('/v1/images/generations forwards a JSON request through a custom upstream a
       const url = new URL(request.url);
       if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
       if (url.pathname === '/copilot_internal/v2/token') {
-        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
       }
-      if (url.hostname === 'api.githubcopilot.com' && url.pathname === '/models') {
+      if (url.hostname === 'api.individual.githubcopilot.com' && url.pathname === '/models') {
         return jsonResponse(copilotModels([{ id: 'copilot-chat', supported_endpoints: ['/chat/completions'] }]));
       }
       if (url.hostname === 'images.example.com' && url.pathname === '/v1/models') {
@@ -171,14 +169,11 @@ test('/v1/images/generations forwards a JSON request through a custom upstream a
 });
 
 test('/v1/images/edits forwards a multipart request through an Azure model and records usage', async () => {
-  // setupAppTest seeds a Copilot upstream by default; we also register an
-  // Azure upstream that exposes gpt-image-2 via /v1/images/edits.
   const { apiKey, repo } = await setupAppTest();
-  clearModelsStore();
-  await clearCopilotTokenCache();
+  clearInProcessCopilotTokenCache();
   await repo.upstreams.save({
     id: 'az-image',
-    provider: 'azure',
+    kind: 'azure',
     name: 'azure-images',
     enabled: true,
     sortOrder: 1,
@@ -187,6 +182,7 @@ test('/v1/images/edits forwards a multipart request through an Azure model and r
     flagOverrides: {},
     disabledPublicModelIds: [],
     proxyFallbackList: [],
+    modelPrefix: null,
     config: {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'azkey',
@@ -205,9 +201,9 @@ test('/v1/images/edits forwards a multipart request through an Azure model and r
       const url = new URL(request.url);
       if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
       if (url.pathname === '/copilot_internal/v2/token') {
-        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600 });
+        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
       }
-      if (url.hostname === 'api.githubcopilot.com' && url.pathname === '/models') {
+      if (url.hostname === 'api.individual.githubcopilot.com' && url.pathname === '/models') {
         return jsonResponse(copilotModels([{ id: 'copilot-chat', supported_endpoints: ['/chat/completions'] }]));
       }
       if (url.hostname === 'example.openai.azure.com') {

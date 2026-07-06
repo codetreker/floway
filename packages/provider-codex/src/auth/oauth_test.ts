@@ -13,7 +13,7 @@ describe('exchangeCodexAuthorizationCode', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse({
       access_token: 'at', refresh_token: 'rt', id_token: 'it', expires_in: 600,
     }));
-    const result = await exchangeCodexAuthorizationCode({ code: 'CODE', codeVerifier: 'VER' });
+    const result = await exchangeCodexAuthorizationCode({ code: 'CODE', codeVerifier: 'VER', fetcher: directFetcher });
     expect(result).toEqual({ access_token: 'at', refresh_token: 'rt', id_token: 'it', expires_in: 600 });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0];
@@ -33,12 +33,12 @@ describe('exchangeCodexAuthorizationCode', () => {
 
   test('throws session-terminated on app_session_terminated', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorResponse(400, { error: { code: 'app_session_terminated', message: 'Session ended' } }));
-    await expect(exchangeCodexAuthorizationCode({ code: 'CODE', codeVerifier: 'VER' })).rejects.toBeInstanceOf(CodexOAuthSessionTerminatedError);
+    await expect(exchangeCodexAuthorizationCode({ code: 'CODE', codeVerifier: 'VER', fetcher: directFetcher })).rejects.toBeInstanceOf(CodexOAuthSessionTerminatedError);
   });
 
   test('throws generic error on other 4xx, message includes status', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorResponse(400, { error: { code: 'invalid_grant', message: 'bad code' } }));
-    await expect(exchangeCodexAuthorizationCode({ code: 'CODE', codeVerifier: 'VER' })).rejects.toThrow(/400/);
+    await expect(exchangeCodexAuthorizationCode({ code: 'CODE', codeVerifier: 'VER', fetcher: directFetcher })).rejects.toThrow(/400/);
   });
 });
 

@@ -4,9 +4,8 @@ import { withOutputItemIdsSynchronized } from './synchronize-output-item-ids.ts'
 import type { ResponsesBoundaryCtx } from './types.ts';
 import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ResponsesPayload, ResponsesStreamEvent } from '@floway-dev/protocols/responses';
-import type { ExecuteResult } from '@floway-dev/provider';
-import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import type { ProviderResponsesResult } from '@floway-dev/provider';
+import { assertEquals, stubProviderModel } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
@@ -25,12 +24,13 @@ const invocation = (): ResponsesBoundaryCtx => ({
     store: false,
     parallel_tool_calls: true,
   },
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { responses: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { responses: {} } }),
+  action: 'generate',
 });
 
-const collect = async (result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>>): Promise<ProtocolFrame<ResponsesStreamEvent>[]> => {
-  if (result.type !== 'events') throw new Error('expected events');
+const collect = async (result: ProviderResponsesResult): Promise<ProtocolFrame<ResponsesStreamEvent>[]> => {
+  if (result.action !== 'generate' || !result.ok) throw new Error('expected generate/ok result');
   const out: ProtocolFrame<ResponsesStreamEvent>[] = [];
   for await (const frame of result.events) out.push(frame);
   return out;
@@ -38,14 +38,14 @@ const collect = async (result: ExecuteResult<ProtocolFrame<ResponsesStreamEvent>
 
 const runWith = async (frames: ProtocolFrame<ResponsesStreamEvent>[]): Promise<ProtocolFrame<ResponsesStreamEvent>[]> => {
   const result = await withOutputItemIdsSynchronized(invocation(), stubRequest, () =>
-    Promise.resolve(
-      eventResult(
-        (async function* () {
-          for (const frame of frames) yield frame;
-        })(),
-        testTelemetryModelIdentity,
-      ),
-    ));
+    Promise.resolve<ProviderResponsesResult>({
+      action: 'generate',
+      ok: true,
+      events: (async function* () {
+        for (const frame of frames) yield frame;
+      })(),
+      modelKey: 'test-model-key',
+    }));
   return await collect(result);
 };
 

@@ -10,6 +10,16 @@ import type { FileProvider } from '@floway-dev/platform';
 // separate index. Keys use forward-slash POSIX separators (matching R2's
 // surface) and are translated to native path segments on the way in/out so
 // the same key reads identically on Windows and POSIX hosts.
+//
+// Threat model: `root` (`FLOWAY_FILES_DIR`) is gateway-trusted. Everything
+// dumped here is data the gateway already holds in its database (API keys,
+// upstream credentials, request payloads); fs-level access to this directory
+// is already equivalent to gateway compromise. We deliberately do not mode
+// 0o600 / 0o700 the writes — bodies are stored verbatim and the OS-level
+// confidentiality boundary belongs to the operator (umask, mount perms,
+// dedicated user). The dashboard redacts sensitive headers at render time
+// for human display, but the on-disk record stays untouched so an operator
+// can replay or diff against upstream byte-for-byte.
 export class FsFileProvider implements FileProvider {
   private readonly root: string;
 
@@ -38,9 +48,8 @@ export class FsFileProvider implements FileProvider {
 
   async deletePrefix(prefix: string): Promise<void> {
     // Refuse to delete the entire root: a stray empty-string prefix would
-    // otherwise wipe every spilled payload, including ones from concurrent
-    // requests. Callers that genuinely want to clear everything should call
-    // deleteAllResponsesItemPayloadFiles or the equivalent at a higher layer.
+    // otherwise wipe every spilled payload across tenants. Callers wanting a
+    // full reset must enumerate prefixes explicitly.
     if (prefix === '') throw new Error('FsFileProvider.deletePrefix: refusing empty prefix');
     await rm(this.pathFor(prefix), { recursive: true, force: true });
   }

@@ -234,7 +234,7 @@ test('translateMessagesToResponses omits temperature when the source omitted it'
   assertFalse('temperature' in result);
 });
 
-test('translateMessagesToResponses joins multi-block system text with double newlines', () => {
+test('translateMessagesToResponses prepends multi-block top-level system as a leading input system message preserving block boundaries', () => {
   const result = translateMessagesToResponses({
     model: 'gpt-test',
     max_tokens: 256,
@@ -245,7 +245,29 @@ test('translateMessagesToResponses joins multi-block system text with double new
     messages: [{ role: 'user', content: 'hi' }],
   });
 
-  assertEquals(result.instructions, 'Alpha\n\nBeta');
+  assertFalse('instructions' in result);
+  const input = result.input as Array<{ type: string; role?: string; content?: unknown }>;
+  assertEquals(input[0], {
+    type: 'message',
+    role: 'system',
+    content: [
+      { type: 'input_text', text: 'Alpha' },
+      { type: 'input_text', text: 'Beta' },
+    ],
+  });
+});
+
+test('translateMessagesToResponses keeps a single-block top-level system in canonical `instructions` slot', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    system: [{ type: 'text', text: 'You are helpful.' }],
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.instructions, 'You are helpful.');
+  const input = result.input as Array<{ type: string; role?: string }>;
+  assertEquals(input[0].role, 'user');
 });
 
 test('translateMessagesToResponses preserves redacted_thinking as a native-signature reasoning item', () => {
@@ -413,7 +435,7 @@ test('translateMessagesToResponses rejects an unknown assistant content block ty
         messages: [{ role: 'assistant', content: [{ type: 'audio' } as unknown as MessagesAssistantContentBlock] }],
       }),
     Error,
-    'does not accept audio assistant content blocks',
+    "messages.0.content.0.type: 'audio' assistant content blocks are not supported",
   );
 });
 
@@ -426,6 +448,155 @@ test('translateMessagesToResponses rejects an unknown user content block type', 
         messages: [{ role: 'user', content: [{ type: 'audio' } as unknown as MessagesUserContentBlock] }],
       }),
     Error,
-    'does not accept audio user content blocks',
+    "messages.0.content.0.type: 'audio' user content blocks are not supported",
   );
+});
+
+test('translateMessagesToResponses emits in-array role:"system" inline as a Responses message input item', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'system', content: 'be terse' },
+      { role: 'user', content: 'who are you' },
+    ],
+  });
+
+  const input = result.input as Array<{ type: string; role?: string; content?: unknown }>;
+  assertEquals(input.length, 3);
+  assertEquals(input[0].role, 'user');
+  assertEquals(input[1], { type: 'message', role: 'system', content: 'be terse' });
+  assertEquals(input[2].role, 'user');
+});
+
+test('translateMessagesToResponses preserves in-array system text blocks as separate input_text parts', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          { type: 'text', text: 'Para A' },
+          { type: 'text', text: 'Para B' },
+        ],
+      },
+      { role: 'user', content: 'hi' },
+    ],
+  });
+
+  const input = result.input as Array<{ type: string; role?: string; content?: unknown }>;
+  assertEquals(input[0], {
+    type: 'message',
+    role: 'system',
+    content: [
+      { type: 'input_text', text: 'Para A' },
+      { type: 'input_text', text: 'Para B' },
+    ],
+  });
+});
+
+test('translateMessagesToResponses preserves chronology of multiple in-array system messages', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [
+      { role: 'system', content: 'mid-array A' },
+      { role: 'user', content: 'q1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'system', content: 'mid-array B' },
+      { role: 'user', content: 'q2' },
+    ],
+  });
+
+  const input = result.input as Array<{ type: string; role?: string }>;
+  assertEquals(input.length, 5);
+  assertEquals(input[0].role, 'system');
+  assertEquals(input[1].role, 'user');
+  assertEquals(input[2].role, 'assistant');
+  assertEquals(input[3].role, 'system');
+  assertEquals(input[4].role, 'user');
+});
+
+test('translateMessagesToResponses rejects an unknown message role', () => {
+  assertThrows(
+    () =>
+      translateMessagesToResponses({
+        model: 'gpt-test',
+        max_tokens: 256,
+        messages: [{ role: 'tool', content: 'oops' } as unknown as { role: 'user'; content: string }],
+      }),
+    Error,
+    "messages.0.role: role 'tool' is not supported",
+  );
+});
+
+test('translateMessagesToResponses collapses Anthropic thinking mode onto reasoning.effort only', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled', budget_tokens: 4096 },
+  });
+
+  // `thinking.type === 'enabled'` resolves to the OpenAI-canonical `medium`
+  // effort; the `budget_tokens` scalar has no Responses slot and drops.
+  assertEquals(result.reasoning, { effort: 'medium' });
+});
+
+// ── speed ↔ service_tier bridge ──
+
+test('translateMessagesToResponses maps speed:fast to service_tier:fast on the outbound Responses payload', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    speed: 'fast',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.service_tier, 'fast');
+});
+
+test('translateMessagesToResponses omits service_tier when speed is absent', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertFalse('service_tier' in result);
+});
+
+test('translateMessagesToResponses drops speed values other than fast without emitting service_tier', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    speed: 'standard',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertFalse('service_tier' in result);
+});
+
+test('translateMessagesToResponses forwards Anthropic service_tier to Responses when speed is absent', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    service_tier: 'auto',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.service_tier, 'auto');
+});
+
+test('translateMessagesToResponses forwards service_tier:standard_only to Responses when speed is absent', () => {
+  const result = translateMessagesToResponses({
+    model: 'gpt-test',
+    max_tokens: 256,
+    service_tier: 'standard_only',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.service_tier, 'standard_only');
 });

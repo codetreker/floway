@@ -15,7 +15,7 @@
 //
 // /codex/analytics-events/events — codex only checks 2xx; the body is
 //   discarded on success (codex-rs/analytics/src/client.rs:451-465). We
-//   swallow events here to keep workspace telemetry inside floway rather
+//   swallow events here to keep workspace telemetry inside Floway rather
 //   than leaking to chatgpt.com if `chatgpt_base_url` were ever unset.
 //
 // /wham/agent-identities/jwks — only fetched by the enterprise

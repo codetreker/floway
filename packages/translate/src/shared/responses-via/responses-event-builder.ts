@@ -98,6 +98,7 @@ export const result = (input: {
   status: ResponsesResult['status'];
   usage?: ResponsesUsage;
   incompleteDetails?: ResponsesResult['incomplete_details'];
+  serviceTier?: ResponsesResult['service_tier'];
 }): ResponsesResult => ({
   id: input.id,
   object: 'response',
@@ -111,6 +112,7 @@ export const result = (input: {
   error: null,
   incomplete_details: input.incompleteDetails ?? null,
   ...(input.usage !== undefined ? { usage: input.usage } : {}),
+  ...(input.serviceTier !== undefined ? { service_tier: input.serviceTier } : {}),
 });
 
 // Every output item carries its own `id` so that, when a Responses client is

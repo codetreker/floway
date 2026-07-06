@@ -46,17 +46,22 @@ test('provider flags: every catalog entry has id, label, description string fiel
 
 test('provider flags: defaultsForProvider returns the catalog-declared defaults', () => {
   const copilotDefaults = [...defaultsForProvider('copilot')].sort();
-  assertEquals(copilotDefaults, ['messages-web-search-shim', 'responses-image-generation-shim', 'retry-cyber-policy']);
+  assertEquals(copilotDefaults, ['messages-web-search-shim', 'responses-image-generation-shim', 'responses-web-search-shim', 'retry-cyber-policy', 'strip-billing-attribution']);
   const azureDefaults = [...defaultsForProvider('azure')].sort();
-  assertEquals(azureDefaults, ['messages-web-search-shim', 'responses-image-generation-shim']);
-  assertEquals(defaultsForProvider('custom').size, 0);
+  assertEquals(azureDefaults, ['messages-web-search-shim', 'responses-image-generation-shim', 'responses-web-search-shim', 'strip-billing-attribution']);
+  assertEquals([...defaultsForProvider('custom')].sort(), ['messages-web-search-shim', 'responses-image-generation-shim', 'responses-web-search-shim', 'strip-billing-attribution']);
+  // ollama gets responses-compact-shim by default (no native /v1/responses/compact endpoint).
+  assertEquals([...defaultsForProvider('ollama')].sort(), ['messages-web-search-shim', 'responses-compact-shim', 'responses-image-generation-shim', 'responses-web-search-shim', 'strip-billing-attribution']);
+  assertEquals([...defaultsForProvider('codex')].sort(), ['strip-billing-attribution']);
+  // claude-code gets responses-compact-shim by default (Messages-only — any
+  // Responses request that reaches a claude-code candidate needs the shim to
+  // simulate compaction; the alternative is a hard reject from the provider).
+  assertEquals([...defaultsForProvider('claude-code')].sort(), ['responses-compact-shim']);
 });
 
 test('provider flags: defaultsForProvider memoizes the set per provider kind', () => {
-  // Azure's per-deployment getProvidedModels loop calls this once per
-  // deployment per request; repeated calls must return the same frozen set
-  // reference so the memo never regresses into per-call allocations.
   assertEquals(defaultsForProvider('copilot') === defaultsForProvider('copilot'), true);
   assertEquals(defaultsForProvider('azure') === defaultsForProvider('azure'), true);
   assertEquals(defaultsForProvider('custom') === defaultsForProvider('custom'), true);
+  assertEquals(defaultsForProvider('claude-code') === defaultsForProvider('claude-code'), true);
 });

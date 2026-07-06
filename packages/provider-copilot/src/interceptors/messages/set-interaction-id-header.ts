@@ -31,7 +31,7 @@ const sessionUuid = async (input: string): Promise<string> => {
 export const withInteractionIdHeaderSet: CopilotMessagesBoundaryInterceptor = async (ctx, _request, run) => {
   const { sessionId } = parseUserIdMetadata(ctx.payload.metadata?.user_id);
   if (sessionId) {
-    ctx.headers['x-interaction-id'] = await sessionUuid(sessionId);
+    ctx.headers.set('x-interaction-id', await sessionUuid(sessionId));
   }
   return await run();
 };

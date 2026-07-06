@@ -1,4 +1,5 @@
 import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './types.ts';
+import { parseAnthropicBetaHeader } from '@floway-dev/protocols/messages';
 
 /**
  * Copilot's Messages upstream is strict about the `anthropic-beta` header:
@@ -19,10 +20,6 @@ import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './type
  * also means a client that ships only `context-management-2025-06-27` will
  * not have interleaved auto-added even with non-adaptive budget thinking —
  * matching VSCode Copilot Chat.
- *
- * The filtered value is written into the boundary ctx header bag; the
- * provider's typed `MessagesBoundaryCtx.anthropicBeta` field is the
- * read-only input.
  *
  * Generic in the run-result type because pre-Path A the equivalent filter
  * ran on every Copilot Messages HTTP exchange (chat AND count_tokens).
@@ -48,19 +45,23 @@ export const withAnthropicBetaHeaderFiltered = async <TResult>(
   _request: object,
   run: () => Promise<TResult>,
 ): Promise<TResult> => {
-  const inbound = ctx.anthropicBeta;
-  const hasInbound = inbound !== undefined && inbound.length > 0;
+  // Read the caller's untouched intent before deleting the raw header —
+  // `ctx.headers` is the same bag the wire fetch will see, so leaving the
+  // pre-filter value behind would either be the value Copilot 400s on or
+  // would clobber the filtered set we are about to write.
+  const inbound = parseAnthropicBetaHeader(ctx.headers.get('anthropic-beta'));
+  ctx.headers.delete('anthropic-beta');
 
   // Branch 1: caller supplied betas — filter to the Copilot allow-list and
   // forward exactly what survives, including no header at all when nothing
   // survives. Do NOT auto-add interleaved-thinking here, even when the
   // payload's thinking shape would otherwise warrant it: the caller already
   // expressed an opinion about which betas to enable.
-  if (hasInbound) {
+  if (inbound.length > 0) {
     const filtered = inbound.filter(value => ALLOWED_ANTHROPIC_BETAS.has(value));
     const unique = [...new Set(filtered)];
     if (unique.length > 0) {
-      ctx.headers['anthropic-beta'] = unique.join(',');
+      ctx.headers.set('anthropic-beta', unique.join(','));
     }
     return await run();
   }
@@ -70,7 +71,7 @@ export const withAnthropicBetaHeaderFiltered = async <TResult>(
   // not in adaptive mode. Matches VSCode Copilot Chat's default.
   const isAdaptiveThinking = ctx.payload.thinking?.type === 'adaptive';
   if (ctx.payload.thinking?.budget_tokens && !isAdaptiveThinking) {
-    ctx.headers['anthropic-beta'] = INTERLEAVED_THINKING_BETA;
+    ctx.headers.set('anthropic-beta', INTERLEAVED_THINKING_BETA);
   }
 
   return await run();

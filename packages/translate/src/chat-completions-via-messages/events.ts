@@ -40,6 +40,9 @@ interface MessagesToChatCompletionsStreamState {
   promptTokens: number;
   cachedPromptTokens: number;
   reasoningBlockIndex?: number;
+  // Captured from message_delta usage for service_tier pass-through.
+  upstreamSpeed?: string;
+  upstreamServiceTier?: string;
 }
 
 export const createMessagesToChatCompletionsStreamState = (): MessagesToChatCompletionsStreamState => ({
@@ -70,25 +73,32 @@ const makeChunk = (state: MessagesToChatCompletionsStreamState, delta: ChatCompl
   ],
 });
 
-const makeUsageChunk = (state: MessagesToChatCompletionsStreamState, outputTokens: number): ChatCompletionsStreamEvent => ({
-  id: state.messageId,
-  object: 'chat.completion.chunk',
-  created: state.created,
-  model: state.model,
-  choices: [],
-  usage: {
-    prompt_tokens: state.promptTokens,
-    completion_tokens: outputTokens,
-    total_tokens: state.promptTokens + outputTokens,
-    ...(state.cachedPromptTokens > 0
-      ? {
-          prompt_tokens_details: {
-            cached_tokens: state.cachedPromptTokens,
-          },
-        }
-      : {}),
-  },
-});
+const makeUsageChunk = (state: MessagesToChatCompletionsStreamState, outputTokens: number): ChatCompletionsStreamEvent => {
+  // Anthropic's `speed: 'fast'` surfaces as OpenAI `service_tier: 'fast'`;
+  // all other Anthropic service_tier values pass through directly.
+  const serviceTier = state.upstreamSpeed === 'fast' ? 'fast' : state.upstreamServiceTier;
+
+  return {
+    id: state.messageId,
+    object: 'chat.completion.chunk',
+    created: state.created,
+    model: state.model,
+    choices: [],
+    usage: {
+      prompt_tokens: state.promptTokens,
+      completion_tokens: outputTokens,
+      total_tokens: state.promptTokens + outputTokens,
+      ...(state.cachedPromptTokens > 0
+        ? {
+            prompt_tokens_details: {
+              cached_tokens: state.cachedPromptTokens,
+            },
+          }
+        : {}),
+    },
+    ...(serviceTier !== undefined ? { service_tier: serviceTier } : {}),
+  };
+};
 
 const unexpectedMessagesVariant = (value: never): never => {
   throw new Error(`Unexpected Messages stream variant: ${JSON.stringify(value)}`);
@@ -181,7 +191,13 @@ export const translateMessagesEventToChatCompletionsChunks = (event: MessagesStr
   case 'message_delta': {
     const chunk = makeChunk(state, {}, mapMessagesStopReasonToChatCompletionsFinishReason(event.delta.stop_reason ?? null));
 
-    return event.usage ? [chunk, makeUsageChunk(state, event.usage.output_tokens)] : [chunk];
+    if (event.usage) {
+      if (event.usage.speed !== undefined) state.upstreamSpeed = event.usage.speed;
+      if (event.usage.service_tier !== undefined) state.upstreamServiceTier = event.usage.service_tier;
+      return [chunk, makeUsageChunk(state, event.usage.output_tokens)];
+    }
+
+    return [chunk];
   }
 
   case 'message_stop':

@@ -6,7 +6,7 @@ import type { ChatCompletionsStreamEvent, ChatCompletionsPayload } from '@floway
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
@@ -15,8 +15,8 @@ const okEvents = (): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEv
 
 const invocation = (payload: ChatCompletionsPayload): ChatCompletionsBoundaryCtx => ({
   payload,
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { chatCompletions: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { chatCompletions: {} } }),
 });
 
 test('Chat Completions initiator is user when the last message is from the user', async () => {
@@ -27,7 +27,7 @@ test('Chat Completions initiator is user when the last message is from the user'
 
   await withInitiatorHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'user');
+  assertEquals(ctx.headers.get('x-initiator'), 'user');
 });
 
 test('Chat Completions initiator is agent when the last message is an assistant replay', async () => {
@@ -41,7 +41,7 @@ test('Chat Completions initiator is agent when the last message is an assistant 
 
   await withInitiatorHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
 });
 
 test('Chat Completions initiator is agent when the last message is a tool result', async () => {
@@ -60,5 +60,5 @@ test('Chat Completions initiator is agent when the last message is a tool result
 
   await withInitiatorHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
 });

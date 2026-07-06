@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 
-import { resolveCopilotRawModel } from './model-selection.ts';
+import { copilotModelSupportsFastMode, resolveCopilotRawModel } from './model-selection.ts';
 import type { CopilotModelsResponse, CopilotRawModel } from './types.ts';
 import { assertEquals } from '@floway-dev/test-utils';
 
@@ -124,4 +124,48 @@ test('resolveCopilotRawModel keeps the base Claude id when there is no routing i
   const resolved = resolveCopilotRawModel(models(model('claude-opus-4.7'), model('claude-opus-4.7-1m-internal', { contextWindow: 1_000_000 })), 'claude-opus-4-7', {});
 
   assertEquals(resolved?.id, 'claude-opus-4.7');
+});
+
+test('resolveCopilotRawModel picks the -fast variant when fast hint is set', () => {
+  const resolved = resolveCopilotRawModel(
+    models(model('claude-opus-4.6'), model('claude-opus-4.6-fast')),
+    'claude-opus-4-6',
+    { fast: true },
+  );
+
+  assertEquals(resolved?.id, 'claude-opus-4.6-fast');
+});
+
+test('resolveCopilotRawModel falls back to the base when fast hint is set but no -fast variant exists', () => {
+  // Selection stays best-effort; the entry point validates the hard contract.
+  const resolved = resolveCopilotRawModel(
+    models(model('claude-opus-4.7'), model('claude-opus-4.7-xhigh', { reasoningEfforts: ['xhigh'] })),
+    'claude-opus-4-7',
+    { fast: true },
+  );
+
+  assertEquals(resolved?.id, 'claude-opus-4.7');
+});
+
+test('resolveCopilotRawModel honors effort within the fast-narrowed pool when both hints align', () => {
+  const resolved = resolveCopilotRawModel(
+    models(
+      model('claude-opus-4.7'),
+      model('claude-opus-4.7-fast', { reasoningEfforts: ['medium'] }),
+      model('claude-opus-4.7-fast-xhigh', { reasoningEfforts: ['xhigh'] }),
+    ),
+    'claude-opus-4-7',
+    { fast: true, reasoningEffort: 'medium' },
+  );
+
+  // KNOWN_CLAUDE_VARIANT_SUFFIXES recognises 'fast' but not 'fast-xhigh', so
+  // only the -fast variant is in the candidate pool — the test confirms the
+  // pure -fast pick happens even when effort hints would otherwise narrow.
+  assertEquals(resolved?.id, 'claude-opus-4.7-fast');
+});
+
+test('copilotModelSupportsFastMode is true iff any raw variant has the -fast suffix', () => {
+  assertEquals(copilotModelSupportsFastMode([model('claude-opus-4.6'), model('claude-opus-4.6-fast')]), true);
+  assertEquals(copilotModelSupportsFastMode([model('claude-opus-4.7'), model('claude-opus-4.7-xhigh', { reasoningEfforts: ['xhigh'] })]), false);
+  assertEquals(copilotModelSupportsFastMode([]), false);
 });

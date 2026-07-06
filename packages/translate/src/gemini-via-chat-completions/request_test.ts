@@ -404,7 +404,7 @@ test('buildTargetRequest rejects an unknown content role', () => {
         'gpt-test',
       ),
     Error,
-    'does not accept system content roles',
+    '"system" is not a supported content role.',
   );
 });
 
@@ -418,7 +418,7 @@ test('buildTargetRequest rejects a part with an unsupported kind in user content
         'gpt-test',
       ),
     Error,
-    'does not accept executable_code parts in user content',
+    '"executable_code" parts are not supported in user content.',
   );
 });
 
@@ -432,7 +432,7 @@ test('buildTargetRequest rejects a function_call part in user content', () => {
         'gpt-test',
       ),
     Error,
-    'does not accept function_call parts in user content',
+    '"function_call" parts are not supported in user content.',
   );
 });
 
@@ -446,7 +446,7 @@ test('buildTargetRequest rejects a function_response part in model content', () 
         'gpt-test',
       ),
     Error,
-    'does not accept function_response parts in model content',
+    '"function_response" parts are not supported in model content.',
   );
 });
 
@@ -476,4 +476,31 @@ test('buildTargetRequest rejects a part with no recognized content field', () =>
     Error,
     'has no recognized content',
   );
+});
+
+test('buildTargetRequest extends reasoning_effort enum to recognize xhigh and max', () => {
+  const xhigh = buildTargetRequest(
+    { contents: [{ role: 'user', parts: [{ text: 'hi' }] }], generationConfig: { thinkingConfig: { thinkingLevel: 'xhigh' } } },
+    'gpt-test',
+  );
+  const max = buildTargetRequest(
+    { contents: [{ role: 'user', parts: [{ text: 'hi' }] }], generationConfig: { thinkingConfig: { thinkingLevel: 'max' } } },
+    'gpt-test',
+  );
+  const minimal = buildTargetRequest(
+    { contents: [{ role: 'user', parts: [{ text: 'hi' }] }], generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } } },
+    'gpt-test',
+  );
+
+  assertEquals(xhigh.reasoning_effort, 'xhigh');
+  assertEquals(max.reasoning_effort, 'max');
+  assertEquals(minimal.reasoning_effort, 'minimal');
+});
+
+test('buildTargetRequest forwards a vendor-specific thinkingLevel verbatim (no enum gate)', () => {
+  const turbo = buildTargetRequest(
+    { contents: [{ role: 'user', parts: [{ text: 'hi' }] }], generationConfig: { thinkingConfig: { thinkingLevel: 'turbo' } } },
+    'gpt-test',
+  );
+  assertEquals(turbo.reasoning_effort, 'turbo');
 });

@@ -10,8 +10,8 @@ import { withVisionHeaderSet } from './set-vision-header.ts';
 import type { CopilotChatCompletionsBoundaryInterceptor } from './types.ts';
 
 // Order matters: payload-mutating interceptors run first so the header
-// interceptors see the final outgoing payload, then header interceptors
-// populate the boundary header bag for the upstream call. Cache-control marker
+// interceptors see the final outgoing payload, then the header interceptors
+// populate `ctx.headers` for the upstream call. Cache-control marker
 // attachment is a payload mutator, so it sits with the other payload mutators
 // and before any header derivation.
 export const COPILOT_CHATCOMPLETIONS_BOUNDARY = [

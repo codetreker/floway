@@ -4,6 +4,7 @@ import { createPerRequestFetcher } from './per-request.ts';
 import { initRepo } from '../repo/index.ts';
 import { InMemoryRepo } from '../repo/memory.ts';
 import { initSocketDial, resetSocketDialForTesting, type SocketDial } from '@floway-dev/platform';
+import type { ProxyFallbackEntry } from '@floway-dev/provider';
 
 const stubSocketDial: SocketDial = {
   connect: async () => {
@@ -13,13 +14,12 @@ const stubSocketDial: SocketDial = {
 
 const COPILOT_CONFIG = {
   githubToken: 'tok',
-  accountType: 'individual' as const,
   user: { login: 'u', avatar_url: '', name: null, id: 1 },
 };
 
-const upstream = (id: string, proxyFallbackList: string[]) => ({
+const upstream = (id: string, proxyFallbackList: ProxyFallbackEntry[]) => ({
   id,
-  provider: 'copilot' as const,
+  kind: 'copilot' as const,
   name: id,
   enabled: true,
   sortOrder: 0,
@@ -28,6 +28,7 @@ const upstream = (id: string, proxyFallbackList: string[]) => ({
   flagOverrides: {},
   disabledPublicModelIds: [],
   proxyFallbackList,
+  modelPrefix: null,
   config: COPILOT_CONFIG,
   state: null,
 });
@@ -46,11 +47,11 @@ describe('createPerRequestFetcher', () => {
     // u_bad references the malformed row; u_ok shares the request but does
     // not. The whole-request build must still succeed; only u_bad's fetcher
     // surfaces the parse error, and only when actually called.
-    await repo.upstreams.save(upstream('u_bad', ['p_bad']));
+    await repo.upstreams.save(upstream('u_bad', [{ id: 'p_bad' }]));
     await repo.upstreams.save(upstream('u_ok', []));
     await repo.proxies.insert({ id: 'p_bad', name: 'Bad', url: 'gibberish-no-scheme', dialTimeoutSeconds: null });
 
-    const fetcherFor = await createPerRequestFetcher();
+    const fetcherFor = await createPerRequestFetcher('TEST');
     const badFetcher = fetcherFor('u_bad');
     await expect(badFetcher('https://example.com', { method: 'GET' }))
       .rejects.toThrow(/u_bad references malformed proxy p_bad/);
@@ -76,7 +77,7 @@ describe('createPerRequestFetcher', () => {
       return realList(...args);
     };
 
-    await createPerRequestFetcher();
+    await createPerRequestFetcher('TEST');
     expect(proxyListCalls).toBe(0);
   });
 });

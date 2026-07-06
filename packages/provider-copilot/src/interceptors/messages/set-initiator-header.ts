@@ -35,7 +35,7 @@ export const withInitiatorHeaderSet = async <TResult>(
   } else {
     initiator = lastMessage.content.some(block => block.type !== 'tool_result') ? 'user' : 'agent';
   }
-  ctx.headers['x-initiator'] = initiator;
+  ctx.headers.set('x-initiator', initiator);
 
   return await run();
 };

@@ -1,21 +1,27 @@
 import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './types.ts';
 import { type ImageSizeCalculator, type SizeCaps, fitWithin } from '@floway-dev/platform';
 import type { MessagesImageBlock, MessagesMessage } from '@floway-dev/protocols/messages';
-import { compressBase64ImageToWebp } from '@floway-dev/provider';
+import { memoizedBase64Compressor } from '@floway-dev/provider';
 
 // Per-model image caps for the Claude (Messages) egress, measured from the real
-// /v1/messages generation path (count_tokens misreports the downscale here):
+// /v1/messages generation path (count_tokens misreports the downscale here).
+// Copilot's Messages endpoint is Anthropic-only by Copilot's own contract, so
+// the caps below are Anthropic's canonical vision limits:
 //
-// - Opus 4.7 was the first high-resolution Claude model (per Anthropic's vision
-//   docs); Opus 4.7 and 4.8 sample up to ~3.59 MP within a 2576px long edge.
+// - Opus 4.7 was the first high-resolution Claude model; Opus 4.7 and 4.8
+//   sample up to ~3.59 MP within a 2576px long edge.
 // - Opus 4.5 / 4.6 and the sonnet / haiku families use the standard ~1.18 MP /
 //   1568px cap.
 //
 // We threshold on the Opus version so future Opus releases inherit the high-res
 // tier; every non-Opus Claude model uses the standard cap.
+//
+// References:
+// - Anthropic vision docs: https://docs.claude.com/en/docs/build-with-claude/vision
+// - High-res Opus 4.7+ sampling: https://docs.claude.com/en/docs/build-with-claude/vision#evaluate-image-size
 const STANDARD_CLAUDE_CAPS: SizeCaps = { maxLongEdge: 1568, maxArea: 1_176_000 };
 
-export const claudeImageCaps = (upstreamModelId: string): SizeCaps => {
+const claudeImageCaps = (upstreamModelId: string): SizeCaps => {
   const opus = /opus-(\d+)(?:\.(\d+))?/.exec(upstreamModelId);
   if (!opus) return STANDARD_CLAUDE_CAPS;
   const major = Number(opus[1]);
@@ -56,9 +62,10 @@ export const withInlineImagesCompressed = async <TResult>(
   if (blocks.length > 0) {
     const caps = claudeImageCaps(ctx.model.id);
     const targetSize: ImageSizeCalculator = source => fitWithin(source, caps);
+    const compress = memoizedBase64Compressor(targetSize);
     await Promise.all(
       blocks.map(async block => {
-        block.source.data = await compressBase64ImageToWebp(block.source.data, targetSize);
+        block.source.data = await compress(block.source.data);
         block.source.media_type = 'image/webp';
       }),
     );

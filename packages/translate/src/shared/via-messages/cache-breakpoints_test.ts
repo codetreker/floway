@@ -1,8 +1,8 @@
 import { test } from 'vitest';
 
-import { applyLastMessageCacheBreakpoint, applyLastToolCacheBreakpoint } from './cache-breakpoints.ts';
+import { applyLastMessageCacheBreakpoint, applyLastSystemCacheBreakpoint, applyLastToolCacheBreakpoint } from './cache-breakpoints.ts';
 import { assert, assertEquals } from '../../test-assert.ts';
-import type { MessagesAssistantMessage, MessagesMessage, MessagesTool, MessagesUserMessage } from '@floway-dev/protocols/messages';
+import type { MessagesAssistantMessage, MessagesMessage, MessagesTextBlock, MessagesTool, MessagesUserMessage } from '@floway-dev/protocols/messages';
 
 const cacheControlOf = (value: unknown): unknown => (value as { cache_control?: unknown }).cache_control;
 
@@ -59,4 +59,23 @@ test('applyLastMessageCacheBreakpoint falls back to an earlier message when the 
   assert(Array.isArray(userContent) && Array.isArray(assistantContent));
   assertEquals(cacheControlOf(userContent[0]), { type: 'ephemeral' });
   assertEquals(cacheControlOf(assistantContent[0]), undefined);
+});
+
+test('applyLastSystemCacheBreakpoint is a no-op on undefined or empty input', () => {
+  applyLastSystemCacheBreakpoint(undefined);
+  const empty: MessagesTextBlock[] = [];
+  applyLastSystemCacheBreakpoint(empty);
+  assertEquals(empty, []);
+});
+
+test('applyLastSystemCacheBreakpoint marks only the last block when multiple are present', () => {
+  const system: MessagesTextBlock[] = [
+    { type: 'text', text: 'instructions' },
+    { type: 'text', text: 'leading note' },
+    { type: 'text', text: 'final block' },
+  ];
+  applyLastSystemCacheBreakpoint(system);
+  assertEquals(cacheControlOf(system[0]), undefined);
+  assertEquals(cacheControlOf(system[1]), undefined);
+  assertEquals(cacheControlOf(system[2]), { type: 'ephemeral' });
 });

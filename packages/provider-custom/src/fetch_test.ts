@@ -16,7 +16,7 @@ import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
 
 const baseRecord: UpstreamRecord = {
   id: 'up_test',
-  provider: 'custom',
+  kind: 'custom',
   name: 'Test Custom',
   enabled: true,
   sortOrder: 0,
@@ -24,13 +24,15 @@ const baseRecord: UpstreamRecord = {
   updatedAt: '2026-04-29T00:00:00.000Z',
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'sk-test',
+    authStyle: 'bearer',
+    apiKey: 'sk-test',
     endpoints: { chatCompletions: {} },
   },
   state: null,
   flagOverrides: {},
   disabledPublicModelIds: [],
   proxyFallbackList: [],
+  modelPrefix: null,
 };
 
 test('typed transports use default /v1/* paths', async () => {
@@ -70,8 +72,8 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
     config: {
       ...(baseRecord.config as Record<string, unknown>),
       pathOverrides: {
-        messages: '/api/v1/messages',
-        responses: '/api/v1/responses',
+        '/messages': '/api/v1/messages',
+        '/responses': '/api/v1/responses',
       },
     },
   });
@@ -214,4 +216,33 @@ test('authStyle "anthropic" preserves a caller-supplied anthropic-version', asyn
   );
 
   assertEquals(anthropicVersion, '2024-01-01');
+});
+
+test('authStyle "none" sends neither Authorization nor x-api-key', async () => {
+  const { config } = assertCustomUpstreamRecord({
+    ...baseRecord,
+    config: {
+      baseUrl: 'https://internal.example.com',
+      authStyle: 'none',
+      endpoints: { chatCompletions: {} },
+    },
+  });
+  let authHeader: string | null = null;
+  let xApiKey: string | null = null;
+  let anthropicVersion: string | null = null;
+  await withMockedFetch(
+    request => {
+      authHeader = request.headers.get('authorization');
+      xApiKey = request.headers.get('x-api-key');
+      anthropicVersion = request.headers.get('anthropic-version');
+      return new Response('{}', { status: 200 });
+    },
+    async () => {
+      await customFetchChatCompletions(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
+    },
+  );
+
+  assertEquals(authHeader, null);
+  assertEquals(xApiKey, null);
+  assertEquals(anthropicVersion, null);
 });

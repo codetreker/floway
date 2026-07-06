@@ -5,9 +5,9 @@
 //
 //   chatgpt_base_url           — backend endpoints (jwks, plugins, analytics,
 //                                wham, codex-namespaced catalog/compact)
-//   [model_providers.x].base_url — LLM endpoints (responses)
+//   [model_providers.x].base_url — responses endpoint
 //
-// Pointing both at the same prefix lets a single floway deployment serve every
+// Pointing both at the same prefix lets a single Floway deployment serve every
 // surface codex expects. The prefix must contain an Azure marker so codex's
 // `is_azure_responses_endpoint()` returns true; that unlocks `store: true` +
 // `attach_item_ids` in codex's client (model-provider-info substring scan
@@ -16,7 +16,7 @@
 // ResponseItem ids on the wire so server-side state (encrypted reasoning
 // content, web search results, prompt cache) is correctly bound across turns.
 //
-// Path-prefix split: the LLM data plane is reached through `model_providers`
+// Path-prefix split: the chat data plane is reached through `model_providers`
 // and codex sends to `<provider.base_url>/responses` verbatim — no extra
 // prefix. The ChatGPT-backend surface, in contrast, prefixes a `/codex/`
 // segment for the catalog / analytics endpoints
@@ -39,7 +39,7 @@
 //
 // Auth: this whole namespace is reached through the same `authMiddleware`
 // that protects every other API route. The operator forges
-// `~/.codex/auth.json` with `tokens.access_token` set to their floway API
+// `~/.codex/auth.json` with `tokens.access_token` set to their Floway API
 // key string; codex's `CodexAuth::get_token()` returns access_token verbatim
 // and sends it as `Authorization: Bearer <key>`; `extractKey()` in
 // middleware/auth.ts already accepts that header, so the namespace inherits
@@ -57,12 +57,13 @@ import {
   codexWhamAgentIdentitiesJwks,
 } from './chatgpt-backend.ts';
 import { codexModels } from './models.ts';
-import { responsesHttp } from '../llm/responses/http.ts';
-import { responsesWebSocket } from '../llm/responses/websocket.ts';
+import type { AuthVars } from '../../middleware/auth.ts';
+import { responsesHttp } from '../chat/responses/http.ts';
+import { responsesWebSocket } from '../chat/responses/websocket.ts';
 
 const CODEX_BASE_PATH = '/azure-api.codex';
 
-export const mountCodexRoutes = (app: Hono) => {
+export const mountCodexRoutes = (app: Hono<{ Variables: AuthVars }>) => {
   app.post(`${CODEX_BASE_PATH}/responses`, responsesHttp.generate);
   app.post(`${CODEX_BASE_PATH}/responses/compact`, responsesHttp.compact);
   app.get(`${CODEX_BASE_PATH}/responses`, responsesWebSocket);

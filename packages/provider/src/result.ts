@@ -7,6 +7,10 @@ export interface EventResult<T> {
   modelIdentity: TelemetryModelIdentity;
   performance?: PerformanceTelemetryContext;
   finalMetadata?: Promise<EventResultMetadata>;
+  // Raw upstream response headers for the source-side `respond` layer to
+  // forward (blocklist in gateway `shared/respond.ts`). Absent on
+  // lifted/synthesized streams that have no upstream Response behind them.
+  headers?: Headers;
 }
 
 export interface EventResultMetadata {
@@ -14,14 +18,30 @@ export interface EventResultMetadata {
   performance?: PerformanceTelemetryContext;
 }
 
-export interface UpstreamErrorResult {
-  type: 'upstream-error';
+// HTTP-shaped error envelope the respond layer forwards to the client
+// verbatim (status + headers + body). `source` distinguishes a real upstream
+// non-2xx from a gateway-synthesized envelope (model not routable, missing
+// stored item, server-tool input rejected, etc.) so observers like the
+// request dump can record the failure category truthfully rather than
+// labelling every 4xx as `upstream error N`. `upstream` is the id of the
+// upstream that produced the error — set on real upstream 4xx/5xx
+// (`source === 'upstream'`) so the dump row can attribute the failure to
+// the upstream it came from; absent on gateway-synthesized envelopes that
+// never reached an upstream.
+export interface ApiErrorResult {
+  type: 'api-error';
+  source: 'upstream' | 'gateway';
   status: number;
   headers: Headers;
   body: Uint8Array;
   performance?: PerformanceTelemetryContext;
+  upstream?: string;
 }
 
+// Gateway-side bug surface (parser crash, interceptor throw, etc.). The
+// protocol's respond layer renders a debug envelope around `error`
+// (stack, cause, target_api) rather than passing through a wire body —
+// the shape differs from `ApiErrorResult` for that reason.
 export interface InternalErrorResult {
   type: 'internal-error';
   status: number;
@@ -33,25 +53,34 @@ export interface InternalErrorResult {
 // that measures rather than generates (count_tokens). It is NOT an
 // `ExecuteResult`: the target emit/interceptor layer never produces one. The
 // orchestrator passes it straight to `respond` without persistence, and
-// `respond` emits it verbatim.
+// `respond` emits it verbatim. `upstream` is the responsible upstream id when
+// the body came from a real upstream call; absent for gateway-synthesized
+// envelopes (rewrite failures, internal-debug bodies).
 export interface PlainResult {
   type: 'plain';
   status: number;
   headers: Headers;
   body: Uint8Array;
+  upstream?: string;
 }
 
-export type ExecuteResult<T> = EventResult<T> | UpstreamErrorResult | InternalErrorResult;
+export type ExecuteResult<T> = EventResult<T> | ApiErrorResult | InternalErrorResult;
+
+export interface EventResultOptions {
+  performance?: PerformanceTelemetryContext;
+  finalMetadata?: Promise<EventResultMetadata>;
+  headers?: Headers;
+}
 
 export const eventResult = <T>(
   events: AsyncIterable<T>,
   modelIdentity: TelemetryModelIdentity,
-  performance?: PerformanceTelemetryContext,
-  finalMetadata?: Promise<EventResultMetadata>,
+  options: EventResultOptions = {},
 ): EventResult<T> => {
   const result: EventResult<T> = { type: 'events', events, modelIdentity };
-  if (performance !== undefined) result.performance = performance;
-  if (finalMetadata !== undefined) result.finalMetadata = finalMetadata;
+  if (options.performance !== undefined) result.performance = options.performance;
+  if (options.finalMetadata !== undefined) result.finalMetadata = options.finalMetadata;
+  if (options.headers !== undefined) result.headers = options.headers;
   return result;
 };
 
@@ -62,19 +91,27 @@ export const internalErrorResult = (status: number, error: InternalDebugError, p
   ...(performance ? { performance } : {}),
 });
 
-export const plainResult = (status: number, headers: Headers, body: Uint8Array): PlainResult => ({ type: 'plain', status, headers, body });
+export const plainResult = (status: number, headers: Headers, body: Uint8Array, upstream?: string): PlainResult => ({
+  type: 'plain',
+  status,
+  headers,
+  body,
+  ...(upstream !== undefined ? { upstream } : {}),
+});
 
-export const readUpstreamError = async (response: Response): Promise<UpstreamErrorResult> => ({
-  type: 'upstream-error',
+export const readUpstreamApiError = async (response: Response, upstream?: string): Promise<ApiErrorResult> => ({
+  type: 'api-error',
+  source: 'upstream',
   status: response.status,
   headers: new Headers(response.headers),
   body: new Uint8Array(await response.arrayBuffer()),
+  ...(upstream !== undefined ? { upstream } : {}),
 });
 
-export const upstreamErrorToResponse = (error: UpstreamErrorResult): Response =>
+export const apiErrorToResponse = (error: ApiErrorResult): Response =>
   new Response(error.body.slice().buffer, {
     status: error.status,
     headers: new Headers(error.headers),
   });
 
-export const decodeUpstreamErrorBody = (error: UpstreamErrorResult): string => new TextDecoder().decode(error.body);
+export const decodeApiErrorBody = (error: ApiErrorResult): string => new TextDecoder().decode(error.body);

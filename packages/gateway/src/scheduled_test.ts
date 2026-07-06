@@ -1,0 +1,81 @@
+import { test } from 'vitest';
+
+import { initDumpBroker, initDumpStore } from './dump/registry.ts';
+import { installDumpStubs } from './dump/test-fixtures.ts';
+import { runScheduledMaintenance } from './scheduled.ts';
+import { setupAppTest } from './test-helpers.ts';
+import { initImageCacheStore } from '@floway-dev/platform';
+import { assertEquals } from '@floway-dev/test-utils';
+
+const noopImageCache = {
+  get: async () => null,
+  put: async () => { /* noop */ },
+  sweepExpired: async () => { /* noop */ },
+};
+
+test('runScheduledMaintenance continues sweeping the next key when one key throws', async () => {
+  // Per-key isolation inside the dump sweep: a slow or broken per-key purge
+  // must not poison the sweep for sibling keys on the same tick. The stub's
+  // purgeExpired records the attempt before throwing, so we can distinguish
+  // "the inner try/catch worked and key B was visited" from "the outer
+  // runSweep wrapper swallowed the throw before key B got a turn".
+  const { repo, apiKey: keyA } = await setupAppTest();
+  await repo.apiKeys.save({ ...keyA, dumpRetentionSeconds: 3600 });
+  const keyB = {
+    ...keyA,
+    id: `${keyA.id}_sibling`,
+    key: `${keyA.key}_sibling`,
+    dumpRetentionSeconds: 1800,
+  };
+  await repo.apiKeys.save(keyB);
+
+  initImageCacheStore(noopImageCache);
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+  stubs.failOn('purgeExpired', new Error('purge exploded'));
+
+  const errors: unknown[][] = [];
+  const origError = console.error;
+  console.error = (...args: unknown[]): void => { errors.push(args); };
+  try {
+    await runScheduledMaintenance();
+  } finally {
+    console.error = origError;
+  }
+
+  // The sweep continued past key A's throw and reached key B — the only
+  // signal that proves the per-key try/catch did its job. The outer
+  // runSweep wrapper alone could not produce this: it sits outside the
+  // for-loop, so an uncaught per-key throw would abort the loop entirely.
+  assertEquals(stubs.purgedExpired.some(c => c.keyId === keyA.id), true);
+  assertEquals(stubs.purgedExpired.some(c => c.keyId === keyB.id), true);
+  // And the log line is the per-key one (with the key id as a positional
+  // argument), not the outer wrapper's single-name form.
+  assertEquals(
+    errors.some(args => args[0] === '[scheduled] dump sweep failed' && args[1] === keyA.id),
+    true,
+  );
+  assertEquals(
+    errors.some(args => args[0] === '[scheduled] dump sweep failed' && args[1] === keyB.id),
+    true,
+  );
+});
+
+test('runScheduledMaintenance keeps subsequent sweeps running when one top-level sweep throws', async () => {
+  // Top-level sweep isolation: a failure in (e.g.) image-cache sweepExpired
+  // must not drop the dump sweep on the same tick. We swap the image cache
+  // for one that throws, then confirm the dump sweep still ran by observing
+  // its side effect.
+  const { repo, apiKey: keyA } = await setupAppTest();
+  await repo.apiKeys.save({ ...keyA, dumpRetentionSeconds: 3600 });
+
+  initImageCacheStore({
+    ...noopImageCache,
+    sweepExpired: async () => { throw new Error('image cache exploded'); },
+  });
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+
+  await runScheduledMaintenance();
+  // The dump sweep ran despite the image-cache failure — the stub recorded
+  // a purgeExpired call for the only retention-enabled key.
+  assertEquals(stubs.purgedExpired.some(c => c.keyId === keyA.id), true);
+});

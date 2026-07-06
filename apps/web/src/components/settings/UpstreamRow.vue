@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import type { AzureUpstreamConfig, CodexUpstreamConfig, CopilotUpstreamConfig, CustomUpstreamConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import type { UpstreamRecord } from '../../api/types.ts';
+import { formatClaudeCodeSubscriptionType } from '../../lib/claude-code-format.ts';
+import { assertNever } from '../../utils/assert-never.ts';
+import { copilotAccountTypeDisplay } from '../../utils/copilot.ts';
+import { providerBadgeClass, providerMeta } from '../upstreams/provider-meta.ts';
 
 const props = defineProps<{
   upstream: UpstreamRecord;
-  // Count of public models bound to this upstream, resolved by the parent over
-  // the control-plane /api/models response.
   modelCount: number;
   moveUpDisabled: boolean;
   moveDownDisabled: boolean;
@@ -20,39 +22,34 @@ defineEmits<{
   delete: [];
 }>();
 
-const providerLabel = (kind: UpstreamProviderKind) => ({ custom: 'Custom', azure: 'Azure', copilot: 'Copilot', codex: 'Codex' }[kind]);
-const providerBadgeClass = (kind: UpstreamProviderKind) => {
-  switch (kind) {
-  case 'azure': return 'border-accent-emerald/30 bg-accent-emerald/10 text-accent-emerald';
-  case 'copilot': return 'border-accent-cyan/30 bg-accent-cyan/10 text-accent-cyan';
-  case 'codex': return 'border-accent-violet/30 bg-accent-violet/10 text-accent-violet';
-  case 'custom':
-  default: return 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber';
-  }
-};
-
 const modelSummary = computed(() => `${props.modelCount} model${props.modelCount === 1 ? '' : 's'}`);
 
 const subtitle = computed(() => {
-  const cfg = props.upstream.config;
-  switch (props.upstream.provider) {
-  case 'azure': {
-    const azure = cfg as AzureUpstreamConfig;
-    const models = azure.models?.length ?? 0;
-    return [azure.endpoint || 'Azure AI endpoint', `${models} model${models === 1 ? '' : 's'}`].join(' · ');
-  }
-  case 'custom': return (cfg as CustomUpstreamConfig).baseUrl ?? '';
+  const u = props.upstream;
+  switch (u.kind) {
+  case 'azure': return u.config.endpoint;
+  case 'custom': return u.config.baseUrl;
   case 'copilot': {
-    const copilot = cfg as CopilotUpstreamConfig;
-    const user = copilot.user;
-    return user?.login ? `@${user.login} · ${copilot.accountType || 'copilot'}` : 'GitHub Copilot account';
+    const user = u.config.user;
+    return user.login
+      ? `@${user.login} · ${copilotAccountTypeDisplay(u.state)}`
+      : 'GitHub Copilot account';
   }
   case 'codex': {
-    const codex = cfg as CodexUpstreamConfig;
-    const account = codex.accounts?.[0];
-    return account ? [account.email, account.planType].filter(Boolean).join(' · ') : 'ChatGPT Codex account';
+    const account = u.config.accounts[0];
+    return `${account.email} · ${account.planType}`;
   }
+  case 'claude-code': {
+    const account = u.config.accounts[0];
+    // email is null for tokens that lack `user:profile`; fall back to the
+    // short accountUuid prefix so the row still has a stable identifier.
+    const label = account.email ?? `${account.accountUuid.slice(0, 8)}…`;
+    const subscription = formatClaudeCodeSubscriptionType(account.subscriptionType, account.rateLimitTier);
+    return subscription ? `${label} · ${subscription}` : label;
   }
+  case 'ollama': return u.config.baseUrl ?? 'Ollama endpoint';
+  }
+  return assertNever(u);
 });
 </script>
 
@@ -63,8 +60,8 @@ const subtitle = computed(() => {
         <div class="mb-1.5 flex min-w-0 flex-wrap items-center gap-2">
           <span
             class="rounded border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide"
-            :class="providerBadgeClass(upstream.provider)"
-          >{{ providerLabel(upstream.provider) }}</span>
+            :class="providerBadgeClass(upstream.kind)"
+          >{{ providerMeta(upstream.kind).label }}</span>
           <span class="rounded bg-surface-900/70 px-2 py-0.5 text-[11px] font-medium text-gray-400">{{ modelSummary }}</span>
         </div>
         <p class="truncate text-sm font-semibold text-white">{{ upstream.name }}</p>

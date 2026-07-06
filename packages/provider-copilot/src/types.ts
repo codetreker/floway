@@ -1,7 +1,8 @@
 // Copilot's `/models` wire shape. Lives here (not in the provider-neutral
 // layer) because no other provider consumes these fields — `capabilities.type`
-// and `supports.reasoning_effort` are read by Copilot's raw variant selector,
-// the rest is upstream metadata we ignore.
+// is read by the endpoint-routing logic; `supports.*` fields are consumed by
+// both the raw variant selector (reasoning_effort) and the chat capability
+// mapper (vision, min/max_thinking_budget, adaptive_thinking).
 
 export interface CopilotRawModel {
   id: string;
@@ -19,7 +20,11 @@ export interface CopilotRawModel {
       max_output_tokens?: number;
     };
     supports?: {
+      vision?: boolean;
       reasoning_effort?: string[];
+      min_thinking_budget?: number;
+      max_thinking_budget?: number;
+      adaptive_thinking?: boolean;
     };
   };
 }

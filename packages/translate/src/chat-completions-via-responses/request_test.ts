@@ -428,6 +428,28 @@ test('translateChatCompletionsToResponses rejects an unknown message role', () =
         messages: [{ role: 'function', content: 'hi' } as unknown as ChatCompletionsMessage],
       }),
     Error,
-    'does not accept function messages',
+    "Invalid role 'function'",
   );
+});
+
+test('translateChatCompletionsToResponses forwards reasoning_effort and service_tier onto the native slots', () => {
+  const result = translateChatCompletionsToResponses({
+    model: 'gpt-test',
+    messages: [{ role: 'user', content: 'hi' }],
+    reasoning_effort: 'medium',
+    service_tier: 'priority',
+  });
+
+  assertEquals(result.reasoning, { effort: 'medium' });
+  assertEquals(result.service_tier, 'priority');
+});
+
+test("translateChatCompletionsToResponses drops reasoning_effort='none' since Responses has no equivalent", () => {
+  const result = translateChatCompletionsToResponses({
+    model: 'gpt-test',
+    messages: [{ role: 'user', content: 'hi' }],
+    reasoning_effort: 'none',
+  });
+
+  assertEquals(result.reasoning, undefined);
 });

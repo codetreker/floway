@@ -21,8 +21,8 @@ import type { MessagesBoundaryCtx, MessagesCountTokensBoundaryCtx } from './type
  * Copilot accepts the pair on every model and backend tested.
  *
  * Must run AFTER `withAnthropicBetaHeaderFiltered`, which is the canonical
- * writer of `ctx.headers['anthropic-beta']`. Reading the post-filter value is
- * the whole point.
+ * writer of `anthropic-beta` on `ctx.headers`. Reading the post-filter
+ * value is the whole point.
  */
 const CONTEXT_MANAGEMENT_BETA = 'context-management-2025-06-27';
 
@@ -33,11 +33,11 @@ export const withContextManagementBetaAligned = async <TResult>(
 ): Promise<TResult> => {
   const payload = ctx.payload as typeof ctx.payload & { context_management?: unknown };
   if (payload.context_management !== undefined) {
-    const current = ctx.headers['anthropic-beta'];
+    const current = ctx.headers.get('anthropic-beta');
     const tokens = current ? current.split(',').map(value => value.trim()).filter(value => value.length > 0) : [];
     if (!tokens.includes(CONTEXT_MANAGEMENT_BETA)) {
       tokens.push(CONTEXT_MANAGEMENT_BETA);
-      ctx.headers['anthropic-beta'] = tokens.join(',');
+      ctx.headers.set('anthropic-beta', tokens.join(','));
     }
   }
 

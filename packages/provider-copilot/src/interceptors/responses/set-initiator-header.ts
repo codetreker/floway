@@ -38,7 +38,7 @@ export const withInitiatorHeaderSet = async <TResult>(
 ): Promise<TResult> => {
   const input = ctx.payload.input;
   const initiator: 'user' | 'agent' = Array.isArray(input) && isAgentInitiated(input.at(-1)) ? 'agent' : 'user';
-  ctx.headers['x-initiator'] = initiator;
+  ctx.headers.set('x-initiator', initiator);
 
   return await run();
 };

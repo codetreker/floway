@@ -1,6 +1,6 @@
-import type { Context } from 'hono';
-
 import { userToRawWire } from './wire.ts';
+import { getDumpStore, notifyDisabledBestEffort } from '../../dump/registry.ts';
+import { type AuthedContext, sessionIdFromContext, userFromContext } from '../../middleware/auth.ts';
 import { type CtxWithJson } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
 import type { ApiKey, User } from '../../repo/types.ts';
@@ -21,7 +21,7 @@ const parseUserId = (raw: string): number | null => {
   return Number.isInteger(n) && n >= 1 ? n : null;
 };
 
-export const listUsers = async (c: Context) => {
+export const listUsers = async (c: AuthedContext) => {
   const users = await getRepo().users.list();
   return c.json(users.map(userToRawWire));
 };
@@ -56,6 +56,7 @@ export const createUser = async (c: CtxWithJson<typeof createUserBody>) => {
     createdAt: new Date().toISOString(),
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   };
   await repo.apiKeys.save(defaultKey);
 
@@ -66,7 +67,7 @@ export const updateUser = async (c: CtxWithJson<typeof updateUserBody>) => {
   const id = parseUserId(c.req.param('id')!);
   if (id === null) return c.json({ error: 'invalid user id' }, 400);
   const body = c.req.valid('json');
-  const actorId = c.get('userId') as number;
+  const actorId = userFromContext(c).id;
   const repo = getRepo();
 
   const existing = await repo.users.getById(id);
@@ -95,7 +96,7 @@ export const updateUser = async (c: CtxWithJson<typeof updateUserBody>) => {
   await repo.users.save(next);
 
   if (body.password !== undefined) {
-    const sessionId = c.get('sessionId') as string | undefined;
+    const sessionId = sessionIdFromContext(c);
     if (sessionId) await repo.sessions.deleteByUserIdExcept(id, sessionId);
     else await repo.sessions.deleteByUserId(id);
   }
@@ -103,33 +104,42 @@ export const updateUser = async (c: CtxWithJson<typeof updateUserBody>) => {
   return c.json(userToRawWire(next));
 };
 
-export const deleteUser = async (c: Context) => {
+export const deleteUser = async (c: AuthedContext) => {
   const id = parseUserId(c.req.param('id')!);
   if (id === null) return c.json({ error: 'invalid user id' }, 400);
-  const actorId = c.get('userId') as number;
+  const actorId = userFromContext(c).id;
   if (id === 1) return c.json({ error: 'user 1 cannot be deleted' }, 400);
   if (id === actorId) return c.json({ error: 'cannot delete yourself' }, 400);
 
   const repo = getRepo();
-  const ok = await repo.users.softDelete(id);
-  if (!ok) return c.json({ error: 'user not found' }, 404);
+
+  // Purge each owned key's dumps before the cascade so a purge failure leaves
+  // the user (and their keys) intact and retriable. We iterate live keys
+  // because soft-deleted keys were already purged at their own delete time.
+  // The broker close hook cuts any live SSE subscriber but is best-effort —
+  // broker availability never blocks the cascade.
+  const keys = await repo.apiKeys.listByUserId(id);
+  for (const key of keys) {
+    await getDumpStore().purgeAll(key.id);
+    await notifyDisabledBestEffort(key.id, 'deleteUser cascade');
+  }
 
   await repo.apiKeys.softDeleteByUserId(id);
   await repo.sessions.deleteByUserId(id);
+  const ok = await repo.users.softDelete(id);
+  if (!ok) return c.json({ error: 'user not found' }, 404);
   return c.json({ ok: true });
 };
 
 export const changeOwnPassword = async (c: CtxWithJson<typeof changeOwnPasswordBody>) => {
-  const sessionId = c.get('sessionId') as string | undefined;
+  const sessionId = sessionIdFromContext(c);
   if (!sessionId) {
     return c.json({ error: 'Self-service password change requires a logged-in dashboard session' }, 401);
   }
-  const userId = c.get('userId') as number;
+  const user = userFromContext(c);
   const { currentPassword, newPassword } = c.req.valid('json');
   const repo = getRepo();
 
-  const user = await repo.users.getById(userId);
-  if (!user) throw new Error(`authMiddleware loaded userId ${userId} but it is now missing`);
   // 400, not 401: these are domain validation errors on the request payload,
   // not authentication failures. The dashboard's auth client treats 401 as
   // "session expired" and silently signs the user out, which is wrong here —
@@ -142,6 +152,6 @@ export const changeOwnPassword = async (c: CtxWithJson<typeof changeOwnPasswordB
   }
 
   await repo.users.save({ ...user, passwordHash: await hashPassword(newPassword) });
-  await repo.sessions.deleteByUserIdExcept(userId, sessionId);
+  await repo.sessions.deleteByUserIdExcept(user.id, sessionId);
   return c.json({ ok: true });
 };

@@ -1,4 +1,4 @@
-import { isCopilotAccountType, type CopilotUpstreamConfig, type CopilotUpstreamUser } from '@floway-dev/provider-copilot';
+import type { CopilotUpstreamConfig, CopilotUpstreamUser } from '@floway-dev/provider-copilot';
 
 export type { CopilotUpstreamConfig, CopilotUpstreamUser };
 
@@ -40,12 +40,8 @@ const copilotUserField = (value: unknown, err: FieldErrorBuilder): CopilotUpstre
 
 export const copilotConfigField = (value: unknown, err: FieldErrorBuilder): CopilotUpstreamConfig => {
   if (!isRecord(value)) throw err('config', 'an object');
-  if (!isCopilotAccountType(value.accountType)) {
-    throw err('config.accountType', 'one of individual, business, enterprise');
-  }
   return {
     githubToken: nonEmptyStringField(value.githubToken, 'githubToken', err),
-    accountType: value.accountType,
     user: copilotUserField(value.user, err),
   };
 };

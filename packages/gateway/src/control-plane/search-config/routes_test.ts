@@ -54,6 +54,7 @@ test('/api/search-config PUT persists config and POST /test returns preview', as
         provider: 'tavily',
         tavily: { apiKey: 'tvly-test' },
         microsoftGrounding: { apiKey: 'ms-test' },
+        jina: { apiKey: 'jina-test' },
       };
 
       const putResponse = await requestApp('/api/search-config', {

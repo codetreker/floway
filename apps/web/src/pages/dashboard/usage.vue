@@ -6,14 +6,15 @@ import { defineBasicLoader } from 'unplugin-vue-router/data-loaders/basic';
 import { computed, ref, watch } from 'vue';
 
 import { callApi, useApi, type ApiClient } from '../../api/client.ts';
+import type { BillingDimension } from '../../api/types.ts';
 import ChartCanvas from '../../components/charts/ChartCanvas.vue';
+import ChartSeriesControls from '../../components/charts/ChartSeriesControls.vue';
 import { bucketKeyForUtcHour, chartColor, chartFont, chartXAxisTick, dashboardBuckets, dashboardRangeQuery, type DashboardRange } from '../../components/charts/dashboard-chart.ts';
+import { applySeriesSelection, chartEventsWithDoubleClick, chartSeriesIds, createSeriesIsolation, handleLegendClick } from '../../components/charts/series-selection.ts';
 import UsageSummaryMetric from '../../components/usage/UsageSummaryMetric.vue';
 import { useModelsStore } from '../../composables/useModels.ts';
 import { useAuthStore } from '../../stores/auth.ts';
 import { OverlayScrollbars, Spinner } from '@floway-dev/ui';
-
-type BillingDimension = 'input' | 'input_cache_read' | 'input_cache_write' | 'input_image' | 'output' | 'output_image';
 
 interface DisplayUsageRecord {
   keyId: string;
@@ -143,11 +144,6 @@ let usageRequestId = 0;
 const hiddenKeys = ref(new Set<string>());
 const hiddenModels = ref(new Set<string>());
 
-const toggleHidden = (set: Set<string>, id: string) => {
-  if (set.has(id)) set.delete(id);
-  else set.add(id);
-};
-
 const load = async () => {
   const requestId = ++usageRequestId;
   const requestedRange = tokenRange.value;
@@ -190,7 +186,7 @@ const tokenSummary = computed(() => {
     input += dim(r, 'input');
     output += dim(r, 'output');
     cacheRead += dim(r, 'input_cache_read');
-    cacheCreation += dim(r, 'input_cache_write');
+    cacheCreation += dim(r, 'input_cache_write') + dim(r, 'input_cache_write_1h');
     inputImage += dim(r, 'input_image');
     outputImage += dim(r, 'output_image');
   }
@@ -240,12 +236,12 @@ const metricValue = (r: DisplayUsageRecord, metric: Metric): number => {
   switch (metric) {
   case 'requests': return r.requests;
   case 'cost': return r.cost;
-  case 'total': return dim(r, 'input') + dim(r, 'output') + dim(r, 'input_cache_read') + dim(r, 'input_cache_write') + dim(r, 'input_image') + dim(r, 'output_image');
-  case 'input': return dim(r, 'input') + dim(r, 'input_cache_read') + dim(r, 'input_cache_write') + dim(r, 'input_image');
+  case 'total': return dim(r, 'input') + dim(r, 'output') + dim(r, 'input_cache_read') + dim(r, 'input_cache_write') + dim(r, 'input_cache_write_1h') + dim(r, 'input_image') + dim(r, 'output_image');
+  case 'input': return dim(r, 'input') + dim(r, 'input_cache_read') + dim(r, 'input_cache_write') + dim(r, 'input_cache_write_1h') + dim(r, 'input_image');
   case 'output': return dim(r, 'output') + dim(r, 'output_image');
-  case 'prefill': return dim(r, 'input') + dim(r, 'input_cache_write') + dim(r, 'input_image');
+  case 'prefill': return dim(r, 'input') + dim(r, 'input_cache_write') + dim(r, 'input_cache_write_1h') + dim(r, 'input_image');
   case 'cached': return dim(r, 'input_cache_read');
-  case 'cacheCreation': return dim(r, 'input_cache_write');
+  case 'cacheCreation': return dim(r, 'input_cache_write') + dim(r, 'input_cache_write_1h');
   case 'cachedRate':
   case 'cacheHitRate':
     return 0;
@@ -275,6 +271,10 @@ interface ChartEntry {
   label: string;
   colorSlot: number;
 }
+
+const keySeriesIsolation = createSeriesIsolation();
+const modelSeriesIsolation = createSeriesIsolation();
+const searchSeriesIsolation = createSeriesIsolation();
 
 const keyChartEntries = (
   presentKeyIds: readonly string[],
@@ -339,7 +339,7 @@ const aggregateTokenRecords = (records: readonly DisplayUsageRecord[], groupKey:
     detail.input += dim(r, 'input');
     detail.output += dim(r, 'output');
     detail.cacheRead += dim(r, 'input_cache_read');
-    detail.cacheCreation += dim(r, 'input_cache_write');
+    detail.cacheCreation += dim(r, 'input_cache_write') + dim(r, 'input_cache_write_1h');
     detail.inputImage += dim(r, 'input_image');
     detail.outputImage += dim(r, 'output_image');
     detail.cost += r.cost;
@@ -407,13 +407,28 @@ const buildStackedConfig = (groupKey: 'keyId' | 'model'): ChartConfiguration<'li
   const entries = groupKey === 'keyId'
     ? keyChartEntries([...presentGroups], keyMetadataForTokenRecords(allRecords, data.value?.keys ?? []), data.value?.keys.map(k => k.id) ?? [...presentGroups])
     : modelChartEntries([...presentGroups]);
-  // Cross-filtering can leave a group with all-zero (or, for percent metrics,
-  // all-null) values. Drop those datasets outright — legend entry and line both
-  // gone — instead of rendering an inert flat line. The own-dimension hidden set
-  // is a separate, restorable user toggle and keeps its struck-through entry.
+  // A group can hold all-zero (or, for percent metrics, all-null) values under
+  // the current metric for two distinct reasons, and requests tells them apart:
+  // cross-filtering that emptied the group leaves requests at zero too (details
+  // aggregate the same cross-filtered records), whereas a group with real but
+  // zero-token traffic — e.g. an upstream that reports no usage — still has
+  // requests > 0. Keep the latter as a flat line at zero so it stays visible in
+  // the token/cost views; drop the former outright, legend entry and line both
+  // gone, instead of rendering an inert line for a group with no activity. Own-
+  // dimension hidden groups are a separate, restorable toggle kept struck-through.
+  // Percent metrics stay null-only: a ratio over zero tokens is undefined.
+  //
+  // Non-percent buckets fall back to `0` (not `null`) so every dataset carries
+  // a numeric value at every index — stacked line rendering then accumulates
+  // correctly and every series draws a continuous line all the way across the
+  // axis, edges included. `spanGaps` only stitches internal gaps, so leaving
+  // nulls in would leave the leading and trailing "no record" buckets unlit.
+  // The tooltip filter reaches back into `details.requests` to distinguish a
+  // synthesized 0 from a real zero-token record.
+  const hasRequests = (id: string) => bucketKeys.some(k => (details.get(k)?.get(id)?.requests ?? 0) > 0);
   const datasetEntries = entries
-    .map(entry => ({ entry, data: bucketKeys.map(k => values.get(k)?.get(entry.id) ?? (isPercent ? null : 0)) }))
-    .filter(({ data }) => isPercent ? data.some(v => v !== null) : data.some(v => v !== 0));
+    .map(entry => ({ entry, data: bucketKeys.map(k => values.get(k)!.get(entry.id) ?? (isPercent ? null : 0)) }))
+    .filter(({ entry, data }) => isPercent ? data.some(v => v !== null) : (data.some(v => v !== 0) || hasRequests(entry.id)));
   const labelWidth = datasetEntries.reduce((max, { entry }) => Math.max(max, entry.label.length), 0);
   return {
     type: 'line',
@@ -421,8 +436,16 @@ const buildStackedConfig = (groupKey: 'keyId' | 'model'): ChartConfiguration<'li
       labels,
       datasets: datasetEntries.map(({ entry, data: datasetData }) => {
         const color = chartColor(entry.colorSlot);
+        // A dataset kept only because its group has real requests — every
+        // selected-metric value is zero — would, when stacked onto the series
+        // below it, ride invisibly along that series' top edge rather than sit
+        // at zero. Give it a private stack group and drop the fill so it draws
+        // as a flat, hoverable line pinned to the axis. It contributes nothing
+        // to the main stack, so pulling it out leaves the real totals untouched.
+        const zeroLine = !isPercent && !datasetData.some(v => v !== 0);
         return {
           label: entry.label,
+          seriesId: entry.id,
           data: datasetData,
           hidden: ownHidden.value.has(entry.id),
           borderColor: color,
@@ -431,12 +454,18 @@ const buildStackedConfig = (groupKey: 'keyId' | 'model'): ChartConfiguration<'li
           pointRadius: 2,
           pointHoverRadius: 5,
           tension: 0.3,
-          fill: isPercent ? false : 'stack',
+          fill: isPercent || zeroLine ? false : 'stack',
           spanGaps: isPercent,
+          stack: zeroLine ? 'axis' : 'main',
+          // Zero-line series draw at y=0 and get painted over by any main-stack
+          // area whose bottom sits at the axis; render them last (lower `order`
+          // = drawn on top) so their flat line and points stay visible.
+          order: zeroLine ? -1 : 0,
         };
       }),
     },
     options: {
+      events: chartEventsWithDoubleClick,
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
@@ -445,9 +474,10 @@ const buildStackedConfig = (groupKey: 'keyId' | 'model'): ChartConfiguration<'li
         legend: {
           position: 'bottom',
           labels: { color: '#9e9e9e', font: { size: 11, family: chartFont.sans }, boxWidth: 12, padding: 16, usePointStyle: true, pointStyle: 'circle' },
-          onClick: (_event, legendItem) => {
-            const entry = datasetEntries[legendItem.datasetIndex ?? -1]?.entry;
-            if (entry) toggleHidden(ownHidden.value, entry.id);
+          onClick: (event, legendItem) => {
+            const entry = datasetEntries[legendItem.datasetIndex!].entry;
+            const isolation = groupKey === 'keyId' ? keySeriesIsolation : modelSeriesIsolation;
+            handleLegendClick(event, isolation, ownHidden.value, datasetEntries.map(({ entry }) => entry.id), entry.id);
           },
         },
         tooltip: {
@@ -458,7 +488,19 @@ const buildStackedConfig = (groupKey: 'keyId' | 'model'): ChartConfiguration<'li
           bodyColor: '#b0bec5',
           padding: 12,
           bodyFont: { family: chartFont.mono, size: 11 },
-          filter: item => item.parsed.y !== null && (isPercent || item.parsed.y > 0),
+          // Null y = no record in this bucket (dropped). A stacked-dataset zero
+          // may be either a real zero-token record or a synthesized fill for a
+          // no-record bucket — the latter must not appear in the tooltip, so
+          // reach back into `details.requests` to keep only rows where the
+          // group actually served requests.
+          filter: item => {
+            if (item.parsed.y === null) return false;
+            if (isPercent || item.parsed.y > 0) return true;
+            const bucket = bucketKeys[item.dataIndex];
+            const entry = datasetEntries[item.datasetIndex]?.entry;
+            return bucket !== undefined && entry !== undefined
+              && (details.get(bucket)?.get(entry.id)?.requests ?? 0) > 0;
+          },
           itemSort: (a, b) => Number(b.parsed.y ?? 0) - Number(a.parsed.y ?? 0),
           callbacks: {
             beforeBody: items => items.length ? tooltipHeader(labelWidth) : [],
@@ -495,6 +537,8 @@ const buildStackedConfig = (groupKey: 'keyId' | 'model'): ChartConfiguration<'li
 
 const byKeyConfig = computed(() => buildStackedConfig('keyId'));
 const byModelConfig = computed(() => buildStackedConfig('model'));
+const byKeySeriesIds = computed(() => chartSeriesIds(byKeyConfig.value));
+const byModelSeriesIds = computed(() => chartSeriesIds(byModelConfig.value));
 
 const searchUsageActiveProvider = computed(() => {
   return searchData.value?.activeProvider ?? 'disabled';
@@ -526,6 +570,7 @@ const searchByKeyConfig = computed<ChartConfiguration<'line'>>(() => {
         const color = chartColor(entry.colorSlot);
         return {
           label: entry.label,
+          seriesId: entry.id,
           data: bucketKeys.map(k => groups.get(entry.id)?.get(k) ?? 0),
           hidden: hiddenKeys.value.has(entry.id),
           borderColor: color,
@@ -540,6 +585,7 @@ const searchByKeyConfig = computed<ChartConfiguration<'line'>>(() => {
       }),
     },
     options: {
+      events: chartEventsWithDoubleClick,
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
@@ -548,9 +594,9 @@ const searchByKeyConfig = computed<ChartConfiguration<'line'>>(() => {
         legend: {
           position: 'bottom',
           labels: { color: '#9e9e9e', font: { size: 11, family: chartFont.sans }, boxWidth: 12, padding: 16, usePointStyle: true, pointStyle: 'circle' },
-          onClick: (_event, legendItem) => {
-            const entry = entries[legendItem.datasetIndex ?? -1];
-            if (entry) toggleHidden(hiddenKeys.value, entry.id);
+          onClick: (event, legendItem) => {
+            const entry = entries[legendItem.datasetIndex!];
+            handleLegendClick(event, searchSeriesIsolation, hiddenKeys.value, entries.map(entry => entry.id), entry.id);
           },
         },
         tooltip: {
@@ -572,6 +618,8 @@ const searchByKeyConfig = computed<ChartConfiguration<'line'>>(() => {
     },
   };
 });
+
+const searchByKeySeriesIds = computed(() => chartSeriesIds(searchByKeyConfig.value));
 
 const formatCost = (v: number) => {
   if (v >= 1) return `$${v.toFixed(2)}`;
@@ -636,12 +684,18 @@ const formatCost = (v: number) => {
         </OverlayScrollbars>
       </div>
 
+      <div class="mb-2 flex justify-end">
+        <ChartSeriesControls label="Token usage series selection" @select="applySeriesSelection(hiddenKeys, byKeySeriesIds, $event)" />
+      </div>
       <div style="height: 320px; position: relative;">
         <ChartCanvas :config="byKeyConfig" />
       </div>
 
       <div class="mt-6 pt-5 border-t border-white/5">
-        <span class="text-xs font-medium text-gray-500 uppercase tracking-widest mb-4 block">By Model</span>
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <span class="text-xs font-medium text-gray-500 uppercase tracking-widest block">By Model</span>
+          <ChartSeriesControls label="Model usage series selection" @select="applySeriesSelection(hiddenModels, byModelSeriesIds, $event)" />
+        </div>
         <div style="height: 320px; position: relative;">
           <ChartCanvas :config="byModelConfig" />
         </div>
@@ -671,9 +725,12 @@ const formatCost = (v: number) => {
       </div>
 
       <div v-if="searchUsageActiveProvider !== 'disabled'" class="mt-6 pt-5 border-t border-white/5">
-        <div class="flex items-center gap-3 mb-4">
-          <span class="text-xs font-medium text-gray-500 uppercase tracking-widest block">Search Usage</span>
-          <Spinner v-if="searchUsageLoading" class="h-3.5 w-3.5 text-gray-500" />
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-medium text-gray-500 uppercase tracking-widest block">Search Usage</span>
+            <Spinner v-if="searchUsageLoading" class="h-3.5 w-3.5 text-gray-500" />
+          </div>
+          <ChartSeriesControls label="Search usage series selection" @select="applySeriesSelection(hiddenKeys, searchByKeySeriesIds, $event)" />
         </div>
         <div style="height: 320px; position: relative;">
           <ChartCanvas :config="searchByKeyConfig" />

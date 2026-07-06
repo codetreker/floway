@@ -938,3 +938,56 @@ test('message_delta usage includes cache_creation_input_tokens in prompt_tokens'
   assertEquals(chunk.usage!.completion_tokens, 50);
   assertEquals(chunk.usage!.total_tokens, 180);
 });
+
+// ── speed / service_tier pass-through ──
+
+test('Anthropic speed:fast maps to service_tier:fast on the usage chunk', () => {
+  const state = createMessagesToChatCompletionsStreamState();
+  translateMessagesEventToChatCompletionsChunks(MSG_START, state);
+
+  const result = translateMessagesEventToChatCompletionsChunks(
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 5, speed: 'fast' },
+    } as MessagesStreamEvent,
+    state,
+  ) as ChatCompletionsStreamEvent[];
+
+  const usageChunk = result[1];
+  assertEquals(usageChunk.service_tier, 'fast');
+});
+
+test('Anthropic service_tier:standard with no speed passes service_tier:standard through on the usage chunk', () => {
+  const state = createMessagesToChatCompletionsStreamState();
+  translateMessagesEventToChatCompletionsChunks(MSG_START, state);
+
+  const result = translateMessagesEventToChatCompletionsChunks(
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 5, service_tier: 'standard' },
+    } as MessagesStreamEvent,
+    state,
+  ) as ChatCompletionsStreamEvent[];
+
+  const usageChunk = result[1];
+  assertEquals(usageChunk.service_tier, 'standard');
+});
+
+test('no speed or service_tier on message_delta → no service_tier on usage chunk', () => {
+  const state = createMessagesToChatCompletionsStreamState();
+  translateMessagesEventToChatCompletionsChunks(MSG_START, state);
+
+  const result = translateMessagesEventToChatCompletionsChunks(
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 5 },
+    } as MessagesStreamEvent,
+    state,
+  ) as ChatCompletionsStreamEvent[];
+
+  const usageChunk = result[1];
+  assertEquals(usageChunk.service_tier, undefined);
+});

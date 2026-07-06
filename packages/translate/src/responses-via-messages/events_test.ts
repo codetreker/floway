@@ -11,7 +11,10 @@ type ResponsesOutputItemDoneEvent = Extract<ResponsesStreamEvent, { type: 'respo
 
 // ── Helpers ──
 
-const runToCompletion = (usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }): ResponsesResult => {
+const runToCompletion = (
+  usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number },
+  deltaUsageExtras?: { speed?: string; service_tier?: string },
+): ResponsesResult => {
   const state = createMessagesToResponsesStreamState('resp_test', 'claude-sonnet-4-20250514');
 
   translateMessagesEventToResponsesEvents(
@@ -57,7 +60,7 @@ const runToCompletion = (usage: { input_tokens: number; output_tokens: number; c
     {
       type: 'message_delta',
       delta: { stop_reason: 'end_turn' },
-      usage: { output_tokens: usage.output_tokens },
+      usage: { output_tokens: usage.output_tokens, ...deltaUsageExtras },
     } as MessagesStreamEvent,
     state,
   );
@@ -752,4 +755,24 @@ test('synthesized function_call item carries a stable id consistent across added
   assertEquals(state.completedItems, [
     { type: 'function_call', id: 'fc_0', call_id: 'toolu_1', name: 'lookup', arguments: '{"q":"x"}', status: 'completed' },
   ]);
+});
+
+// ── speed / service_tier pass-through ──
+
+test('Anthropic speed:fast maps to service_tier:fast on the Responses result', () => {
+  const result = runToCompletion({ input_tokens: 10, output_tokens: 5 }, { speed: 'fast' });
+
+  assertEquals(result.service_tier, 'fast');
+});
+
+test('Anthropic service_tier:standard with no speed passes service_tier:standard through', () => {
+  const result = runToCompletion({ input_tokens: 10, output_tokens: 5 }, { service_tier: 'standard' });
+
+  assertEquals(result.service_tier, 'standard');
+});
+
+test('Anthropic service_tier absent results in no service_tier on the Responses result', () => {
+  const result = runToCompletion({ input_tokens: 10, output_tokens: 5 });
+
+  assertEquals(result.service_tier, undefined);
 });

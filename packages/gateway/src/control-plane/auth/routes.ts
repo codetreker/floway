@@ -1,5 +1,4 @@
-import type { Context } from 'hono';
-
+import { type AuthedContext, sessionIdFromContext, userFromContext } from '../../middleware/auth.ts';
 import { type CtxWithJson } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
 import type { User } from '../../repo/types.ts';
@@ -39,29 +38,19 @@ export const authLogin = async (c: CtxWithJson<typeof authLoginBody>) => {
   return c.json({ token: session.id, user: userToEffectiveWire(user) });
 };
 
-export const authLogout = async (c: Context) => {
-  const sessionId = c.get('sessionId') as string | undefined;
+export const authLogout = async (c: AuthedContext) => {
+  const sessionId = sessionIdFromContext(c);
   if (sessionId) await getRepo().sessions.deleteById(sessionId);
   return c.json({ ok: true });
 };
 
-export const authMe = async (c: Context) => {
-  const userId = c.get('userId') as number;
-  const sessionId = c.get('sessionId') as string | undefined;
-  const apiKeyId = c.get('apiKeyId') as string | undefined;
-  const repo = getRepo();
-  const user = await repo.users.getById(userId);
-  if (!user) throw new Error(`authMiddleware loaded userId ${userId} but it is now missing`);
-
-  let apiKey: { id: string; name: string } | null = null;
-  if (apiKeyId) {
-    const key = await repo.apiKeys.getById(apiKeyId);
-    if (!key) throw new Error(`authMiddleware accepted apiKeyId ${apiKeyId} but it is now missing`);
-    apiKey = { id: key.id, name: key.name };
-  }
+export const authMe = async (c: AuthedContext) => {
+  const user = userFromContext(c);
+  const sessionId = sessionIdFromContext(c);
+  const apiKey = c.get('apiKey');
   return c.json({
     user: userToEffectiveWire(user),
     viaApiKey: !sessionId,
-    apiKey,
+    apiKey: apiKey ? { id: apiKey.id, name: apiKey.name } : null,
   });
 };

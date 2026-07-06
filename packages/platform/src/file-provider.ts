@@ -2,8 +2,9 @@ export interface FileProvider {
   put(key: string, body: Uint8Array): Promise<void>;
   get(key: string): Promise<Uint8Array | null>;
   deletePrefix(prefix: string): Promise<void>;
-  // Enumerate every object key under `prefix`. The sweeper uses this to find
-  // which time-bucket prefixes still exist so it can delete each expired one.
+  // Returns every key whose name starts with prefix. Implementations enumerate
+  // exhaustively (paginating internally where the backing store requires it);
+  // callers receive a flat list of full keys.
   listKeys(prefix: string): Promise<string[]>;
 }
 

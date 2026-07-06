@@ -7,6 +7,7 @@ export interface SearchConfig {
   provider: 'disabled' | WebSearchProviderName;
   tavily: { apiKey: string };
   microsoftGrounding: { apiKey: string };
+  jina: { apiKey: string };
 }
 
 export const DEFAULT_WEB_SEARCH_RESULT_COUNT = 10;

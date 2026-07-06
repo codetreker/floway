@@ -6,7 +6,7 @@ import type { ChatCompletionsStreamEvent, ChatCompletionsPayload } from '@floway
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
@@ -15,8 +15,8 @@ const okEvents = (): Promise<ExecuteResult<ProtocolFrame<ChatCompletionsStreamEv
 
 const invocation = (payload: ChatCompletionsPayload): ChatCompletionsBoundaryCtx => ({
   payload,
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { chatCompletions: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { chatCompletions: {} } }),
 });
 
 test('Chat Completions vision header set when an image_url content part is present', async () => {
@@ -35,7 +35,7 @@ test('Chat Completions vision header set when an image_url content part is prese
 
   await withVisionHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['copilot-vision-request'], 'true');
+  assertEquals(ctx.headers.get('copilot-vision-request'), 'true');
 });
 
 test('Chat Completions vision header absent when content is pure text', async () => {
@@ -49,5 +49,5 @@ test('Chat Completions vision header absent when content is pure text', async ()
 
   await withVisionHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals('copilot-vision-request' in ctx.headers, false);
+  assertEquals(ctx.headers.has('copilot-vision-request'), false);
 });

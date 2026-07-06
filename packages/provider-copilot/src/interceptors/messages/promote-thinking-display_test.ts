@@ -6,7 +6,7 @@ import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols
 import type { MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const collect = async <T>(events: AsyncIterable<T>): Promise<T[]> => {
   const collected: T[] = [];
@@ -26,8 +26,8 @@ const makeCtx = (
     max_tokens: 128,
     ...(thinking ? { thinking } : {}),
   },
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { messages: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { messages: {} } }),
 });
 
 const stubRequest = {};
@@ -93,7 +93,6 @@ test('withThinkingDisplayPromoted sends summarized upstream when thinking displa
         name: 'Error',
         message: 'stop',
         stack: '',
-        source_api: 'messages',
         target_api: 'messages',
       },
     }));

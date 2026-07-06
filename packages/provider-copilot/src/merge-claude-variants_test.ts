@@ -117,6 +117,39 @@ test('mergeClaudeVariants merges 4.6 base + 1m', () => {
   assertEquals(capabilities.limits?.max_output_tokens, 64_000);
 });
 
+test('mergeClaudeVariants merges 4.6 base + 1m + fast', () => {
+  const input: CopilotModelsResponse = {
+    object: 'list',
+    data: [
+      claudeVariant('claude-opus-4.6-1m', {
+        maxContextWindowTokens: 1_000_000,
+        maxPromptTokens: 936_000,
+        maxOutputTokens: 64_000,
+      }),
+      claudeVariant('claude-opus-4.6-fast', {
+        maxContextWindowTokens: 200_000,
+        maxPromptTokens: 168_000,
+        maxOutputTokens: 16_000,
+      }),
+      claudeVariant('claude-opus-4.6', {
+        maxContextWindowTokens: 200_000,
+        maxPromptTokens: 168_000,
+        maxOutputTokens: 32_000,
+      }),
+    ],
+  };
+
+  const merged = mergeClaudeVariants(input);
+  assertEquals(merged.data.length, 1);
+  const m = merged.data[0];
+
+  // The merged surface shows one public id; -fast collapses into it the
+  // same way -1m does. Per-tier behavior is resolved at request time via
+  // model-selection + the speed: 'fast' field, not exposed in the catalog.
+  assertEquals(m.id, 'claude-opus-4-6');
+  assertEquals(m.capabilities?.limits?.max_context_window_tokens, 1_000_000);
+});
+
 test('mergeClaudeVariants leaves non-Claude models untouched', () => {
   const input: CopilotModelsResponse = {
     object: 'list',
@@ -142,4 +175,47 @@ test('mergeClaudeVariants preserves order across mixed claude/non-claude models'
     merged.data.map(m => m.id),
     ['claude-opus-4-7', 'gpt-5.5', 'claude-sonnet-4-6'],
   );
+});
+
+test('mergeClaudeVariants preserves vision/adaptive_thinking/budget from base variant', () => {
+  // These fields are uniform per family (every variant shares the same base
+  // capability), so the merge just keeps the base's value via the ...supports spread.
+  const input: CopilotModelsResponse = {
+    object: 'list',
+    data: [
+      {
+        ...claudeVariant('claude-opus-4.7', { reasoningEfforts: ['medium'] }),
+        capabilities: {
+          type: 'chat',
+          limits: { max_context_window_tokens: 200_000 },
+          supports: {
+            vision: true,
+            reasoning_effort: ['medium'],
+            min_thinking_budget: 1024,
+            max_thinking_budget: 32768,
+            adaptive_thinking: true,
+          },
+        },
+      },
+      {
+        ...claudeVariant('claude-opus-4.7-xhigh', { reasoningEfforts: ['xhigh'] }),
+        capabilities: {
+          type: 'chat',
+          limits: { max_context_window_tokens: 200_000 },
+          supports: { vision: true, reasoning_effort: ['xhigh'] },
+        },
+      },
+    ],
+  };
+
+  const merged = mergeClaudeVariants(input);
+  assertEquals(merged.data.length, 1);
+  const supports = merged.data[0].capabilities?.supports;
+  // vision and budget fields come from the base via spread
+  assertEquals(supports?.vision, true);
+  assertEquals(supports?.min_thinking_budget, 1024);
+  assertEquals(supports?.max_thinking_budget, 32768);
+  assertEquals(supports?.adaptive_thinking, true);
+  // reasoning_effort is the union
+  assertSameSet(supports?.reasoning_effort, ['medium', 'xhigh']);
 });

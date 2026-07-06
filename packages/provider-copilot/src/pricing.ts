@@ -14,19 +14,72 @@
 // snapshot for one-shot historical cleanup and is deliberately not kept in
 // sync — historical rows for newly-priced models are recovered by re-running
 // the cost backfill against live D1, not by editing that migration.
+//
+// Refresh procedure: .agents/skills/fetching-models-pricing/.
 import { copilotPublicModelId } from './model-name.ts';
 import type { ModelPricing } from '@floway-dev/protocols/common';
 
 type PricingRule = readonly [key: string | RegExp, pricing: ModelPricing];
 
 const COPILOT_MODEL_PRICING: readonly PricingRule[] = [
+  // Opus 4.5 — no Fast Mode variant exposed by Copilot.
   [
-    /^claude-opus-4-[5678]$/,
+    'claude-opus-4-5',
     {
       input: 5,
       input_cache_read: 0.5,
       input_cache_write: 6.25,
       output: 25,
+    },
+  ],
+  // Opus 4.6 / 4.7 — Anthropic public Fast Mode pricing is 6× base.
+  // https://docs.claude.com/en/build-with-claude/fast-mode
+  [
+    /^claude-opus-4-[67]$/,
+    {
+      input: 5,
+      input_cache_read: 0.5,
+      input_cache_write: 6.25,
+      output: 25,
+      tiers: {
+        fast: {
+          input: 30,
+          input_cache_read: 3,
+          input_cache_write: 37.5,
+          output: 150,
+        },
+      },
+    },
+  ],
+  // Opus 4.8 — Anthropic public Fast Mode pricing is 2× base.
+  [
+    'claude-opus-4-8',
+    {
+      input: 5,
+      input_cache_read: 0.5,
+      input_cache_write: 6.25,
+      output: 25,
+      tiers: {
+        fast: {
+          input: 10,
+          input_cache_read: 1,
+          input_cache_write: 12.5,
+          output: 50,
+        },
+      },
+    },
+  ],
+  // Sonnet 5 — Anthropic introductory pricing through 2026-08-31; sticker is
+  // $3/$15 (same as Sonnet 4 family) afterwards. Cross-checked against
+  // OpenRouter (openrouter.ai/api/v1/models) and models.dev, both mirroring
+  // Anthropic's live rate.
+  [
+    'claude-sonnet-5',
+    {
+      input: 2,
+      input_cache_read: 0.2,
+      input_cache_write: 2.5,
+      output: 10,
     },
   ],
   [
@@ -79,6 +132,7 @@ const COPILOT_MODEL_PRICING: readonly PricingRule[] = [
   ['goldeneye', { input: 1.25, input_cache_read: 0.125, output: 10 }],
   ['raptor-mini', { input: 0.25, input_cache_read: 0.025, output: 2 }],
   ['minimax-m2.5', { input: 0.3, output: 1.2 }],
+  [/^mai-code-1-flash/, { input: 0.75, input_cache_read: 0.075, output: 4.5 }],
   [/^text-embedding-3-small/, { input: 0.02, output: 0 }],
   ['text-embedding-ada-002', { input: 0.1, output: 0 }],
 ];

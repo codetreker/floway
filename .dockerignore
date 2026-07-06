@@ -1,0 +1,12 @@
+.git
+node_modules
+.pnpm-store
+**/node_modules
+**/dist
+.wrangler
+.vite
+.eslintcache
+data
+.env
+outputs
+work

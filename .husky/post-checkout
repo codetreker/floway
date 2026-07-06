@@ -1,0 +1,53 @@
+#!/bin/sh
+# Keep the main worktree pinned to `main`. Linked worktrees under
+# <repo_root>/.worktrees/ are free to be on any branch, tag, or revision —
+# the agent rules forbid in-flight work on main itself, so any checkout that
+# moves the main worktree off `main` is reverted immediately and reported as
+# an error.
+
+prev_head="$1"
+new_head="$2"
+branch_flag="$3"
+
+# Skip file checkouts (`git checkout -- path`); only branch/ref checkouts
+# pass branch_flag=1.
+[ "$branch_flag" = "1" ] || exit 0
+
+# Nothing actually moved (e.g. `git checkout` of the current branch).
+[ "$prev_head" = "$new_head" ] && exit 0
+
+toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+case "$common_dir" in
+  /*) ;;
+  *) common_dir=$(cd "$common_dir" 2>/dev/null && pwd) || exit 0 ;;
+esac
+main_root=$(dirname "$common_dir")
+
+# A linked worktree — anything goes.
+case "$toplevel" in
+  "$main_root"/.worktrees/*) exit 0 ;;
+esac
+
+# In the main worktree. `main` is the only acceptable HEAD. Husky runs us
+# under `sh -e`, so detached-HEAD failures from `git symbolic-ref` must be
+# swallowed explicitly — otherwise set -e kills the hook before we can react.
+current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+[ "$current_branch" = "main" ] && exit 0
+
+short_head=$(git rev-parse --short "$new_head" 2>/dev/null || true)
+target_label=${current_branch:-$short_head}
+target_label=${target_label:-$new_head}
+
+cat >&2 <<MSG
+ERROR! The main worktree must stay on \`main\`; refusing checkout to \`${target_label}\`.
+Use a linked worktree for any other branch/tag/revision:
+  git worktree add .worktrees/<name> <branch-or-ref>
+Restoring the main worktree to \`main\`...
+MSG
+
+git checkout --quiet main || {
+  echo "ERROR! Failed to restore \`main\`; resolve manually." >&2
+  exit 1
+}
+exit 1

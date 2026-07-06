@@ -491,3 +491,61 @@ test('mapChatCompletionsUsageToMessagesUsage surfaces cache_creation_input_token
   assertEquals(usage.cache_read_input_tokens, undefined);
   assertEquals(usage.cache_creation_input_tokens, 50);
 });
+
+test('translateChatCompletionsChunkToMessagesEvents surfaces service_tier:fast as usage.speed:fast in message_delta', () => {
+  const state = createChatCompletionsToMessagesStreamState();
+  const events = [
+    ...translateChatCompletionsChunkToMessagesEvents(chunk({ role: 'assistant', content: 'hi' }), state),
+    ...translateChatCompletionsChunkToMessagesEvents(chunk({}, 'stop'), state),
+    ...translateChatCompletionsChunkToMessagesEvents(
+      {
+        id: 'chatcmpl_test',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'gpt-test',
+        choices: [],
+        service_tier: 'fast',
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      },
+      state,
+    ),
+  ];
+
+  const messageDelta = events.find(event => event.type === 'message_delta');
+  assertEquals((messageDelta as { usage: { speed?: string } }).usage.speed, 'fast');
+});
+
+test('translateChatCompletionsChunkToMessagesEvents omits usage.speed when service_tier is not fast', () => {
+  const state = createChatCompletionsToMessagesStreamState();
+  const events = [
+    ...translateChatCompletionsChunkToMessagesEvents(chunk({ role: 'assistant', content: 'hi' }), state),
+    ...translateChatCompletionsChunkToMessagesEvents(chunk({}, 'stop'), state),
+    ...translateChatCompletionsChunkToMessagesEvents(
+      {
+        id: 'chatcmpl_test',
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'gpt-test',
+        choices: [],
+        service_tier: 'default',
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      },
+      state,
+    ),
+  ];
+
+  const messageDelta = events.find(event => event.type === 'message_delta');
+  assertFalse('speed' in (messageDelta as { usage: Record<string, unknown> }).usage);
+});
+
+test('translateChatCompletionsChunkToMessagesEvents omits usage.speed when service_tier is absent', () => {
+  const state = createChatCompletionsToMessagesStreamState();
+  const events = [
+    ...translateChatCompletionsChunkToMessagesEvents(chunk({ role: 'assistant', content: 'hi' }), state),
+    ...translateChatCompletionsChunkToMessagesEvents(chunk({}, 'stop'), state),
+    ...translateChatCompletionsChunkToMessagesEvents(usageChunk(), state),
+  ];
+
+  const messageDelta = events.find(event => event.type === 'message_delta');
+  assertFalse('speed' in (messageDelta as { usage: Record<string, unknown> }).usage);
+});

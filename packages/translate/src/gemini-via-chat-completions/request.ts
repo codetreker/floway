@@ -12,6 +12,7 @@ import {
   type GeminiToolCallIds,
   geminiVisibleText,
 } from '../shared/gemini-via/gemini.ts';
+import { TranslatorInputError } from '../translator-input-error.ts';
 import type { ChatCompletionsPayload, ChatCompletionsContentPart, ChatCompletionsMessage, ChatCompletionsTool, ChatCompletionsToolCall } from '@floway-dev/protocols/chat-completions';
 import type { GeminiContent, GeminiPayload, GeminiGenerationConfig, GeminiPart } from '@floway-dev/protocols/gemini';
 
@@ -86,7 +87,7 @@ const buildAssistantMessage = (content: GeminiContent, turnIndex: number, unmatc
       visibleParts.push(part);
       return;
     default:
-      throw new Error(`Gemini → Chat Completions translator does not accept ${kind} parts in model content.`);
+      throw new TranslatorInputError(`"${kind}" parts are not supported in model content.`);
     }
   });
 
@@ -138,7 +139,7 @@ const buildUserMessages = (content: GeminiContent, turnIndex: number, unmatchedT
       pendingParts.push(part);
       return;
     default:
-      throw new Error(`Gemini → Chat Completions translator does not accept ${kind} parts in user content.`);
+      throw new TranslatorInputError(`"${kind}" parts are not supported in user content.`);
     }
   });
 
@@ -228,7 +229,7 @@ export const buildTargetRequest = (payload: GeminiPayload, model: string): ChatC
       request.messages.push(...buildUserMessages(content, turnIndex, unmatchedToolCallIds));
       return;
     default:
-      throw new Error(`Gemini → Chat Completions translator does not accept ${(content as { role: string }).role} content roles.`);
+      throw new TranslatorInputError(`"${(content as { role: string }).role}" is not a supported content role.`);
     }
   });
 

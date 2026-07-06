@@ -1,13 +1,142 @@
+import type { ExecutionContext } from 'hono';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 
 import { mountCodexRoutes } from './routes.ts';
-import { authMiddleware } from '../../middleware/auth.ts';
-import { copilotModels, setupAppTest } from '../../test-helpers.ts';
+import { app as gatewayApp } from '../../app.ts';
+import { type AuthVars, authMiddleware } from '../../middleware/auth.ts';
+import { copilotModels, setupAppTest, sseResponsesResponse } from '../../test-helpers.ts';
+import { isStoredResponseId } from '../chat/responses/items/format.ts';
 import { jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
+type WorkerResponseInit = ResponseInit & { readonly webSocket?: WebSocket };
+
+class TestWorkerWebSocket extends EventTarget {
+  peer?: TestWorkerWebSocket;
+  readyState: number = WebSocket.OPEN;
+
+  accept(): void {}
+
+  send(data: string): void {
+    this.peer?.dispatchEvent(new MessageEvent('message', { data }));
+  }
+
+  close(): void {
+    this.readyState = WebSocket.CLOSED;
+    if (this.peer) {
+      this.peer.readyState = WebSocket.CLOSED;
+      this.peer.dispatchEvent(new Event('close'));
+    }
+  }
+}
+
+const installWorkerWebSocketRuntime = (): {
+  readonly pairs: Array<{ readonly client: TestWorkerWebSocket; readonly server: TestWorkerWebSocket }>;
+  restore(): void;
+} => {
+  const globals = globalThis as typeof globalThis & {
+    WebSocketPair?: unknown;
+    Response: typeof Response;
+  };
+  const originalWebSocketPair = globals.WebSocketPair;
+  const OriginalResponse = globals.Response;
+  const pairs: Array<{ readonly client: TestWorkerWebSocket; readonly server: TestWorkerWebSocket }> = [];
+
+  globals.WebSocketPair = class {
+    constructor() {
+      const client = new TestWorkerWebSocket();
+      const server = new TestWorkerWebSocket();
+      client.peer = server;
+      server.peer = client;
+      pairs.push({ client, server });
+      return { 0: client, 1: server };
+    }
+  };
+
+  globals.Response = class extends OriginalResponse {
+    constructor(body?: BodyInit | null, init?: WorkerResponseInit) {
+      if (init?.status === 101) {
+        const { webSocket, status: _status, ...rest } = init;
+        super(null, { ...rest, status: 200 });
+        Object.defineProperty(this, 'status', { value: 101 });
+        Object.defineProperty(this, 'webSocket', { value: webSocket });
+        return;
+      }
+      super(body, init);
+    }
+  };
+
+  return {
+    pairs,
+    restore: () => {
+      globals.WebSocketPair = originalWebSocketPair;
+      globals.Response = OriginalResponse;
+    },
+  };
+};
+
+const waitForMessages = async (
+  socket: TestWorkerWebSocket,
+  done: (messages: readonly Record<string, unknown>[]) => boolean,
+  timeoutMs = 1_000,
+): Promise<readonly Record<string, unknown>[]> => {
+  const messages: Record<string, unknown>[] = [];
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.removeEventListener('message', onMessage);
+      reject(new Error(`Timed out waiting for WebSocket messages; received ${JSON.stringify(messages)}`));
+    }, timeoutMs);
+    const onMessage = (event: Event): void => {
+      const data = (event as MessageEvent<string>).data;
+      messages.push(JSON.parse(data) as Record<string, unknown>);
+      if (!done(messages)) return;
+      clearTimeout(timeout);
+      socket.removeEventListener('message', onMessage);
+      resolve(messages);
+    };
+    socket.addEventListener('message', onMessage);
+  });
+};
+
+const withWorkerWebSocketRuntime = async <T>(run: (runtime: ReturnType<typeof installWorkerWebSocketRuntime>) => Promise<T>): Promise<T> => {
+  const runtime = installWorkerWebSocketRuntime();
+  try {
+    return await run(runtime);
+  } finally {
+    runtime.restore();
+  }
+};
+
+const connectCodexResponsesWebSocket = async (
+  runtime: ReturnType<typeof installWorkerWebSocketRuntime>,
+  apiKey: string,
+): Promise<TestWorkerWebSocket> => {
+  const executionCtx = {
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+    props: {},
+  } satisfies ExecutionContext;
+  const response = await gatewayApp.fetch(new Request('https://example.test/azure-api.codex/responses', {
+    method: 'GET',
+    headers: {
+      upgrade: 'websocket',
+      authorization: `Bearer ${apiKey}`,
+    },
+  }), {}, executionCtx);
+  expect(response.status).toBe(101);
+  const pair = runtime.pairs.at(-1);
+  expect(pair).toBeDefined();
+  return pair!.client;
+};
+
+const responseDoneId = (messages: readonly Record<string, unknown>[]): string => {
+  const done = messages.find(message => message.type === 'response.done') as { response?: { id?: unknown } } | undefined;
+  expect(done?.response?.id).toEqual(expect.any(String));
+  return done!.response!.id as string;
+};
+
 const buildCodexApp = () => {
-  const app = new Hono();
+  const app = new Hono<{ Variables: AuthVars }>();
   app.use('*', authMiddleware);
   mountCodexRoutes(app);
   return app;
@@ -24,9 +153,9 @@ const copilotFetch = (models: Array<{ id: string; maxContextWindowTokens?: numbe
       return jsonResponse(['1.110.1']);
     }
     if (url.pathname === '/copilot_internal/v2/token') {
-      return jsonResponse({ token: 'test-copilot-token', expires_at: 4102444800, refresh_in: 3600 });
+      return jsonResponse({ token: 'test-copilot-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
     }
-    if (url.hostname === 'api.githubcopilot.com' && url.pathname === '/models') {
+    if (url.hostname === 'api.individual.githubcopilot.com' && url.pathname === '/models') {
       return jsonResponse(copilotModels(models));
     }
     throw new Error(`Unhandled fetch ${request.url}`);
@@ -43,7 +172,7 @@ interface CodexModelsResponse {
 
 describe('codex 1p namespace', () => {
   describe('auth', () => {
-    it('accepts a floway api key supplied as `Authorization: Bearer <key>`', async () => {
+    it('accepts a Floway api key supplied as `Authorization: Bearer <key>`', async () => {
       const { apiKey } = await setupAppTest();
       const app = buildCodexApp();
 
@@ -130,6 +259,75 @@ describe('codex 1p namespace', () => {
       });
       expect(response.status).toBe(426);
       expect(await response.json()).toEqual({ error: 'Expected Upgrade: websocket' });
+    });
+
+    it('chains previous_response_id on /azure-api.codex/responses WebSocket using response.done id', async () => {
+      const { apiKey } = await setupAppTest();
+      const upstreamBodies: unknown[] = [];
+      let turn = 0;
+
+      await withMockedFetch(
+        async request => {
+          const url = new URL(request.url);
+          if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+          if (url.pathname === '/copilot_internal/v2/token') {
+            return jsonResponse({ token: 'test-copilot-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
+          }
+          if (url.pathname === '/models') {
+            return jsonResponse(copilotModels([{ id: 'gpt-direct-responses', supported_endpoints: ['/responses'] }]));
+          }
+          if (url.pathname === '/responses') {
+            upstreamBodies.push(JSON.parse(await request.text()));
+            turn += 1;
+            return sseResponsesResponse({
+              id: `resp_codex_ws_${turn}`,
+              object: 'response',
+              model: 'gpt-direct-responses',
+              status: 'completed',
+              output_text: `codex ws answer ${turn}`,
+              output: [{
+                id: `assistant_codex_ws_${turn}`,
+                type: 'message',
+                role: 'assistant',
+                status: 'completed',
+                content: [{ type: 'output_text', text: `codex ws answer ${turn}` }],
+              }],
+            });
+          }
+          throw new Error(`Unhandled fetch ${request.url}`);
+        },
+        async () => await withWorkerWebSocketRuntime(async runtime => {
+          const client = await connectCodexResponsesWebSocket(runtime, apiKey.key);
+          const firstDone = waitForMessages(client, messages => messages.some(message => message.type === 'response.done'));
+          client.send(JSON.stringify({
+            type: 'response.create',
+            response: { model: 'gpt-direct-responses', input: 'codex first', store: false },
+          }));
+          const firstResponseId = responseDoneId(await firstDone);
+          expect(isStoredResponseId(firstResponseId)).toBe(true);
+
+          const secondDone = waitForMessages(client, messages => messages.some(message => message.type === 'response.done'));
+          client.send(JSON.stringify({
+            type: 'response.create',
+            response: {
+              model: 'gpt-direct-responses',
+              previous_response_id: firstResponseId,
+              input: 'codex second',
+              store: false,
+            },
+          }));
+          const secondResponseId = responseDoneId(await secondDone);
+          expect(isStoredResponseId(secondResponseId)).toBe(true);
+        }),
+      );
+
+      const secondBody = upstreamBodies[1] as { previous_response_id?: unknown; input: Array<{ type: string; role?: string; content?: unknown }> };
+      expect(secondBody.previous_response_id).toBeUndefined();
+      expect(secondBody.input.map(item => [item.type, item.role, item.content])).toEqual([
+        ['message', 'user', 'codex first'],
+        ['message', 'assistant', [{ type: 'output_text', text: 'codex ws answer 1' }]],
+        ['message', 'user', 'codex second'],
+      ]);
     });
   });
 
@@ -219,7 +417,7 @@ describe('codex 1p namespace', () => {
       expect(gpt54?.max_context_window).toBe(272000);
     });
 
-    it('drops slugs the registry does not advertise; only registry-known catalog entries reach the client', async () => {
+    it('registry-driven output: bundled entries surface only when a registry model resolves to them', async () => {
       const { apiKey } = await setupAppTest();
       const app = buildCodexApp();
       const body = await withMockedFetch(
@@ -232,41 +430,15 @@ describe('codex 1p namespace', () => {
           return await response.json() as CodexModelsResponse;
         },
       );
-      const slugs = body.models.map(m => m.slug);
-      // The bundled catalog ships with six slugs (gpt-5.5, gpt-5.4,
-      // gpt-5.4-mini, gpt-5.3-codex, gpt-5.2, codex-auto-review). Registry
-      // here advertises only gpt-5.5, and codex-auto-review's target
-      // (gpt-5.4) is missing — so the response is just gpt-5.5.
-      expect(slugs).toEqual(['gpt-5.5']);
+      // Pipeline iterates the addressable-listed chat models (gpt-5.5 is the
+      // only one the registry advertises here) and matches each against the
+      // bundled catalog. The other bundled slugs (gpt-5.4, gpt-5.4-mini,
+      // gpt-5.3-codex, gpt-5.2, codex-auto-review) have no registry counterpart
+      // and never appear in the output.
+      expect(body.models.map(m => m.slug)).toEqual(['gpt-5.5']);
     });
 
-    it('keeps codex-auto-review when its alias target is in the registry, drops it otherwise, and reports the target window', async () => {
-      const { apiKey } = await setupAppTest();
-      const app = buildCodexApp();
-      const body = await withMockedFetch(
-        copilotFetch([{ id: 'gpt-5.4', maxContextWindowTokens: 272000 }]),
-        async () => {
-          const response = await app.request('/azure-api.codex/models', {
-            headers: { authorization: `Bearer ${apiKey.key}` },
-          });
-          expect(response.status).toBe(200);
-          return await response.json() as CodexModelsResponse;
-        },
-      );
-      const slugs = new Set(body.models.map(m => m.slug));
-      expect(slugs.has('gpt-5.4')).toBe(true);
-      expect(slugs.has('codex-auto-review')).toBe(true);
-      expect(slugs.has('gpt-5.5')).toBe(false);
-      // codex-auto-review has no registry entry of its own, but it gets
-      // rewritten to gpt-5.4 at request time, so its catalog row reports
-      // gpt-5.4's window — not the bundled 1000000 max that would advertise
-      // a tier the gateway cannot serve.
-      const autoReview = body.models.find(m => m.slug === 'codex-auto-review');
-      expect(autoReview?.context_window).toBe(272000);
-      expect(autoReview?.max_context_window).toBe(272000);
-    });
-
-    it('returns an empty catalog when the registry has no overlapping slugs', async () => {
+    it('synthesizes a catalog entry for registry chat models with no bundled match', async () => {
       const { apiKey } = await setupAppTest();
       const app = buildCodexApp();
       const body = await withMockedFetch(
@@ -279,49 +451,10 @@ describe('codex 1p namespace', () => {
           return await response.json() as CodexModelsResponse;
         },
       );
-      expect(body.models).toEqual([]);
-    });
-
-    it('serves cached responses without re-running the registry on subsequent calls', async () => {
-      const { apiKey } = await setupAppTest();
-      const app = buildCodexApp();
-      const cacheStore = new Map<string, Response>();
-      const cacheStub: Cache = {
-        match: async (req: Request | string) => cacheStore.get(typeof req === 'string' ? req : req.url),
-        put: async (req: Request | string, response: Response) => {
-          cacheStore.set(typeof req === 'string' ? req : req.url, response);
-        },
-      } as unknown as Cache;
-      const globals = globalThis as unknown as { caches?: { default: Cache } };
-      const previous = globals.caches;
-      globals.caches = { default: cacheStub };
-      let registryCalls = 0;
-      try {
-        await withMockedFetch(
-          request => {
-            const url = new URL(request.url);
-            if (url.hostname === 'api.githubcopilot.com' && url.pathname === '/models') registryCalls += 1;
-            return copilotFetch([{ id: 'gpt-5.5', maxContextWindowTokens: 1050000 }])(request);
-          },
-          async () => {
-            const first = await app.request('/azure-api.codex/models', {
-              headers: { authorization: `Bearer ${apiKey.key}` },
-            });
-            expect(first.status).toBe(200);
-            await first.json();
-            const second = await app.request('/azure-api.codex/models', {
-              headers: { authorization: `Bearer ${apiKey.key}` },
-            });
-            expect(second.status).toBe(200);
-            await second.json();
-          },
-        );
-      } finally {
-        if (previous === undefined) delete globals.caches;
-        else globals.caches = previous;
-      }
-      expect(registryCalls).toBe(1);
-      expect(cacheStore.size).toBe(1);
+      // claude-sonnet-4 is not in the bundled codex catalog, so it gets a
+      // synthesized entry using the codex-shaped baseline from synthesize.ts.
+      expect(body.models).toHaveLength(1);
+      expect(body.models[0].slug).toBe('claude-sonnet-4');
     });
   });
 });

@@ -19,7 +19,7 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
 
 const BASE64_DATA_URL = /^data:([^;,]+);base64,(.*)$/s;
 
-export const compressBase64ImageToWebp = async (
+const compressBase64ImageToWebp = async (
   base64: string,
   calculator: ImageSizeCalculator,
 ): Promise<string> => {
@@ -30,7 +30,7 @@ export const compressBase64ImageToWebp = async (
 // Recompresses a `data:image/*;base64,...` URL to a WebP data URL. Returns the
 // original URL unchanged when it is not a base64 image data URL (e.g. a remote
 // https image reference, which the egress forwards as-is).
-export const compressImageDataUrlToWebp = async (
+const compressImageDataUrlToWebp = async (
   url: string,
   calculator: ImageSizeCalculator,
 ): Promise<string> => {
@@ -42,3 +42,37 @@ export const compressImageDataUrlToWebp = async (
 
 export const isBase64ImageDataUrl = (url: string): boolean =>
   BASE64_DATA_URL.exec(url)?.[1].startsWith('image/') ?? false;
+
+// Per-request memoizing wrappers around the compress helpers above. A single
+// agentic request often replays the same screenshot across many turns, so the
+// boundary interceptors run `Promise.all` over dozens of inline images that
+// hash to the same cache key. Without dedup, every duplicate races a
+// concurrent `kv.put`/sqlite UPDATE on that one key, which trips Cloudflare
+// KV's per-key 1-write/sec limit and wastes work on the Node target. Only the
+// memoized wrappers are exposed so a future caller cannot reintroduce the
+// dedup gap by reaching for the unmemoized form. The returned function shares
+// one in-flight compression per identical input for the lifetime of the
+// wrapper — discard it after the request finishes.
+const memoize = <TInput extends string, TOutput>(
+  compute: (input: TInput) => Promise<TOutput>,
+): ((input: TInput) => Promise<TOutput>) => {
+  const cache = new Map<TInput, Promise<TOutput>>();
+  return input => {
+    let pending = cache.get(input);
+    if (!pending) {
+      pending = compute(input);
+      cache.set(input, pending);
+    }
+    return pending;
+  };
+};
+
+export const memoizedDataUrlCompressor = (
+  calculator: ImageSizeCalculator,
+): ((url: string) => Promise<string>) =>
+  memoize(url => compressImageDataUrlToWebp(url, calculator));
+
+export const memoizedBase64Compressor = (
+  calculator: ImageSizeCalculator,
+): ((base64: string) => Promise<string>) =>
+  memoize(base64 => compressBase64ImageToWebp(base64, calculator));

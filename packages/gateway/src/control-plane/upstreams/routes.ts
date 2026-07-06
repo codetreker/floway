@@ -1,21 +1,51 @@
 import type { Context } from 'hono';
-import type { z } from 'zod';
 
-import { upstreamRecordToJson, type SerializedUpstreamRecord } from './serialize.ts';
+import { resolveControlPlaneFetcher } from './proxy-resolution.ts';
+import { blueprintUpstreamRecord, upstreamRecordToFullJson, upstreamRecordToJson, type SerializedUpstreamRecord } from './serialize.ts';
+import { MODEL_LISTING_FAILURE_MESSAGE } from '../../data-plane/models/shared.ts';
+import { fetchUpstreamModelsCached } from '../../data-plane/providers/models-cache.ts';
 import { createProviderInstance } from '../../data-plane/providers/registry.ts';
 import { createPerRequestFetcher } from '../../dial/per-request.ts';
+import { type AuthedContext, userFromContext } from '../../middleware/auth.ts';
 import { type CtxWithJson } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
 import { DIRECT_PROXY_ID, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
+import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
+import { getCurrentColo } from '../../runtime/runtime-info.ts';
 import { shortId } from '../../shared/short-id.ts';
-import { detectAccountType, fetchGitHubUser, pollGitHubDeviceFlow, startGitHubDeviceFlow } from '../auth/github-device-flow.ts';
-import type { codexImportBody, codexPkceStartBody, codexRefreshNowBody, codexReimportBody, copilotAuthPollBody, createUpstreamBody, fetchModelsBody, updateUpstreamBody } from '../schemas.ts';
+import { fetchGitHubUser, pollGitHubDeviceFlow, startGitHubDeviceFlow, type GitHubUser } from '../auth/github-device-flow.ts';
+import type { claudeCodeOauthAuthorizeUrlBody, claudeCodeOauthExchangeBody, claudeCodeOauthRefreshBody, claudeCodeProbeBody, claudeCodeSetupTokenAuthorizeUrlBody, claudeCodeSetupTokenExchangeBody, codexOauthAuthorizeUrlBody, codexOauthExchangeBody, codexOauthRefreshBody, copilotOauthDeviceLoginPollBody, copilotQuotaBody, createUpstreamBody, listModelsBody, updateUpstreamBody } from '../schemas.ts';
 import { copilotConfigField, type CopilotUpstreamConfig, isRecord } from '../shared/field-validators.ts';
-import { clearModelsStore, directFetcher, getProviderRepo, invalidateModelsStore, ProviderModelsUnavailableError, getFlagCatalog } from '@floway-dev/provider';
-import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import {
+  getFlagCatalog,
+  normalizeModelPrefix,
+  ProviderModelsUnavailableError,
+  ALL_PROVIDER_KINDS,
+  type Fetcher,
+  type ModelPrefixConfig,
+  type ProviderModel,
+  type ProxyFallbackEntry,
+  type UpstreamProviderKind,
+  type UpstreamRecord,
+} from '@floway-dev/provider';
 import { assertAzureUpstreamRecord } from '@floway-dev/provider-azure';
 import {
-  type CodexAccessTokenCache,
+  type ClaudeCodeAccountCredential,
+  type ClaudeCodeUpstreamConfig,
+  type ClaudeCodeUpstreamState,
+  ClaudeCodeOAuthSessionTerminatedError,
+  assertClaudeCodeUpstreamRecord,
+  buildClaudeCodeAuthorizeUrl,
+  ensureClaudeCodeAccessToken,
+  fetchClaudeCodeUsageProbe,
+  importClaudeCodeFromCallback,
+  importClaudeCodeFromCredentialsJson,
+  importClaudeCodeFromSetupTokenCallback,
+  logInfo,
+  readClaudeCodeUpstreamState,
+} from '@floway-dev/provider-claude-code';
+import {
+  type CodexQuotaSnapshotMap,
   type CodexUpstreamConfig,
   type CodexUpstreamState,
   CODEX_AUTHORIZE_URL,
@@ -25,44 +55,56 @@ import {
   CodexOAuthSessionTerminatedError,
   assertCodexUpstreamRecord,
   assertCodexUpstreamState,
-  extractCodexCallbackParams,
-  generateCodexPkce,
+  ensureCodexAccessToken,
   getCodexQuota,
   importCodexFromAuthJson,
   importCodexFromCallback,
-  putCodexAccessToken,
-  refreshCodexAccessToken,
+  mintCodexAccessToken,
 } from '@floway-dev/provider-codex';
-import { clearCopilotTokenCache, isCopilotAccountType } from '@floway-dev/provider-copilot';
+import { clearInProcessCopilotTokenCache, emptyCopilotUpstreamState, exchangeCopilotToken, githubHeaders, readCopilotUpstreamState, type CopilotTokenEntry, type CopilotUpstreamState } from '@floway-dev/provider-copilot';
 import { assertCustomUpstreamRecord, fetchCustomModels } from '@floway-dev/provider-custom';
+import { assertOllamaUpstreamRecord, createOllamaProvider } from '@floway-dev/provider-ollama';
 
-// Serialize for the HTTP response, attaching the live KV codex_quota snapshot
-// when the row is a Codex upstream. Keeps serialize.ts free of provider I/O
-// and a global repo handle, while ensuring every codex-bearing response shape
-// carries the quota panel data the dashboard expects.
+// Serialize for the HTTP response, attaching the live codex_quota snapshot map
+// when the row is a Codex upstream and the SWR models-cache freshness for
+// every row. Keeps serialize.ts free of provider I/O and a global repo handle,
+// while ensuring every response shape carries the panels the dashboard
+// expects.
 const serializeForResponse = async (record: UpstreamRecord): Promise<SerializedUpstreamRecord> => {
-  const serialized = upstreamRecordToJson(record);
-  if (record.provider === 'codex') {
-    serialized.codex_quota = await getCodexQuota(getProviderRepo().cache, record.id);
+  let codexQuotaPromise: Promise<CodexQuotaSnapshotMap | null> | null = null;
+  if (record.kind === 'codex') {
+    assertCodexUpstreamRecord(record);
+    codexQuotaPromise = getCodexQuota(record.id, record.config.accounts[0].chatgptAccountId);
   }
+  const cacheRow = await getRepo().modelsCache.get(record.id);
+  const serialized = upstreamRecordToJson(record);
+  serialized.modelsCache = {
+    fetchedAt: cacheRow?.fetchedAt ?? null,
+    lastError: cacheRow?.lastError ?? null,
+  };
+  if (codexQuotaPromise) serialized.codex_quota = await codexQuotaPromise;
   return serialized;
 };
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const validationError = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-// Runtime defensive parsers for upstream records read back from D1. The
-// request-time zod schemas guard incoming bodies; these parsers guard the DB
-// boundary so a manually-edited or migrated row that violates the runtime
-// invariants surfaces with an actionable message instead of crashing later.
-
+// Run the per-provider invariant asserts on a freshly-built or freshly-merged
+// record before it hits the repo. Request-time zod schemas only validate JSON
+// shape; these helpers enforce the URL / endpoint-mix / path-override rules
+// that the provider packages own.
 const normalizeConfig = (record: UpstreamRecord): ValidationResult<unknown> => {
   try {
-    if (record.provider === 'custom') return { ok: true, value: assertCustomUpstreamRecord(record).config };
-    if (record.provider === 'azure') return { ok: true, value: assertAzureUpstreamRecord(record).config };
-    if (record.provider === 'codex') {
+    if (record.kind === 'custom') return { ok: true, value: assertCustomUpstreamRecord(record).config };
+    if (record.kind === 'azure') return { ok: true, value: assertAzureUpstreamRecord(record).config };
+    if (record.kind === 'ollama') return { ok: true, value: assertOllamaUpstreamRecord(record).config };
+    if (record.kind === 'codex') {
       assertCodexUpstreamRecord(record);
+      return { ok: true, value: record.config };
+    }
+    if (record.kind === 'claude-code') {
+      assertClaudeCodeUpstreamRecord(record);
       return { ok: true, value: record.config };
     }
     return {
@@ -73,7 +115,7 @@ const normalizeConfig = (record: UpstreamRecord): ValidationResult<unknown> => {
       ),
     };
   } catch (error) {
-    return { ok: false, error: validationError(error) };
+    return { ok: false, error: errorMessage(error) };
   }
 };
 
@@ -84,20 +126,59 @@ const mergeConfigPatch = (provider: UpstreamProviderKind, existing: unknown, pat
     ...structuredClone(patch),
   };
 
-  if (provider === 'custom' && patch.pathOverrides === null) delete next.pathOverrides;
+  if (provider === 'custom') {
+    if (patch.pathOverrides === null) delete next.pathOverrides;
+    // Dead-field guard: a 'none' upstream must not carry a stale apiKey
+    // from a previous authStyle. Always strip apiKey when the merged style
+    // is 'none' so the persisted shape stays one branch of the discriminated
+    // union. The reverse (switching away from 'none') is left to the
+    // runtime parser, which rejects a missing apiKey when one is required.
+    if (next.authStyle === 'none') delete next.apiKey;
+  }
   return { ok: true, value: next };
 };
 
-const newId = (): string => shortId('up');
+// Zod validates `prefix` regex/length and `addressable.nonempty()`, but the
+// `listed ⊆ addressable` clamp and form-order canonicalisation live in
+// `normalizeModelPrefix`. Wrap it in the same ValidationResult shape the
+// sibling normalizers (normalizeConfig, mergeConfigPatch) use so the route
+// handlers stay uniform.
+const normalizeModelPrefixField = (input: unknown): ValidationResult<ModelPrefixConfig | null> => {
+  try {
+    return { ok: true, value: normalizeModelPrefix(input) };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+};
 
-const nextSortOrder = (upstreams: readonly UpstreamRecord[]): number => upstreams.reduce((acc, upstream) => Math.max(acc, upstream.sortOrder), -1) + 1;
+// Synchronously populate the SWR models cache for a freshly-saved upstream
+// so the dashboard's next navigation lands on a populated row. Upstream
+// fetch failures are persisted to the row's `lastError` by runFetch and
+// surfaced by the dashboard, so we discard the throw here. Provider
+// instance and fetcher construction errors are not swallowed; those signal
+// genuine misconfiguration that the operator must see.
+const warmModelsCache = async (record: UpstreamRecord, c: Context): Promise<void> => {
+  const scheduler = backgroundSchedulerFromContext(c);
+  const instance = await createProviderInstance(record);
+  const fetcher = (await createPerRequestFetcher(getCurrentColo(c.req.raw)))(record.id);
+  try {
+    await fetchUpstreamModelsCached(instance, { scheduler, fetcher, force: true });
+  } catch (e) {
+    // runFetch persists upstream failures to the row's `lastError`; anything
+    // reaching here is a Floway-side fault (lastError write itself failed,
+    // scheduler blew up, sqlite ran out of space, etc.). Log so the failure
+    // is observable — the dashboard would otherwise silently show a stale
+    // cache with no explanation.
+    logInfo('warm_models_cache_failed', { upstream_id: record.id, error: errorMessage(e) });
+  }
+};
 
-// 'direct' is always valid; any other entry must reference an existing
-// proxy row. List order matters at dial time (see createFetcher),
+// 'direct' is always a valid entry id; any other id must reference an
+// existing proxy row. List order matters at dial time (see createFetcher),
 // and persistence layers dedupe via normalizeProxyFallbackList before
 // storing.
-const validateProxyFallbackList = async (list: readonly string[]): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const ids = list.filter(id => id !== DIRECT_PROXY_ID);
+const validateProxyFallbackList = async (entries: readonly ProxyFallbackEntry[]): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const ids = entries.map(e => e.id).filter(id => id !== DIRECT_PROXY_ID);
   if (ids.length === 0) return { ok: true };
   const proxies = await getRepo().proxies.list();
   const known = new Set(proxies.map(p => p.id));
@@ -125,74 +206,122 @@ export const listUpstreamOptions = async (c: Context) => {
     .map(upstream => ({
       id: upstream.id,
       name: upstream.name,
-      provider: upstream.provider,
+      kind: upstream.kind,
       enabled: upstream.enabled,
     })));
 };
 
 export const listOptionalFlags = (c: Context) => c.json(getFlagCatalog());
 
+const isValidProviderKind = (value: unknown): value is UpstreamProviderKind =>
+  typeof value === 'string' && (ALL_PROVIDER_KINDS as readonly string[]).includes(value);
+
+// Serve a shape-complete blank SerializedUpstreamRecord for the requested
+// kind. The create page's loader calls this so it can render the same
+// UpstreamEditPage component edit uses, treating a fresh upstream as an
+// edit of an unpersisted record. The record is never written; the client's
+// draft state is the sole source of truth until Save.
+export const getUpstreamBlueprint = (c: Context): Response => {
+  const kind = c.req.query('kind');
+  if (!isValidProviderKind(kind)) {
+    return c.json({ error: `kind must be one of: ${ALL_PROVIDER_KINDS.join(', ')}` }, 400);
+  }
+  return c.json(upstreamRecordToFullJson(blueprintUpstreamRecord(kind)));
+};
+
+// Single-record read for the edit page. Returns the FULL record — no
+// secret redaction — because every editor-scoped action posts the record
+// back to a helper endpoint that needs the same credentials the data plane
+// uses (refresh tokens, api keys, etc.). The list endpoint continues to
+// serve the redacted projection for surfaces that don't need secrets.
+export const getUpstream = async (c: AuthedContext<'/:id'>) => {
+  const id = c.req.param('id');
+  const record = await getRepo().upstreams.getById(id);
+  if (!record) return c.json({ error: 'upstream not found' }, 404);
+  return c.json(upstreamRecordToFullJson(record));
+};
+
 export const createUpstream = async (c: CtxWithJson<typeof createUpstreamBody>) => {
   const body = c.req.valid('json');
-
-  // Codex credentials carry an OAuth refresh_token + id_token-derived identity
-  // that this endpoint cannot synthesize. Route the operator to the dedicated
-  // PKCE / import flow instead of letting a `provider: 'codex'` body through
-  // with no credential material.
-  if (body.provider === 'codex') {
-    return c.json({ error: 'Use POST /api/upstreams/codex-import for codex provider' }, 400);
-  }
 
   const proxyFallbackList = normalizeProxyFallbackList(body.proxy_fallback_list ?? []);
   const fallbackCheck = await validateProxyFallbackList(proxyFallbackList);
   if (!fallbackCheck.ok) return c.json({ error: fallbackCheck.error }, 400);
 
+  const modelPrefixResult = normalizeModelPrefixField(body.model_prefix);
+  if (!modelPrefixResult.ok) return c.json({ error: modelPrefixResult.error }, 400);
+  const modelPrefix = modelPrefixResult.value;
+
   const existing = await getRepo().upstreams.list();
   const now = new Date().toISOString();
+  // Copilot / Codex / Claude Code carry OAuth-derived server-owned fields
+  // (config.githubToken + config.user for Copilot; config.accounts +
+  // state.accounts for the multi-account providers) that the create page
+  // populated in draft via the corresponding OAuth-exchange helper before
+  // Save. The per-kind assertXxxUpstreamRecord below narrows those opaque
+  // payloads into their typed shape and rejects a POST that skipped the
+  // credential step.
+  const stateFromBody = body.kind === 'copilot' || body.kind === 'codex' || body.kind === 'claude-code' ? body.state ?? null : null;
   const upstream: UpstreamRecord = {
-    id: newId(),
-    provider: body.provider,
+    id: shortId('up'),
+    kind: body.kind,
     name: body.name,
     enabled: body.enabled ?? true,
-    sortOrder: body.sort_order ?? nextSortOrder(existing),
+    sortOrder: body.sort_order ?? existing.reduce((acc, u) => Math.max(acc, u.sortOrder), -1) + 1,
     createdAt: now,
     updatedAt: now,
     flagOverrides: body.flag_overrides ?? {},
     disabledPublicModelIds: body.disabled_public_model_ids ?? [],
     proxyFallbackList,
+    modelPrefix,
     config: body.config,
-    state: null,
+    state: stateFromBody,
   };
 
-  // Schema validated shape; this catches Azure-specific URL / endpoint-mix
-  // rules and Custom-specific path-override URL parsing that live in the
-  // per-provider assertCustomUpstreamRecord / assertAzureUpstreamRecord
-  // helpers.
   const config = normalizeConfig(upstream);
   if (!config.ok) return c.json({ error: config.error }, 400);
 
+  // Server-owned state (copilotToken, OAuth account slots) originates from
+  // this repo's own exchange endpoints, so a legitimate caller's body.state
+  // is already well-shaped. We still assert here because POST /api/upstreams
+  // accepts state on create — a caller who bypasses the exchange helpers
+  // could otherwise persist garbage that only surfaces on the first
+  // data-plane call. Copilot's reader accepts null as the empty blueprint
+  // shape; codex / claude-code assert against null too — their blueprints
+  // carry `{accounts: []}`, so an incoming null is a malformed request.
+  try {
+    if (upstream.kind === 'copilot') readCopilotUpstreamState(stateFromBody);
+    else if (upstream.kind === 'codex') assertCodexUpstreamState(stateFromBody);
+    else if (upstream.kind === 'claude-code') readClaudeCodeUpstreamState(stateFromBody);
+  } catch (err) {
+    return c.json({ error: `Invalid state for ${upstream.kind}: ${errorMessage(err)}` }, 400);
+  }
+
   const record = { ...upstream, config: config.value };
   await getRepo().upstreams.save(record);
-  await invalidateModelsStore(record.id);
+  await warmModelsCache(record, c);
   return c.json(await serializeForResponse(record), 201);
 };
 
-export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody>) => {
-  const id = c.req.param('id') ?? '';
+export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody, '/:id'>) => {
+  const id = c.req.param('id');
   const existing = await getRepo().upstreams.getById(id);
   if (!existing) return c.json({ error: 'Upstream not found' }, 404);
 
   const body = c.req.valid('json');
-  if (body.provider !== undefined && body.provider !== existing.provider) {
-    return c.json({ error: 'provider cannot be changed' }, 400);
+  if (body.kind !== undefined && body.kind !== existing.kind) {
+    return c.json({ error: 'kind cannot be changed' }, 400);
   }
 
-  // Codex `config` (id_token-derived identity) and credential state are
-  // owned by the dedicated re-import / refresh endpoints. Generic PATCH still
-  // adjusts the surrounding row metadata (name, enabled, sort_order, flag
-  // overrides, disabled model ids) but never the credential payload.
-  if (existing.provider === 'codex' && body.config !== undefined) {
-    return c.json({ error: 'Use POST /api/upstreams/:id/codex-reimport to update codex credentials' }, 400);
+  // OAuth-managed config slices (Copilot githubToken/user, Codex/Claude
+  // Code accounts[]) are owned by the per-provider action endpoints, not
+  // by generic PATCH. Metadata (name, enabled, sort_order, flag overrides,
+  // disabled model ids) still flows through here.
+  if (body.config !== undefined && (existing.kind === 'copilot' || existing.kind === 'codex' || existing.kind === 'claude-code')) {
+    const endpoint = existing.kind === 'copilot'
+      ? '/api/upstreams/copilot/oauth/device-login/poll'
+      : `/api/upstreams/${existing.kind}/oauth/exchange`;
+    return c.json({ error: `Use POST ${endpoint} to update ${existing.kind} credentials` }, 400);
   }
 
   let next: UpstreamRecord = { ...existing, updatedAt: new Date().toISOString() };
@@ -207,8 +336,13 @@ export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody>) 
     if (!fallbackCheck.ok) return c.json({ error: fallbackCheck.error }, 400);
     next = { ...next, proxyFallbackList: normalized };
   }
+  if (body.model_prefix !== undefined) {
+    const result = normalizeModelPrefixField(body.model_prefix);
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    next = { ...next, modelPrefix: result.value };
+  }
   if (body.config !== undefined) {
-    const config = mergeConfigPatch(existing.provider, existing.config, body.config);
+    const config = mergeConfigPatch(existing.kind, existing.config, body.config);
     if (!config.ok) return c.json({ error: config.error }, 400);
     next = { ...next, config: config.value };
   }
@@ -218,215 +352,170 @@ export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody>) 
   next = { ...next, config: config.value };
 
   await getRepo().upstreams.save(next);
-  await invalidateModelsStore(next.id);
+  await warmModelsCache(next, c);
   return c.json(await serializeForResponse(next));
 };
 
-export const deleteUpstream = async (c: Context) => {
-  const id = c.req.param('id') ?? '';
+export const deleteUpstream = async (c: AuthedContext<'/:id'>) => {
+  const id = c.req.param('id');
   const repo = getRepo();
   const deleted = await repo.upstreams.delete(id);
   if (!deleted) return c.json({ error: 'Upstream not found' }, 404);
-  // Sweep orphaned backoff rows. proxy_upstream_backoffs has no FK to upstreams, so the cleanup is unconditional.
+  // No FK from proxy_upstream_backoffs to upstreams; clean up explicitly.
   await repo.proxyBackoffs.resetForUpstream(id);
-  await invalidateModelsStore(id);
   return c.json({ ok: true });
 };
 
-// Browse the live `/models` list of a DRAFT (possibly unsaved) custom
-// upstream so the editor can pick models before saving. Edit mode leaves the
-// bearerToken field blank to mean "keep the stored secret"; when blank and an
-// `id` is given, the stored record's secret is substituted. A brand-new draft
-// must carry its own token — when none is available the assert rejects the
-// empty bearerToken as a 400, and a genuine upstream call would 401 anyway.
-export const fetchModels = async (c: CtxWithJson<typeof fetchModelsBody>) => {
-  const { id, config } = c.req.valid('json');
-
-  let bearerToken = config.bearerToken ?? '';
-  if (bearerToken.trim() === '' && id !== undefined) {
-    const existing = await getRepo().upstreams.getById(id);
-    if (existing) {
-      const stored = assertCustomUpstreamRecord(existing);
-      bearerToken = stored.config.bearerToken;
-    }
-  }
-
-  const now = new Date().toISOString();
-  const record: UpstreamRecord = {
-    id: id ?? newId(),
-    provider: 'custom',
-    name: 'Draft custom upstream',
-    enabled: true,
-    sortOrder: 0,
-    createdAt: now,
-    updatedAt: now,
-    flagOverrides: {},
-    disabledPublicModelIds: [],
-    proxyFallbackList: [],
-    config: { ...config, bearerToken },
-    state: null,
-  };
-
-  let assertedConfig;
-  try {
-    assertedConfig = assertCustomUpstreamRecord(record).config;
-  } catch (e) {
-    return c.json({ error: validationError(e) }, 400);
-  }
-
-  try {
-    // Edit mode (`id` present) routes the upstream's catalog GET through the
-    // per-request proxy fallback chain so the dashboard's Refresh button hits
-    // the same egress path as the data plane; a brand-new draft has no saved
-    // row yet, so it falls back to direct.
-    const fetcher = id === undefined ? directFetcher : (await createPerRequestFetcher())(id);
-    const result = await fetchCustomModels(assertedConfig, fetcher);
-    return c.json(result);
-  } catch (e) {
-    // Mirror the control-plane /models convention: squash genuine upstream
-    // HTTP/parse failures to a generic 502 without leaking provider identity.
-    if (e instanceof ProviderModelsUnavailableError) {
-      return c.json({ error: { message: 'Upstream model listing failed', type: 'api_error' } }, 502);
-    }
-    throw e;
-  }
-};
-
-// List the resolved model catalog of a SAVED upstream (any provider). A
-// read-only view for the dashboard — Copilot's catalog in particular is fixed
-// by the upstream and the operator cannot edit it.
-export const listUpstreamModels = async (c: Context) => {
-  const id = c.req.param('id');
-  if (!id) return c.json({ error: 'upstream id is required' }, 400);
-  const record = await getRepo().upstreams.getById(id);
-  if (!record) return c.json({ error: 'upstream not found' }, 404);
-
-  try {
-    const fetcherForUpstream = await createPerRequestFetcher();
-    const instance = await createProviderInstance(record);
-    const models = await instance.provider.getProvidedModels(fetcherForUpstream(record.id));
-    const data = models.map(model => ({
-      upstreamModelId: model.id,
-      publicModelId: model.id,
-      kind: model.kind,
-      endpoints: model.endpoints,
-      ...(model.display_name !== undefined ? { display_name: model.display_name } : {}),
-      ...(model.limits ? { limits: model.limits } : {}),
-      ...(model.cost ? { cost: model.cost } : {}),
-    }));
-    return c.json({ data });
-  } catch (e) {
-    if (e instanceof ProviderModelsUnavailableError) {
-      return c.json({ error: { message: 'Upstream model listing failed', type: 'api_error' } }, 502);
-    }
-    throw e;
-  }
-};
-
-export const copilotAuthStart = async (c: Context) => {
+export const copilotOauthDeviceLoginStart = async (c: Context) => {
   try {
     const result = await startGitHubDeviceFlow();
     if (!result.ok) return c.json({ error: result.error }, 502);
     return c.json(result.data);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = errorMessage(e);
     return c.json({ error: msg }, 502);
   }
 };
 
-const copilotConfigUserId = (config: unknown): number | null => {
-  if (!isRecord(config) || !isRecord(config.user)) return null;
-  return typeof config.user.id === 'number' && Number.isSafeInteger(config.user.id) ? config.user.id : null;
+// Unified device-login poll under the record-body action contract. The
+// GitHub device flow is inherently stateless; this handler exchanges the
+// device_code for a GitHub PAT + user info + Copilot access token, and
+// returns them as a patch to merge into the caller's draft record. When
+// the caller supplies a persisted `record.id`, the same patch is
+// simultaneously applied to the stored record so the live data plane
+// picks up the fresh credential immediately.
+export const copilotOauthDeviceLoginPoll = async (c: CtxWithJson<typeof copilotOauthDeviceLoginPollBody>) => {
+  const { record, deviceCode } = c.req.valid('json');
+
+  // Config-validation errors (e.g. unknown proxy id in the override) surface
+  // as 400 — they belong to the caller, not to the upstream.
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({ override: record.proxy_fallback_list, currentColo: getCurrentColo(c.req.raw) });
+  } catch (err) {
+    return c.json({ status: 'error' as const, error: errorMessage(err) }, 400);
+  }
+
+  // Upstream-facing calls (GitHub device poll + user lookup + Copilot token
+  // exchange) can legitimately 502 the caller when GitHub / Copilot is
+  // unhealthy. DB ops below run OUTSIDE this catch so that a repo `.save()`
+  // or scheduler failure surfaces as a 500 with a stack, not as a
+  // misleading "upstream error" 502.
+  type UpstreamCred = { user: GitHubUser; tokenEntry: CopilotTokenEntry; accessToken: string };
+  let cred: UpstreamCred;
+  try {
+    const data = await pollGitHubDeviceFlow(deviceCode, fetcher);
+
+    if (data.error === 'authorization_pending') return c.json({ status: 'pending' as const });
+    if (data.error === 'slow_down') return c.json({ status: 'slow_down' as const, interval: data.interval });
+    if (data.error) return c.json({ status: 'error' as const, error: data.error_description ?? data.error }, 400);
+    if (!data.access_token) return c.json({ status: 'error' as const, error: 'Unknown response' }, 500);
+
+    // Validates the PAT + seeds a fresh Copilot access token so the data
+    // plane and dashboard `endpoints.api` calls work immediately without
+    // a follow-up exchange round trip.
+    const user = await fetchGitHubUser(data.access_token, fetcher);
+    const tokenEntry = await exchangeCopilotToken(data.access_token, fetcher);
+    cred = { user, tokenEntry, accessToken: data.access_token };
+  } catch (e: unknown) {
+    return c.json({ status: 'error' as const, error: errorMessage(e) }, 502);
+  }
+
+  const configPatch: CopilotUpstreamConfig = { githubToken: cred.accessToken, user: cred.user };
+
+  // Return the fully-merged state slot instead of a partial `{ copilotToken }`
+  // patch. Frontend `applyPatch` does whole-slot replacement on state, so a
+  // partial slot would clobber any sibling field (e.g. draft.state.knownModels
+  // hydrated by an earlier fetch). Edit state seeds the merge from the stored
+  // record; create state seeds from an empty slot so the reply is uniformly a
+  // full slot regardless of caller path.
+  let nextState: CopilotUpstreamState;
+  if (record.id !== '') {
+    const dbRecord = await getRepo().upstreams.getById(record.id);
+    if (!dbRecord) return c.json({ status: 'error' as const, error: 'Upstream not found' }, 404);
+    if (dbRecord.kind !== 'copilot') return c.json({ status: 'error' as const, error: 'Upstream is not a Copilot upstream' }, 400);
+    const prevState = readCopilotUpstreamState(dbRecord.state);
+    nextState = { ...prevState, copilotToken: cred.tokenEntry };
+    const next: UpstreamRecord = { ...dbRecord, config: configPatch, state: nextState, updatedAt: new Date().toISOString() };
+    await getRepo().upstreams.save(next);
+    clearInProcessCopilotTokenCache();
+    await warmModelsCache(next, c);
+  } else {
+    nextState = { ...emptyCopilotUpstreamState(), copilotToken: cred.tokenEntry };
+  }
+
+  return c.json({
+    status: 'complete' as const,
+    user: cred.user,
+    patch: {
+      config: configPatch,
+      state: nextState,
+    },
+  });
 };
 
-export const copilotAuthPoll = async (c: CtxWithJson<typeof copilotAuthPollBody>) => {
+interface CopilotQuotaDetail {
+  entitlement: number;
+  overage_count: number;
+  overage_permitted: boolean;
+  percent_remaining: number;
+  quota_id: string;
+  quota_remaining: number;
+  remaining: number;
+  unlimited: boolean;
+}
+
+interface CopilotUsageResponse {
+  access_type_sku: string;
+  analytics_tracking_id: string;
+  assigned_date: string;
+  can_signup_for_limited: boolean;
+  chat_enabled: boolean;
+  copilot_plan: string;
+  organization_login_list: unknown[];
+  organization_list: unknown[];
+  quota_reset_date: string;
+  quota_snapshots: {
+    chat: CopilotQuotaDetail;
+    completions: CopilotQuotaDetail;
+    premium_interactions: CopilotQuotaDetail;
+  };
+}
+
+// Look up GitHub Copilot quota for the draft's github token. Pure query —
+// no DB touch, no patch — because the response is a live snapshot that
+// the dashboard renders in place. Works uniformly in create and edit
+// state (draft.config.githubToken is the sole input).
+export const copilotQuota = async (c: CtxWithJson<typeof copilotQuotaBody>) => {
   try {
-    const { device_code: deviceCode } = c.req.valid('json');
+    const { record } = c.req.valid('json');
+    if (record.kind !== 'copilot') return c.json({ error: 'Upstream is not a Copilot upstream' }, 400);
+    const config = isRecord(record.config) ? record.config : null;
+    const githubToken = config && typeof config.githubToken === 'string' ? config.githubToken : '';
+    if (!githubToken) return c.json({ error: 'Copilot upstream has no GitHub token' }, 400);
 
-    const data = await pollGitHubDeviceFlow(deviceCode);
+    const fetcher = await resolveControlPlaneFetcher({ override: record.proxy_fallback_list, currentColo: getCurrentColo(c.req.raw) });
+    const resp = await fetcher('https://api.github.com/copilot_internal/user', { headers: githubHeaders(githubToken) });
 
-    if (data.error === 'authorization_pending') return c.json({ status: 'pending' });
-    if (data.error === 'slow_down') return c.json({ status: 'slow_down', interval: data.interval });
-    if (data.error) return c.json({ status: 'error', error: data.error_description ?? data.error }, 400);
-
-    if (!data.access_token) return c.json({ status: 'error', error: 'Unknown response' }, 500);
-
-    const user = await fetchGitHubUser(data.access_token);
-    const accountType = await detectAccountType(data.access_token);
-    if (!isCopilotAccountType(accountType)) {
-      return c.json({ status: 'error', error: 'Unsupported Copilot account type' }, 502);
+    if (!resp.ok) {
+      const text = await resp.text();
+      const status = resp.status === 401 || resp.status === 403 ? 502 : resp.status;
+      return c.json({ error: `GitHub API error: ${resp.status} ${text}` }, status as 400 | 404 | 500 | 502);
     }
 
-    const repo = getRepo().upstreams;
-    const upstreams = await repo.list();
-    const existing = upstreams.find(upstream => upstream.provider === 'copilot' && copilotConfigUserId(upstream.config) === user.id);
-    const now = new Date().toISOString();
-    const config: CopilotUpstreamConfig = {
-      githubToken: data.access_token,
-      accountType,
-      user,
-    };
-
-    const record: UpstreamRecord = existing
-      ? {
-          ...existing,
-          config,
-          updatedAt: now,
-        }
-      : {
-          id: newId(),
-          provider: 'copilot',
-          name: user.login ? `GitHub Copilot (${user.login})` : 'GitHub Copilot',
-          enabled: true,
-          sortOrder: nextSortOrder(upstreams),
-          createdAt: now,
-          updatedAt: now,
-          flagOverrides: {},
-          disabledPublicModelIds: [],
-          proxyFallbackList: [],
-          config,
-          state: null,
-        };
-
-    await repo.save(record);
-    await clearCopilotTokenCache();
-    clearModelsStore();
-    await invalidateModelsStore(record.id);
-    return c.json({ status: 'complete', user, upstream: await serializeForResponse(record) });
+    const data = (await resp.json()) as CopilotUsageResponse;
+    return c.json(data);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: msg }, 502);
+    return c.json({ error: errorMessage(e) }, 502);
   }
 };
 
-const CODEX_PKCE_PENDING_PREFIX = 'codex_oauth_pending:';
-// 5 minutes mirrors auth.openai.com's authorization-code lifetime. A stale
-// pending state is harmless to leave (cache evicts it) but cannot be used
-// for token exchange anyway.
-const CODEX_PKCE_TTL_MS = 5 * 60 * 1000;
-
-const parseCodexPkcePendingEntry = (raw: string): string => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (cause) {
-    throw new Error(`Codex PKCE pending entry is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('Codex PKCE pending entry is not a JSON object');
-  }
-  const obj = parsed as Record<string, unknown>;
-  if (typeof obj.verifier !== 'string' || obj.verifier === '') {
-    throw new Error('Codex PKCE pending entry is missing a non-empty `verifier`');
-  }
-  return obj.verifier;
-};
-
-export const codexPkceStart = async (c: CtxWithJson<typeof codexPkceStartBody>) => {
-  const { verifier, challenge } = await generateCodexPkce();
-  const state = crypto.randomUUID().replace(/-/g, '');
-  await getRepo().cache.set(`${CODEX_PKCE_PENDING_PREFIX}${state}`, JSON.stringify({ verifier }), CODEX_PKCE_TTL_MS);
-
+// Codex OAuth under the unified record-body contract. Create and edit
+// share one endpoint each: the caller posts the draft record; when
+// `record.id !== ''` the produced patch is targeted-persisted, otherwise
+// it is only returned for the front-end to merge into its draft.
+export const codexOauthAuthorizeUrl = async (c: CtxWithJson<typeof codexOauthAuthorizeUrlBody>) => {
+  const { challenge, state } = c.req.valid('json');
   const url = new URL(CODEX_AUTHORIZE_URL);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', CODEX_CLIENT_ID);
@@ -435,181 +524,476 @@ export const codexPkceStart = async (c: CtxWithJson<typeof codexPkceStartBody>) 
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', challenge);
   url.searchParams.set('code_challenge_method', 'S256');
-  // OpenAI-side flags codex-cli sets. `id_token_add_organizations` enriches
-  // the id_token with the operator's chatgpt_account_id; without it the
-  // identity-parsing step in importCodex* throws. `codex_cli_simplified_flow`
-  // skips the consent screen for already-authorized clients. `originator`
-  // matches the data-plane originator so auth telemetry stays consistent.
   url.searchParams.set('id_token_add_organizations', 'true');
   url.searchParams.set('codex_cli_simplified_flow', 'true');
   url.searchParams.set('originator', 'codex_cli_rs');
+  return c.json({ authorize_url: url.toString() });
+};
+
+export const codexOauthExchange = async (c: CtxWithJson<typeof codexOauthExchangeBody>) => {
+  const body = c.req.valid('json');
+  const { record } = body;
+  if (record.kind !== 'codex') return c.json({ error: 'Upstream is not a Codex upstream' }, 400);
+
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id || undefined,
+      currentColo: getCurrentColo(c.req.raw),
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  let ingestion: { config: CodexUpstreamConfig; state: CodexUpstreamState };
+  try {
+    if (body.auth_json !== undefined) {
+      ingestion = await importCodexFromAuthJson(body.auth_json);
+    } else {
+      const cb = body.callback!;
+      ingestion = await importCodexFromCallback({ code: cb.code, codeVerifier: cb.verifier, fetcher });
+    }
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  // Edit state: overwrite the credential slice of the stored record.
+  // Single-account convention — exchange REPLACES accounts[0], no append.
+  if (record.id !== '') {
+    const dbRecord = await getRepo().upstreams.getById(record.id);
+    if (!dbRecord) return c.json({ error: 'Upstream not found' }, 404);
+    if (dbRecord.kind !== 'codex') return c.json({ error: 'Upstream is not a Codex upstream' }, 400);
+    const next: UpstreamRecord = {
+      ...dbRecord,
+      config: ingestion.config,
+      state: ingestion.state,
+      updatedAt: new Date().toISOString(),
+    };
+    await getRepo().upstreams.save(next);
+    await warmModelsCache(next, c);
+  }
 
   return c.json({
-    state,
-    authorize_url: url.toString(),
-    expires_in_seconds: Math.floor(CODEX_PKCE_TTL_MS / 1000),
+    patch: {
+      config: ingestion.config,
+      state: ingestion.state,
+    },
   });
 };
 
-type CodexCredentialBody = z.infer<typeof codexImportBody> | z.infer<typeof codexReimportBody>;
-
-const ingestCodexCredential = async (
-  body: CodexCredentialBody,
-): Promise<{ ok: true; config: CodexUpstreamConfig; state: CodexUpstreamState; accessToken: CodexAccessTokenCache } | { ok: false; error: string }> => {
-  try {
-    if (body.auth_json !== undefined) {
-      const out = await importCodexFromAuthJson(body.auth_json);
-      return { ok: true, ...out };
-    }
-    const cb = body.callback;
-    if (!cb) return { ok: false, error: 'callback is required when auth_json is absent' };
-    let code = cb.code;
-    let state = cb.state;
-    if (cb.callback_url !== undefined) {
-      const parsed = extractCodexCallbackParams(cb.callback_url);
-      code = parsed.code;
-      state = parsed.state;
-    }
-    if (!code || !state) {
-      return { ok: false, error: 'callback.code and callback.state are required (or supply callback.callback_url)' };
-    }
-    const cacheKey = `${CODEX_PKCE_PENDING_PREFIX}${state}`;
-    const pendingRaw = await getRepo().cache.get(cacheKey);
-    if (!pendingRaw) {
-      return { ok: false, error: 'PKCE state not found or expired; restart the flow' };
-    }
-    const verifier = parseCodexPkcePendingEntry(pendingRaw);
-    const out = await importCodexFromCallback({ code, codeVerifier: verifier });
-    // Consume the cached PKCE entry so the same state cannot be replayed;
-    // cache eviction handles the timeout case (it's idempotent).
-    await getRepo().cache.delete(cacheKey);
-    return { ok: true, ...out };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+export const codexOauthRefresh = async (c: CtxWithJson<typeof codexOauthRefreshBody>) => {
+  const { record } = c.req.valid('json');
+  if (record.kind !== 'codex') return c.json({ error: 'Upstream is not a Codex upstream' }, 400);
+  // Refresh is a stateful action on a persisted row — it delegates to
+  // `ensureCodexAccessToken` which reads state from DB, mints, and
+  // CAS-writes back with sibling-rotation recovery. Create-state refresh
+  // has no target: the just-completed OAuth exchange handed the client a
+  // brand-new refresh_token that has no reason to rotate yet, and the
+  // front-end does not surface the button until Save lands the row.
+  if (record.id === '') return c.json({ error: 'refresh requires a persisted upstream' }, 400);
+  assertCodexUpstreamState(record.state);
+  const account = record.state.accounts[0];
+  if (account.state !== 'active') {
+    return c.json({ error: `Codex upstream is ${account.state}; re-run OAuth exchange to recover` }, 400);
   }
+
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id,
+      currentColo: getCurrentColo(c.req.raw),
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  // Persist callback shape matches `createCodexProvider` — a rotated
+  // refresh_token CAS-writes back into the account slot with the just-read
+  // state as the expected value. A losing CAS is not an error here: the
+  // sibling that won the race already persisted a newer refresh_token, and
+  // `ensureCodexAccessToken`'s `recoverFromRefreshRace` picks up the
+  // sibling's fresh access token when our mint gets `invalid_grant`.
+  const persistRefreshTokenRotation = async (newRefreshToken: string): Promise<void> => {
+    const fresh = await getRepo().upstreams.getById(record.id);
+    if (!fresh) return;
+    assertCodexUpstreamState(fresh.state);
+    const next: CodexUpstreamState = {
+      accounts: fresh.state.accounts.map(a => a.chatgptAccountId === account.chatgptAccountId
+        ? { ...a, refresh_token: newRefreshToken, state_updated_at: new Date().toISOString() }
+        : a),
+    };
+    await getRepo().upstreams.saveState(record.id, next, { expectedState: fresh.state });
+  };
+
+  try {
+    await ensureCodexAccessToken(record.id, account.chatgptAccountId,
+      refreshToken => mintCodexAccessToken(refreshToken, fetcher, persistRefreshTokenRotation),
+      true);
+  } catch (err) {
+    if (err instanceof CodexOAuthSessionTerminatedError) {
+      // Terminal flip mirrors `createCodexProvider.persistTerminalState`:
+      // clear the cached access token, mark the account refresh_failed so
+      // the dashboard renders the red badge and prompts a re-import.
+      // Best-effort — a losing CAS means a concurrent rotation already
+      // wrote newer state that supersedes ours.
+      const fresh = await getRepo().upstreams.getById(record.id);
+      if (fresh) {
+        assertCodexUpstreamState(fresh.state);
+        const next: CodexUpstreamState = {
+          accounts: fresh.state.accounts.map(a => a.chatgptAccountId === account.chatgptAccountId
+            ? { ...a, state: 'refresh_failed' as const, state_message: err.upstreamMessage, state_updated_at: new Date().toISOString(), accessToken: null }
+            : a),
+        };
+        await getRepo().upstreams.saveState(record.id, next, { expectedState: fresh.state });
+      }
+      return c.json({ error: `Codex refresh failed: ${err.upstreamMessage}. Re-run OAuth exchange to recover.` }, 400);
+    }
+    return c.json({ error: errorMessage(err) }, 502);
+  }
+
+  const updated = await getRepo().upstreams.getById(record.id);
+  if (!updated) return c.json({ error: 'Upstream not found' }, 404);
+  return c.json({ patch: { state: updated.state } });
 };
 
-export const codexImport = async (c: CtxWithJson<typeof codexImportBody>) => {
-  const body = c.req.valid('json');
-  const ingestion = await ingestCodexCredential(body);
-  if (!ingestion.ok) return c.json({ error: ingestion.error }, 400);
+// Claude Code OAuth + setup-token + probe endpoints under the unified
+// record-body contract. Create and edit share one endpoint each: the
+// caller posts the draft record; when `record.id !== ''` the produced
+// patch is targeted-persisted, otherwise only returned for the
+// front-end to merge into its draft.
 
-  const existing = await getRepo().upstreams.list();
+export const claudeCodeOauthAuthorizeUrl = async (c: CtxWithJson<typeof claudeCodeOauthAuthorizeUrlBody>) => {
+  const { challenge, state } = c.req.valid('json');
+  const authorize_url = buildClaudeCodeAuthorizeUrl({ state, codeChallenge: challenge, kind: 'oauth' });
+  return c.json({ authorize_url });
+};
+
+export const claudeCodeSetupTokenAuthorizeUrl = async (c: CtxWithJson<typeof claudeCodeSetupTokenAuthorizeUrlBody>) => {
+  const { challenge, state } = c.req.valid('json');
+  const authorize_url = buildClaudeCodeAuthorizeUrl({ state, codeChallenge: challenge, kind: 'setup-token' });
+  return c.json({ authorize_url });
+};
+
+export const claudeCodeOauthExchange = async (c: CtxWithJson<typeof claudeCodeOauthExchangeBody>) => {
+  const body = c.req.valid('json');
+  const { record } = body;
+  if (record.kind !== 'claude-code') return c.json({ error: 'Upstream is not a Claude Code upstream' }, 400);
+
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id || undefined,
+      currentColo: getCurrentColo(c.req.raw),
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  let ingestion: { config: ClaudeCodeUpstreamConfig; state: ClaudeCodeUpstreamState };
+  try {
+    if (body.credentials_json !== undefined) {
+      ingestion = await importClaudeCodeFromCredentialsJson(body.credentials_json, fetcher);
+    } else {
+      const cb = body.callback!;
+      ingestion = await importClaudeCodeFromCallback({ code: cb.code, pkceVerifier: cb.verifier, state: cb.state, fetcher });
+    }
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  if (record.id !== '') {
+    const dbRecord = await getRepo().upstreams.getById(record.id);
+    if (!dbRecord) return c.json({ error: 'Upstream not found' }, 404);
+    if (dbRecord.kind !== 'claude-code') return c.json({ error: 'Upstream is not a Claude Code upstream' }, 400);
+    const next: UpstreamRecord = {
+      ...dbRecord,
+      config: ingestion.config,
+      state: ingestion.state,
+      updatedAt: new Date().toISOString(),
+    };
+    await getRepo().upstreams.save(next);
+    await warmModelsCache(next, c);
+  }
+
+  return c.json({ patch: { config: ingestion.config, state: ingestion.state } });
+};
+
+export const claudeCodeSetupTokenExchange = async (c: CtxWithJson<typeof claudeCodeSetupTokenExchangeBody>) => {
+  const { record, callback } = c.req.valid('json');
+  if (record.kind !== 'claude-code') return c.json({ error: 'Upstream is not a Claude Code upstream' }, 400);
+
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id || undefined,
+      currentColo: getCurrentColo(c.req.raw),
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  let ingestion: { config: ClaudeCodeUpstreamConfig; state: ClaudeCodeUpstreamState };
+  try {
+    ingestion = await importClaudeCodeFromSetupTokenCallback({
+      code: callback.code,
+      pkceVerifier: callback.verifier,
+      state: callback.state,
+      fetcher,
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  if (record.id !== '') {
+    const dbRecord = await getRepo().upstreams.getById(record.id);
+    if (!dbRecord) return c.json({ error: 'Upstream not found' }, 404);
+    if (dbRecord.kind !== 'claude-code') return c.json({ error: 'Upstream is not a Claude Code upstream' }, 400);
+    const next: UpstreamRecord = {
+      ...dbRecord,
+      config: ingestion.config,
+      state: ingestion.state,
+      updatedAt: new Date().toISOString(),
+    };
+    await getRepo().upstreams.save(next);
+    await warmModelsCache(next, c);
+  }
+
+  return c.json({ patch: { config: ingestion.config, state: ingestion.state } });
+};
+
+export const claudeCodeOauthRefresh = async (c: CtxWithJson<typeof claudeCodeOauthRefreshBody>) => {
+  const { record } = c.req.valid('json');
+  if (record.kind !== 'claude-code') return c.json({ error: 'Upstream is not a Claude Code upstream' }, 400);
+  // Refresh delegates to the data plane's `ensureClaudeCodeAccessToken`
+  // with `force: true` so operator clicks and data-plane requests share
+  // the same rotation + sibling-race recovery path (no duplicated CAS
+  // logic, no divergence). Create-state refresh has no target — the
+  // just-completed OAuth exchange handed the client a brand-new
+  // refresh_token that has no reason to rotate yet.
+  if (record.id === '') return c.json({ error: 'refresh requires a persisted upstream' }, 400);
+
+  const parsedState = readClaudeCodeUpstreamState(record.state);
+  const account = parsedState.accounts[0];
+  if (account.state !== 'active') {
+    return c.json({ error: `Claude Code upstream is ${account.state}; re-run OAuth exchange to recover` }, 400);
+  }
+  if (account.tokenKind === 'setup-token') {
+    return c.json({ error: 'Setup-token credentials cannot be refreshed; re-run setup-token exchange to rotate' }, 400);
+  }
+
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id,
+      currentColo: getCurrentColo(c.req.raw),
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  try {
+    // `ensureClaudeCodeAccessToken` handles the whole flow: read state,
+    // CAS-write the rotated refresh_token alongside the fresh access
+    // token, and flip the row to refresh_failed on a terminal OAuth
+    // error. All this handler contributes is the HTTP framing.
+    await ensureClaudeCodeAccessToken({ upstreamId: record.id, repo: getRepo().upstreams, fetcher, force: true });
+  } catch (err) {
+    if (err instanceof ClaudeCodeOAuthSessionTerminatedError) {
+      return c.json({ error: `Claude Code refresh failed: ${err.upstreamMessage}. Re-run OAuth exchange to recover.` }, 400);
+    }
+    return c.json({ error: errorMessage(err) }, 502);
+  }
+
+  const updated = await getRepo().upstreams.getById(record.id);
+  if (!updated) return c.json({ error: 'Upstream not found' }, 404);
+  return c.json({ patch: { state: updated.state } });
+};
+
+export const claudeCodeProbe = async (c: CtxWithJson<typeof claudeCodeProbeBody>) => {
+  const { record } = c.req.valid('json');
+  if (record.kind !== 'claude-code') return c.json({ error: 'Quota probe is only supported for claude-code upstreams' }, 400);
+  const actor = userFromContext(c).id;
+
+  let fetcher: Fetcher;
+  try {
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id || undefined,
+      currentColo: getCurrentColo(c.req.raw),
+    });
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  // Resolving a fresh access token demands DB access (the token cache
+  // and CAS-guarded refresh live there), so probe on a create-state
+  // record requires that the caller has ensured a fresh access_token
+  // sits in draft.state.accounts[0].accessToken from the OAuth
+  // exchange step. In edit state, we can call the standard cache
+  // helper that reads / refreshes from DB.
+  let accessToken: string;
+  try {
+    if (record.id !== '') {
+      const access = await ensureClaudeCodeAccessToken({
+        upstreamId: record.id,
+        repo: getRepo().upstreams,
+        fetcher,
+      });
+      accessToken = access.entry.token;
+    } else {
+      const parsedState = readClaudeCodeUpstreamState(record.state);
+      const account = parsedState.accounts[0];
+      if (!account.accessToken?.token) {
+        return c.json({ error: 'Draft account has no fresh access token; run OAuth refresh first' }, 400);
+      }
+      accessToken = account.accessToken.token;
+    }
+  } catch (err) {
+    logInfo('claude_code_admin_action', { upstream_id: record.id, action: 'quota_probe', actor, outcome: 'error', error: errorMessage(err) });
+    if (err instanceof ClaudeCodeOAuthSessionTerminatedError) {
+      return c.json({ error: `Claude Code refresh failed: ${err.upstreamMessage}` }, 503);
+    }
+    return c.json({ error: errorMessage(err) }, 502);
+  }
+
+  let probe;
+  try {
+    probe = await fetchClaudeCodeUsageProbe(accessToken, fetcher);
+  } catch (err) {
+    logInfo('claude_code_admin_action', { upstream_id: record.id, action: 'quota_probe', actor, outcome: 'error', error: errorMessage(err) });
+    return c.json({ error: errorMessage(err) }, 502);
+  }
+
+  const snapshotPatch = {
+    usageProbeSnapshot: { fetchedAt: Date.parse(probe.fetched_at), data: probe.body },
+  };
+  const mergeSnapshotInto = (state: ClaudeCodeUpstreamState): ClaudeCodeUpstreamState => ({
+    ...state,
+    accounts: state.accounts.map((a, i): ClaudeCodeAccountCredential => i === 0 ? { ...a, ...snapshotPatch } : a),
+  });
+
+  // Merge the freshly-fetched snapshot into the caller's draft state so the
+  // response carries a whole state slot the caller can hand to its uniform
+  // patch merger — the wire contract stays symmetric with refresh/exchange
+  // instead of asking the client to hand-merge into accounts[0].
+  const merged = mergeSnapshotInto(readClaudeCodeUpstreamState(record.state));
+
+  if (record.id !== '') {
+    // Best-effort CAS persist against the currently-stored state — a losing
+    // race means a concurrent rotation wrote newer state that supersedes
+    // ours, which is fine (the snapshot rides on top of that new state on
+    // the next probe).
+    const fresh = await getRepo().upstreams.getById(record.id);
+    if (fresh) {
+      const freshMerged = mergeSnapshotInto(readClaudeCodeUpstreamState(fresh.state));
+      await getRepo().upstreams.saveState(record.id, freshMerged, { expectedState: fresh.state });
+    }
+  }
+
+  logInfo('claude_code_admin_action', { upstream_id: record.id, action: 'quota_probe', actor, outcome: 'ok' });
+  return c.json({
+    fetched_at: probe.fetched_at,
+    body: probe.body,
+    patch: { state: merged },
+  });
+};
+
+// `upstreamModelId` is the wire-side identifier the provider will send when
+// a caller invokes the public `model.id` — claude-code exposes
+// `claude-sonnet-4-5` publicly while sending `claude-sonnet-4-5-20250929`
+// on the wire, and other providers may distinguish similarly through their
+// opaque `providerData` blob.
+const reshapeModelForDashboard = (model: ProviderModel): Record<string, unknown> => {
+  const providerData = typeof model.providerData === 'object' && model.providerData !== null ? model.providerData as { upstreamModelId?: unknown } : null;
+  const wireId = typeof providerData?.upstreamModelId === 'string' && providerData.upstreamModelId.length > 0 ? providerData.upstreamModelId : model.id;
+  return {
+    upstreamModelId: wireId,
+    publicModelId: model.id,
+    kind: model.kind,
+    endpoints: model.endpoints,
+    ...(model.display_name !== undefined ? { display_name: model.display_name } : {}),
+    ...(Object.keys(model.limits).length > 0 ? { limits: model.limits } : {}),
+    ...(model.cost ? { cost: model.cost } : {}),
+    ...(model.chat ? { chat: model.chat } : {}),
+  };
+};
+
+// Unified model catalog fetch for both draft preview and saved-record
+// refresh. Always live-fetches on the control plane; when
+// record.id !== '' the request also warms/refreshes the SWR cache via
+// `fetchUpstreamModelsCached` so a subsequent data-plane call picks up
+// the fresh catalog. Custom's response stays the raw upstream row shape
+// (dashboard translates through the draft's endpoints); every other
+// kind returns UpstreamModelConfig-shaped rows.
+export const listModels = async (c: CtxWithJson<typeof listModelsBody>) => {
+  const { record } = c.req.valid('json');
+  if (!isValidProviderKind(record.kind)) {
+    return c.json({ error: { message: `Invalid kind: ${record.kind}`, type: 'invalid_request_error' } }, 400);
+  }
+  const kind = record.kind;
+
+  const scheduler = backgroundSchedulerFromContext(c);
   const now = new Date().toISOString();
-  // `parseCodexIdTokenClaims` already rejects tokens with a missing email,
-  // so the email field is non-empty by the time we get here.
-  const defaultName = `ChatGPT Codex (${ingestion.config.accounts[0].email})`;
-  const upstream: UpstreamRecord = {
-    id: newId(),
-    provider: 'codex',
-    name: body.name ?? defaultName,
+  const synthRecord: UpstreamRecord = {
+    id: record.id || 'draft',
+    kind,
+    name: 'draft',
     enabled: true,
-    sortOrder: body.sort_order ?? nextSortOrder(existing),
+    sortOrder: 0,
     createdAt: now,
     updatedAt: now,
     flagOverrides: {},
     disabledPublicModelIds: [],
-    proxyFallbackList: [],
-    config: ingestion.config,
-    state: ingestion.state,
+    proxyFallbackList: (record.proxy_fallback_list ?? []) as ProxyFallbackEntry[],
+    modelPrefix: null,
+    config: record.config,
+    state: record.state,
   };
-  await getRepo().upstreams.save(upstream);
-  // Seed the KV access-token slot so the first data-plane call skips the
-  // immediate refresh round-trip; the cache row TTLs naturally with the
-  // OAuth lifetime.
-  await putCodexAccessToken(getProviderRepo().cache, upstream.id, ingestion.accessToken);
-  await invalidateModelsStore(upstream.id);
-  return c.json(await serializeForResponse(upstream), 201);
-};
 
-export const codexReimport = async (c: CtxWithJson<typeof codexReimportBody>) => {
-  const id = c.req.param('id') ?? '';
-  const existing = await getRepo().upstreams.getById(id);
-  if (existing?.provider !== 'codex') {
-    return c.json({ error: 'Codex upstream not found' }, 404);
-  }
-
-  const body = c.req.valid('json');
-  const ingestion = await ingestCodexCredential(body);
-  if (!ingestion.ok) return c.json({ error: ingestion.error }, 400);
-
-  const next: UpstreamRecord = {
-    ...existing,
-    updatedAt: new Date().toISOString(),
-    name: body.name ?? existing.name,
-    config: ingestion.config,
-    state: ingestion.state,
-  };
-  await getRepo().upstreams.save(next);
-  await putCodexAccessToken(getProviderRepo().cache, id, ingestion.accessToken);
-  await invalidateModelsStore(id);
-  return c.json(await serializeForResponse(next));
-};
-
-export const codexRefreshNow = async (c: CtxWithJson<typeof codexRefreshNowBody>) => {
-  const id = c.req.param('id') ?? '';
-  const existing = await getRepo().upstreams.getById(id);
-  if (existing?.provider !== 'codex') {
-    return c.json({ error: 'Codex upstream not found' }, 404);
-  }
+  let fetcher: Fetcher;
   try {
-    assertCodexUpstreamState(existing.state);
-  } catch (err) {
-    return c.json({ error: `Codex upstream state is malformed: ${err instanceof Error ? err.message : String(err)}` }, 500);
-  }
-  const state = existing.state;
-  // The state schema enforces exactly one account; refresh-now mutates that
-  // single entry.
-  const account = state.accounts[0];
-  if (account.state !== 'active') {
-    return c.json({ error: `Codex upstream is ${account.state}; re-import to recover` }, 400);
-  }
-
-  try {
-    // Thread the per-upstream proxy-aware fetcher so the operator-pressed
-    // Refresh button respects the same fallback chain as the data-plane hot
-    // path. Without this, a Codex upstream behind a corporate proxy would
-    // dial direct here and silently fail under restricted egress.
-    const fetcher = (await createPerRequestFetcher())(id);
-    const tokens = await refreshCodexAccessToken(account.refresh_token, fetcher);
-    const nextAccount = { ...account, refresh_token: tokens.refresh_token, state_updated_at: new Date().toISOString() };
-    const nextState: CodexUpstreamState = { accounts: [nextAccount] };
-    // CAS keyed on the just-read state. A losing race here means a concurrent
-    // data-plane refresh already rotated the row; their write is at least as
-    // fresh as ours, so we surface 409 rather than retry.
-    const result = await getRepo().upstreams.saveState(id, nextState, { expectedState: state });
-    if (!result.updated) {
-      return c.json({ error: 'Concurrent state mutation; refresh aborted' }, 409);
-    }
-    await putCodexAccessToken(getProviderRepo().cache, id, {
-      access_token: tokens.access_token,
-      expires_at: Math.floor(Date.now() / 1000) + tokens.expires_in,
-      refreshed_at: new Date().toISOString(),
+    fetcher = await resolveControlPlaneFetcher({
+      override: record.proxy_fallback_list,
+      upstreamId: record.id || undefined,
+      currentColo: getCurrentColo(c.req.raw),
     });
-    const fresh = await getRepo().upstreams.getById(id);
-    return c.json(fresh ? await serializeForResponse(fresh) : { ok: true });
   } catch (err) {
-    // OAuth session terminated (refresh_token replayed, revoked, or
-    // app_session_terminated): mirror the data-plane behavior — flip the row
-    // to `refresh_failed` so the dashboard surfaces the red badge and the
-    // operator sees a Re-import affordance instead of a stale Refresh button.
-    if (err instanceof CodexOAuthSessionTerminatedError) {
-      const failedAccount = {
-        ...account,
-        state: 'refresh_failed' as const,
-        state_message: err.upstreamMessage,
-        state_updated_at: new Date().toISOString(),
-      };
-      const failedState: CodexUpstreamState = { accounts: [failedAccount] };
-      // Best-effort: a losing CAS means a concurrent rotation already wrote
-      // newer state, which by definition supersedes ours.
-      await getRepo().upstreams.saveState(id, failedState, { expectedState: state });
-      // 502, not 401 — the dashboard's auth client logs the operator out on
-      // any 401 (apps/web/src/api/client.ts), and a "your codex credential
-      // is dead" condition must not be confused with "your dashboard auth
-      // is invalid". Same pattern as control-plane/copilot-quota/routes.ts.
-      return c.json({ error: `Codex refresh failed: ${err.upstreamMessage}. Re-import the credential to recover.` }, 502);
+    return c.json({ error: errorMessage(err) }, 400);
+  }
+
+  try {
+    if (kind === 'custom') {
+      const assertedConfig = assertCustomUpstreamRecord(synthRecord).config;
+      const result = await fetchCustomModels(assertedConfig, fetcher);
+      return c.json(result);
     }
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
+    if (kind === 'ollama') {
+      assertOllamaUpstreamRecord(synthRecord);
+      const instance = createOllamaProvider(synthRecord);
+      const models = await instance.instance.getProvidedModels(fetcher);
+      return c.json({ data: models.map(reshapeModelForDashboard) });
+    }
+    // Copilot / codex / claude-code / azure — use the provider factory.
+    // Force through the SWR cache when the record is persisted so the
+    // side-effect refresh keeps the data-plane cache in step; otherwise
+    // live-fetch without any caching.
+    const instance = await createProviderInstance(synthRecord);
+    const models = record.id !== ''
+      ? await fetchUpstreamModelsCached(instance, { scheduler, fetcher, force: true })
+      : await instance.instance.getProvidedModels(fetcher);
+    return c.json({ data: models.map(reshapeModelForDashboard) });
+  } catch (e) {
+    if (e instanceof ProviderModelsUnavailableError) {
+      return c.json({ error: { message: MODEL_LISTING_FAILURE_MESSAGE, type: 'api_error' } }, 502);
+    }
+    if (e instanceof Error && /Malformed .* upstream config/.test(e.message)) {
+      return c.json({ error: errorMessage(e) }, 400);
+    }
+    throw e;
   }
 };

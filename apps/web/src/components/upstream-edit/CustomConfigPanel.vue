@@ -3,16 +3,16 @@
 // /models toggle, path overrides). The model list is owned by a separate
 // panel — this panel only carries the connection-shaped config.
 
-import type { CustomDraft } from './customConfig.ts';
+import type { CustomAuthStyle, CustomDraft } from './customConfig.ts';
 import { PATH_KEYS } from './customConfig.ts';
 import EndpointsField from './EndpointsField.vue';
 import SecretInput from '../shared/SecretInput.vue';
-import { Button, Input, Switch } from '@floway-dev/ui';
+import { Button, Input, Select, Switch } from '@floway-dev/ui';
 
 const draft = defineModel<CustomDraft>({ required: true });
 
 defineProps<{
-  bearerTokenSet: boolean;
+  apiKeySet: boolean;
   editMode: boolean;
   fetchLoading: boolean;
   fetchError: string | null;
@@ -21,74 +21,84 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{ 'fetch-models': [] }>();
+
+// Auth styles are presented as a dropdown rather than a radio grid because
+// the radio cards crowded the panel even at two options and would have run
+// out of space at three. The dropdown also carries a per-option description
+// slot, which lets the actual HTTP header live next to the human label
+// inside the popover rather than as a permanently-visible block.
+interface AuthOption {
+  value: CustomAuthStyle;
+  label: string;
+  explanation: string;
+  headerExample?: string;
+}
+
+const authOptions: AuthOption[] = [
+  {
+    value: 'bearer',
+    label: 'Bearer',
+    explanation: 'Most OpenAI-compatible APIs. Sends the key in the Authorization header.',
+    headerExample: 'Authorization: Bearer <key>',
+  },
+  {
+    value: 'anthropic',
+    label: 'Anthropic',
+    explanation: 'Anthropic-compatible APIs. Sends the key in a custom header plus an API version.',
+    headerExample: 'x-api-key: <key>\nanthropic-version: 2023-06-01',
+  },
+  {
+    value: 'none',
+    label: 'None',
+    explanation: 'No authentication. Use for local or internal upstreams that accept anonymous requests.',
+  },
+];
+
+const setAuthStyle = (style: CustomAuthStyle) => {
+  // Switching to 'none' strips any in-flight apiKey; switching away leaves
+  // the field blank so the user explicitly re-enters it.
+  draft.value = style === 'none'
+    ? { ...draft.value, authStyle: 'none', apiKey: '' }
+    : { ...draft.value, authStyle: style };
+};
 </script>
 
 <template>
   <div class="space-y-5">
-    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <div>
-        <label class="mb-1.5 block text-xs font-medium text-gray-500">Base URL</label>
-        <Input
-          :model-value="draft.baseUrl"
-          placeholder="e.g. https://api.openai.com"
-          class="font-mono"
-          @update:model-value="v => draft = { ...draft, baseUrl: v }"
-        />
-      </div>
-      <div>
-        <label class="mb-1.5 block text-xs font-medium text-gray-500">
-          {{ draft.authStyle === 'anthropic' ? 'API Key' : 'Bearer Token' }}<span v-if="editMode && bearerTokenSet" class="text-gray-500"> (leave blank to keep)</span>
-        </label>
-        <SecretInput
-          :model-value="draft.bearerToken"
-          :placeholder="bearerTokenSet ? '••••••••' : (draft.authStyle === 'anthropic' ? 'sk-ant-xxxxx' : 'sk-xxxxx')"
-          class="font-mono"
-          @update:model-value="v => draft = { ...draft, bearerToken: v }"
-        />
-      </div>
+    <div>
+      <label class="mb-1.5 block text-xs font-medium text-gray-500">Base URL</label>
+      <Input
+        :model-value="draft.baseUrl"
+        placeholder="e.g. https://api.openai.com"
+        class="font-mono"
+        @update:model-value="v => draft = { ...draft, baseUrl: v }"
+      />
     </div>
 
-    <div>
-      <p class="mb-2 text-xs font-medium text-gray-500">Auth Style</p>
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label
-          class="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-xs text-gray-300 transition-colors"
-          :class="draft.authStyle === 'bearer'
-            ? 'border-accent-cyan/40 bg-accent-cyan/5'
-            : 'border-white/10 bg-surface-800/50 hover:border-white/20'"
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-gray-500">Auth Style</label>
+        <Select
+          :model-value="draft.authStyle"
+          :options="authOptions"
+          @update:model-value="v => v !== undefined && setAuthStyle(v)"
         >
-          <input
-            type="radio"
-            name="customAuthStyle"
-            value="bearer"
-            class="mt-0.5 accent-accent-cyan"
-            :checked="draft.authStyle === 'bearer'"
-            @change="draft = { ...draft, authStyle: 'bearer' }"
-          >
-          <span class="flex flex-col gap-0.5">
-            <span class="font-medium">Bearer</span>
-            <span class="font-mono text-[10px] text-gray-600">Authorization: Bearer &lt;token&gt;</span>
-          </span>
+          <template #description="{ option }">
+            <p class="text-[11px] text-gray-500">{{ option.explanation }}</p>
+            <code v-if="option.headerExample" class="mt-1 block whitespace-pre font-mono text-[10px] text-gray-600">{{ option.headerExample }}</code>
+          </template>
+        </Select>
+      </div>
+      <div v-if="draft.authStyle !== 'none'">
+        <label class="mb-1.5 block text-xs font-medium text-gray-500">
+          API Key<span v-if="editMode && apiKeySet" class="text-gray-500"> (leave blank to keep)</span>
         </label>
-        <label
-          class="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-xs text-gray-300 transition-colors"
-          :class="draft.authStyle === 'anthropic'
-            ? 'border-accent-cyan/40 bg-accent-cyan/5'
-            : 'border-white/10 bg-surface-800/50 hover:border-white/20'"
-        >
-          <input
-            type="radio"
-            name="customAuthStyle"
-            value="anthropic"
-            class="mt-0.5 accent-accent-cyan"
-            :checked="draft.authStyle === 'anthropic'"
-            @change="draft = { ...draft, authStyle: 'anthropic' }"
-          >
-          <span class="flex flex-col gap-0.5">
-            <span class="font-medium">Anthropic</span>
-            <span class="font-mono text-[10px] text-gray-600">x-api-key + anthropic-version</span>
-          </span>
-        </label>
+        <SecretInput
+          :model-value="draft.apiKey"
+          :placeholder="apiKeySet ? '••••••••' : (draft.authStyle === 'anthropic' ? 'sk-ant-xxxxx' : 'sk-xxxxx')"
+          class="font-mono"
+          @update:model-value="v => draft = { ...draft, apiKey: v }"
+        />
       </div>
     </div>
 
@@ -105,7 +115,7 @@ const emit = defineEmits<{ 'fetch-models': [] }>();
     <div>
       <div class="mb-2 flex items-baseline justify-between gap-3">
         <p class="text-xs font-medium text-gray-500">Fetch <code class="font-mono">/models</code></p>
-        <p v-if="fetchStatus" class="text-[11px] text-gray-500">{{ fetchStatus }}</p>
+        <p v-if="fetchStatus && !editMode" class="text-[11px] text-gray-500">{{ fetchStatus }}</p>
       </div>
       <div class="flex items-center gap-2">
         <Switch
@@ -121,6 +131,7 @@ const emit = defineEmits<{ 'fetch-models': [] }>();
           @update:model-value="v => draft = { ...draft, modelsFetch: { ...draft.modelsFetch, endpoint: v } }"
         />
         <Button
+          v-if="!editMode"
           variant="secondary"
           size="sm"
           :loading="fetchLoading"
@@ -141,7 +152,7 @@ const emit = defineEmits<{ 'fetch-models': [] }>();
           <span class="mb-1 block truncate font-mono text-[10px] text-gray-500">{{ key }}</span>
           <Input
             :model-value="draft.pathOverrides[key]"
-            :placeholder="`/v1/${key.replace('_', '/')}`"
+            :placeholder="`/v1${key}`"
             size="sm"
             class="font-mono"
             @update:model-value="v => draft = { ...draft, pathOverrides: { ...draft.pathOverrides, [key]: v } }"

@@ -28,17 +28,84 @@
 
 ## Project
 
-`floway` is an LLM API gateway. It exposes Anthropic Messages, OpenAI
-Responses, OpenAI Chat Completions, Embeddings, OpenAI Images, and Google
-Gemini-compatible APIs over a unified upstream model. Provider kinds are
-`copilot`, `custom`, `azure`, and `codex` (ChatGPT subscription via the
-Codex CLI's OAuth client).
+Floway is an LLM API gateway. It exposes OpenAI Completions, Anthropic
+Messages, OpenAI Responses, OpenAI Chat Completions, Embeddings, OpenAI
+Images, and Google Gemini-compatible APIs over a unified upstream
+model. Provider kinds are
+`copilot`, `custom`, `azure`, `codex` (ChatGPT subscription via the
+Codex CLI's OAuth client), `claude-code` (Claude.ai Pro/Max subscription
+via the Claude Code CLI's OAuth client), and `ollama` (any Ollama-
+compatible HTTP server — ollama.com by default, or a self-hosted daemon).
+
+The product name is **Floway** — capitalized in all prose, comments,
+test names, assertion messages, and log output. Lowercase `floway` only
+appears inside technical identifiers that are part of an existing
+contract: the `@floway-dev/*` npm scope, `FLOWAY_*` env vars, the
+`x-floway-session` HTTP header, CSS class names, storage keys, fake test
+fixtures, and user-facing file/volume names. Never write `` `floway` ``
+as a name for the project itself.
 
 As a gateway, preserve upstream status, headers, and body as directly as
 possible; surface internal failures with stack traces rather than masking
 them. Code-level rules about error handling, comments, and style live in the
 global agent instructions and in ESLint config — read those, not a copy
 here.
+
+## Design Principle: Upstream Models And Field Values Are Opaque
+
+Floway assumes each upstream speaks the protocol declared for it. The
+model catalog and the enum values in open-string protocol slots are
+upstream-owned; Floway must not silently collapse either onto a fixed
+vendor family.
+
+Allowed:
+
+- **Identified-model special cases** — `if (model.id === 'X')`,
+  `if (isOpus47Plus(id))`, `if (isClaudeFamily(id))`. Vendor knowledge
+  lives in the code that talks to that vendor.
+- **Provider-wide uniform defaults on a bounded scope** — e.g.,
+  `provider-ollama` advertising `reasoning.effort: { supported: ['low',
+  'medium', 'high'] }` for every thinking-capable Ollama model. The
+  scope is bounded by the provider itself.
+- **Metadata-first id-inference fallbacks.** Endpoint capability comes
+  from upstream metadata first (Copilot `supported_endpoints`, a
+  Floway-shaped upstream's `kind`, capabilities blocks, operator
+  override); a name-token or prefix fallback that fires AFTER the
+  metadata check is silent is fine, provided it lives in the provider
+  package that owns the workaround and — for upstream-bug workarounds
+  — carries a reference URL and a listing in the
+  `audit-copilot-workarounds` skill or equivalent.
+- **Client-tool-compat name filters.** Dashboard helpers that build a
+  config for a CLI which itself expects a name family (Claude Code CLI
+  expects `claude-*`, Codex CLI expects `gpt-5-*`) MAY filter that
+  picker by the same pattern. Mirroring the CLI's own expectation, not
+  Floway asserting an endpoint mapping. Scope must be the CLI setup
+  helper; general model pickers still read `endpoints` from the DTO.
+
+Forbidden — silent narrowing at wire / translate / control-plane
+boundaries. Open-string fields declared `| (string & {})` or bare
+`string` in `packages/protocols/` (`reasoning_effort`, `verbosity`,
+`service_tier`, `reasoning.summary`, `thinkingLevel`, `speed`, Messages
+`thinking.display`, …) MUST be forwarded verbatim: `z.string()` in
+control-plane schemas, direct pass-through in translators, no `switch`
+default that drops unknown values. The upstream owns the accept/reject
+decision. Cross-protocol synthesis between different shapes — Gemini
+`includeThoughts: true` ↔ Responses `summary`, Messages
+`thinking.type: 'enabled'` (no effort) ↔ Chat `reasoning_effort` — is
+legit translation, distinct from within-protocol enum gating.
+
+**Every vendor constant needs a reference URL** — image caps, effort→
+budget bin edges, canonical enum values, header sets, protocol quirks.
+Prose like "per Anthropic's vision docs" without a permalink doesn't
+count.
+
+Beyond the allowed patterns above, three carve-outs also fall outside
+the prohibition: per-provider pricing tables (`pricing.ts` — return
+null for unknown keys); provider config discriminators naming the OWN
+kind (`kind: 'claude-code'`); and vendor-locked provider packages
+(`provider-claude-code`, `provider-codex`) doing fixed-catalog
+request/header mimicry captured verbatim from a live wire probe with a
+reference URL.
 
 Stack: Hono on Web APIs, TypeScript, pnpm, Vitest. The dashboard is a
 Vue + Vite SPA. Cloudflare Workers is the production deployment target;
@@ -55,26 +122,28 @@ reaching into any `apps/platform-*`.
 ## Workspace Layout
 
 ```text
-floway/
+Floway/
 ├── packages/
-│   ├── gateway/             # @floway-dev/gateway — Hono app, control/data planes, repo, migrations
-│   ├── http/                # @floway-dev/http — HTTP/1.1 + userspace TLS + WebSocket upgrade over a duplex byte stream
-│   ├── interceptor/         # @floway-dev/interceptor — generic interceptor framework
-│   ├── platform/            # @floway-dev/platform — runtime contracts + portable helpers
-│   ├── protocols/           # @floway-dev/protocols — protocol type defs
-│   ├── provider/            # @floway-dev/provider — upstream provider contracts
-│   ├── provider-azure/      # @floway-dev/provider-azure — Azure OpenAI provider
-│   ├── provider-codex/      # @floway-dev/provider-codex — ChatGPT Codex (subscription) provider
-│   ├── provider-copilot/    # @floway-dev/provider-copilot — GitHub Copilot provider
-│   ├── provider-custom/     # @floway-dev/provider-custom — generic OpenAI-compatible
-│   ├── proxy/               # @floway-dev/proxy — proxy URI parsing + per-protocol byte-stream dialers
-│   ├── test-utils/          # @floway-dev/test-utils — shared Vitest fixtures and stubs (test-only)
-│   ├── translate/           # @floway-dev/translate — cross-protocol translation pairs
-│   └── ui/                  # @floway-dev/ui — internal Vue component library
+│   ├── gateway/              # @floway-dev/gateway — Hono app, control/data planes, repo, migrations
+│   ├── http/                 # @floway-dev/http — HTTP/1.1 + userspace TLS + WebSocket upgrade over a duplex byte stream
+│   ├── interceptor/          # @floway-dev/interceptor — generic interceptor framework
+│   ├── platform/             # @floway-dev/platform — runtime contracts + portable helpers
+│   ├── protocols/            # @floway-dev/protocols — protocol type defs
+│   ├── provider/             # @floway-dev/provider — upstream provider contracts
+│   ├── provider-azure/       # @floway-dev/provider-azure — Azure OpenAI provider
+│   ├── provider-claude-code/ # @floway-dev/provider-claude-code — Claude Code (Claude.ai subscription) provider
+│   ├── provider-codex/       # @floway-dev/provider-codex — ChatGPT Codex (subscription) provider
+│   ├── provider-copilot/     # @floway-dev/provider-copilot — GitHub Copilot provider
+│   ├── provider-custom/      # @floway-dev/provider-custom — generic OpenAI-compatible
+│   ├── provider-ollama/      # @floway-dev/provider-ollama — Ollama (ollama.com or self-hosted)
+│   ├── proxy/                # @floway-dev/proxy — proxy URI parsing + per-protocol byte-stream dialers
+│   ├── test-utils/           # @floway-dev/test-utils — shared Vitest fixtures and stubs (test-only)
+│   ├── translate/            # @floway-dev/translate — cross-protocol translation pairs
+│   └── ui/                   # @floway-dev/ui — internal Vue component library
 └── apps/
-    ├── platform-cloudflare/ # @floway-dev/platform-cloudflare — CF impls + Worker entry
-    ├── platform-node/       # @floway-dev/platform-node — Node impls + node-server entry
-    └── web/                 # @floway-dev/web — Vue + Vite SPA dashboard
+    ├── platform-cloudflare/  # @floway-dev/platform-cloudflare — CF impls + Worker entry
+    ├── platform-node/        # @floway-dev/platform-node — Node impls + node-server entry
+    └── web/                  # @floway-dev/web — Vue + Vite SPA dashboard
 ```
 
 Dependency direction is strict. The leaf-most packages are `protocols`,
@@ -138,9 +207,10 @@ pnpm run db:migrate:remote   # production D1
 
 `dev` runs the Worker on `http://127.0.0.1:8788` and the SPA on
 `http://localhost:5174`. For frontend development open the Vite SPA (5174):
-Vite proxies `/api`, `/auth`, `/v1`, `/v1beta`, `/embeddings`, and
-`/models` to the Worker, so relative-URL fetches in `apps/web` work
-identically in dev and prod. The Worker port serves the last built
+Vite proxies the gateway's HTTP paths to the Worker (see the canonical
+list in `apps/web/vite.config.ts`'s `wranglerProxiedPaths`), so relative-URL
+fetches in `apps/web` work identically in dev and prod. The Worker port
+serves the last built
 `apps/web/dist` via Workers Static Assets; direct SPA routes (e.g.
 `/login`, `/dashboard/...`) require
 `assets.not_found_handling: "single-page-application"` plus the
@@ -151,7 +221,10 @@ package, use pnpm filters (e.g.
 
 `dev:node` boots the Node deployment target. Configure via
 `FLOWAY_DB_PATH` (sqlite file path), `FLOWAY_FILES_DIR` (filesystem store
-root), `ADMIN_KEY` (admin secret), and `PORT`. Default ports/paths in
+root), `ADMIN_KEY` (admin secret), `PORT`, and optionally
+`RUNTIME_LOCATION` (instance tag used as the perf-telemetry
+`runtimeLocation` dimension and the dial-time colo-whitelist key —
+uppercased on read, defaults to `LOCAL` when unset). Default ports/paths in
 `apps/platform-node/entry.ts`. The Node entry runs `applyMigrations` against
 `packages/gateway/migrations/*.sql` at boot, then serves the same Hono app
 through `@hono/node-server`. Static-asset serving is Workers-only; the Node
@@ -231,31 +304,35 @@ active version id, the active deployment timestamp, the latest applied
 migration, and the migrations this deploy will apply (or that there are
 none).
 
-If migrations are pending, take an explicit D1 backup to a temp file
-outside the repo so the working tree stays clean:
+If migrations are pending, capture a Time Travel bookmark of the current
+database state so a rollback can restore to that exact point:
 
 ```bash
-pnpm wrangler d1 export <DB_NAME> --remote \
-  --output "${TMPDIR:-/tmp}/<DB_NAME>-$(date -u +%Y%m%dT%H%M%SZ).sql"
+pnpm wrangler d1 time-travel info <DB_NAME> --json
 ```
 
-The export includes `password_hash` for every user (active and
-soft-deleted) — treat the file as a credential bundle. Anyone with it
-can sign in as every user whose password has not rotated since.
+The output is `{ "bookmark": "..." }`; that bookmark string is the
+restore target. Nothing leaves Cloudflare, and D1 retains bookmarks for
+30 days.
 
-Report the resolved backup path, then give the user two rollback commands,
+Report the captured bookmark, then give the user two rollback commands,
 in this order:
 
-- Restore the database from that dump, e.g. `pnpm wrangler d1 execute
-  <DB_NAME> --remote --file <backup-path>` (drop the migrated tables first
-  if the dump's `CREATE`s would collide), or `pnpm wrangler d1 time-travel
-  restore <DB_NAME> --bookmark <bookmark>` if a pre-deploy bookmark was
-  captured.
-- Roll back the Worker code: `pnpm wrangler rollback <PREVIOUS_VERSION_ID>`.
+- Restore the database: `CI=1 pnpm wrangler d1 time-travel restore
+  <DB_NAME> --bookmark <bookmark>`.
+- Roll back the Worker code:
+  `CI=1 pnpm wrangler rollback <PREVIOUS_VERSION_ID> -m "Emergency rollback"`.
 
-If no migrations are pending, skip the backup and the database-rollback
-command; give only the code-rollback command and proceed straight to
-Step 3.
+Both commands must be paste-and-run during an incident, so they are
+prefixed with `CI=1` to make wrangler treat them as non-interactive — it
+otherwise prompts to confirm the restore and to enter a rollback
+message. The `-m` flag on `wrangler rollback` supplies that message
+directly, because wrangler's documented `-y/--yes` flag is not actually
+honored by the rollback handler.
+
+If no migrations are pending, skip the bookmark capture and the
+database-rollback command; give only the code-rollback command and
+proceed straight to Step 3.
 
 **Step 3 — deploy with one chained command.** Migrate (when needed) and
 publish in the same command so the system spends as little time as
@@ -278,13 +355,17 @@ referenced KV/R2/Queue bindings. The Worker's bindings (D1, R2, Images,
 KV) only ever grow, never shrink — `pnpm run deploy` runs
 `pnpm install --frozen-lockfile` first (so a fast-forward that introduced
 a new workspace package wires its symlinks before the build runs) then
-`scripts/check-bindings.ts` and refuses to publish if wrangler.jsonc
-drops any of them — so plain code rollback stays safe; D1 state is
-rolled back separately as above.
+`scripts/check-wrangler.ts` and refuses to publish if `wrangler.jsonc`
+drifts from `wrangler.example.jsonc` in either direction — every key,
+value, and binding in the example must appear in the real config, and
+the real config must not carry anything the example doesn't pin (aside
+from `account_id`, the one personal-only key the gate allowlists). So
+plain code rollback stays safe; D1 state is rolled back separately as
+above.
 
 A complete deploy fits in a strict turn budget: **three agent turns when
-migrations are pending** (Step 1 = gather, Step 2 = backup + report + two
-rollback commands, Step 3 = deploy) and **two agent turns when no
+migrations are pending** (Step 1 = gather, Step 2 = bookmark + report +
+two rollback commands, Step 3 = deploy) and **two agent turns when no
 migrations are pending** (Step 2 collapses into Turn 1: gather + report +
 single code-rollback command; Turn 2 = deploy). A turn boundary in this
 flow exists only because a tool result has to arrive before the next tool

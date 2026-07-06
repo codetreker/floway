@@ -34,7 +34,7 @@ export const withVisionHeaderSet = async <TResult>(
   run: () => Promise<TResult>,
 ): Promise<TResult> => {
   if (ctx.payload.messages.some(message => contentHasImage(message.content))) {
-    ctx.headers['copilot-vision-request'] = 'true';
+    ctx.headers.set('copilot-vision-request', 'true');
   }
 
   return await run();

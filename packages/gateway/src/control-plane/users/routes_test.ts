@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest';
 
+import { initDumpBroker, initDumpStore } from '../../dump/registry.ts';
+import { installDumpStubs } from '../../dump/test-fixtures.ts';
 import { hashPassword } from '../../shared/passwords.ts';
 import { requestApp, setupAppTest } from '../../test-helpers.ts';
 import { assertEquals } from '@floway-dev/test-utils';
@@ -128,6 +130,25 @@ test('DELETE /api/users/:id cascades to api_keys (soft) + sessions', async () =>
   expect(await repo.users.getById(user.id)).toBeNull();
   expect(await repo.apiKeys.getById(defaultKey.id)).toBeNull();
   assertEquals((await repo.sessions.deleteByUserId(user.id)), 0);
+});
+
+test('DELETE /api/users/:id succeeds when the broker close hook throws on a cascaded key', async () => {
+  const { adminSession, repo } = await setupAppTest();
+  const created = await adminPost(adminSession, { username: 'alice', password: 'pw' });
+  const { user } = (await created.json()) as { user: { id: number } };
+  const [defaultKey] = await repo.apiKeys.listByUserId(user.id);
+  // Enable retention on the cascaded key so the broker close hook is exercised.
+  await repo.apiKeys.save({ ...defaultKey, dumpRetentionSeconds: 3600 });
+
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+  stubs.failOn('closeChannel', new Error('broker down'));
+
+  const response = await adminDelete(adminSession, user.id);
+  assertEquals(response.status, 200);
+  // The store purge still ran for the cascaded key.
+  assertEquals(stubs.purgedAll.includes(defaultKey.id), true);
+  // The user soft-delete still landed.
+  expect(await repo.users.getById(user.id)).toBeNull();
 });
 
 test('PATCH /api/users/me/password requires session and a correct current password', async () => {

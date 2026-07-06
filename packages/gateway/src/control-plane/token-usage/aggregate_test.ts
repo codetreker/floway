@@ -14,6 +14,7 @@ const baseRecord = (overrides: Partial<UsageRecord>): UsageRecord => ({
   model: 'claude-opus-4-7',
   upstream: 'up_copilot',
   modelKey: 'claude-opus-4-7',
+  tier: null,
   requests: 1,
   tokens: { input: 100, output: 50 },
   cost: opus47Pricing,
@@ -82,4 +83,31 @@ test('aggregateUsageForDisplay charges image dimensions separately', () => {
   ]);
   // 10 + 5 + 40 + 30 = $85.
   assertAlmostEquals(out[0].cost, 85, 1e-9);
+});
+
+test('aggregateUsageForDisplay reads unit prices from the already-folded cost the repo writer hands back', () => {
+  // The repo write path (`repo/sql.ts:dimensionRows`, `repo/memory.ts:dimensionEntries`)
+  // resolves the bucket's tier into per-dimension unit prices BEFORE storing,
+  // so by the time aggregate sees a UsageRecord the `cost` field is already
+  // the effective pricing for that bucket's tier and tier resolution is a
+  // no-op. Two same-tier records below model the post-write shape.
+  // Opus 4.8: standard $5 / $25, fast $10 / $50.
+  const fastRow = baseRecord({
+    tier: 'fast',
+    cost: { input: 10, output: 50 },
+    tokens: { input: 1_000_000, output: 1_000_000 },
+  });
+  const standardRow = baseRecord({
+    tier: null,
+    cost: { input: 5, output: 25 },
+    tokens: { input: 1_000_000, output: 1_000_000 },
+  });
+
+  const fastOut = aggregateUsageForDisplay([fastRow]);
+  // 1M * $10 + 1M * $50 = $60.
+  assertAlmostEquals(fastOut[0].cost, 60, 1e-9);
+
+  const standardOut = aggregateUsageForDisplay([standardRow]);
+  // 1M * $5 + 1M * $25 = $30.
+  assertAlmostEquals(standardOut[0].cost, 30, 1e-9);
 });

@@ -4,5 +4,5 @@
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   },
-  "include": ["entry.ts", "vitest.config.ts", "src/**/*.ts"]
+  "include": ["entry.ts", "vitest.config.ts", "src/**/*.ts", "test/**/*.ts"]
 }

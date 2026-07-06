@@ -13,7 +13,7 @@ export const withVisionHeaderSet: CopilotChatCompletionsBoundaryInterceptor = as
   const hasImage = ctx.payload.messages.some(
     message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url'),
   );
-  if (hasImage) ctx.headers['copilot-vision-request'] = 'true';
+  if (hasImage) ctx.headers.set('copilot-vision-request', 'true');
 
   return await run();
 };

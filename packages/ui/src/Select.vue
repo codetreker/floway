@@ -1,23 +1,26 @@
-<script setup lang="ts" generic="T extends string | number">
+<script setup lang="ts" generic="T extends string | number, O extends { value: T; label: string; disabled?: boolean } = { value: T; label: string; disabled?: boolean }">
 import { SelectContent, SelectIcon, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport } from 'reka-ui';
 import { computed } from 'vue';
 
 import { cn } from './utils/cn.ts';
 
-interface Option {
-  value: T;
-  label: string;
-  disabled?: boolean;
-}
-
 const value = defineModel<T>();
 
 const props = withDefaults(defineProps<{
-  options: Option[];
+  options: O[];
   placeholder?: string;
   disabled?: boolean;
   size?: 'sm' | 'md';
 }>(), { size: 'md' });
+
+// Per-option scoped slot for a second-line description under the label.
+// Consumers attach arbitrary metadata to their option objects and the slot
+// receives the full option so it can render whatever shape it needs (an
+// explanation, a code snippet, badges, ...). Slot absence keeps the
+// previous single-line behavior.
+defineSlots<{
+  description?: (props: { option: O }) => unknown;
+}>();
 
 const triggerClass = computed(() => cn(
   'inline-flex w-full items-center justify-between rounded-[10px] border border-white/[0.14] bg-surface-700 text-white',
@@ -57,14 +60,17 @@ const onUpdate = (raw: string | number | undefined) => {
             :key="String(opt.value)"
             :value="opt.value"
             :disabled="opt.disabled"
-            class="relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-7 pr-2 text-sm text-white outline-none data-[highlighted]:bg-accent-cyan/10 data-[highlighted]:text-accent-cyan data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
+            class="relative flex w-full cursor-pointer select-none flex-col items-stretch rounded-sm py-1.5 pl-7 pr-2 text-sm text-white outline-none data-[highlighted]:bg-accent-cyan/10 data-[highlighted]:text-accent-cyan data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
           >
-            <span class="absolute left-2 flex size-3.5 items-center justify-center">
+            <span class="absolute left-2 top-2 flex size-3.5 items-center justify-center">
               <SelectItemIndicator>
                 <i class="i-lucide-check size-3.5 text-accent-cyan" />
               </SelectItemIndicator>
             </span>
             <SelectItemText>{{ opt.label }}</SelectItemText>
+            <div v-if="$slots.description" class="mt-0.5">
+              <slot name="description" :option="opt" />
+            </div>
           </SelectItem>
         </SelectViewport>
       </SelectContent>

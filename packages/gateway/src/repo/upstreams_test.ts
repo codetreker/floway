@@ -8,7 +8,7 @@ import type { SqlDatabase } from '@floway-dev/platform';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { assert, assertEquals, assertRejects } from '@floway-dev/test-utils';
 
-const upstream = (overrides: Partial<UpstreamRecord> & Pick<UpstreamRecord, 'id' | 'provider' | 'createdAt' | 'sortOrder'>): UpstreamRecord => ({
+const upstream = (overrides: Partial<UpstreamRecord> & Pick<UpstreamRecord, 'id' | 'kind' | 'createdAt' | 'sortOrder'>): UpstreamRecord => ({
   name: overrides.id,
   enabled: true,
   updatedAt: overrides.createdAt,
@@ -17,6 +17,7 @@ const upstream = (overrides: Partial<UpstreamRecord> & Pick<UpstreamRecord, 'id'
   flagOverrides: {},
   disabledPublicModelIds: [],
   proxyFallbackList: [],
+  modelPrefix: null,
   ...overrides,
 });
 
@@ -25,7 +26,7 @@ test('memory upstream repo saves, lists, updates, deletes, and clears rows', asy
 
   const custom = upstream({
     id: 'up_custom_a',
-    provider: 'custom',
+    kind: 'custom',
     name: 'Custom A',
     sortOrder: 2,
     createdAt: '2026-05-21T10:00:02.000Z',
@@ -33,7 +34,7 @@ test('memory upstream repo saves, lists, updates, deletes, and clears rows', asy
   });
   const copilot = upstream({
     id: 'up_copilot_a',
-    provider: 'copilot',
+    kind: 'copilot',
     name: 'Copilot A',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:03.000Z',
@@ -41,7 +42,7 @@ test('memory upstream repo saves, lists, updates, deletes, and clears rows', asy
   });
   const azure = upstream({
     id: 'up_azure_a',
-    provider: 'azure',
+    kind: 'azure',
     name: 'Azure A',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:01.000Z',
@@ -97,7 +98,7 @@ test('memory upstream repo deeply clones configs and flag overrides at the repo 
   const repo = new InMemoryRepo().upstreams;
   const original = upstream({
     id: 'up_custom_clone',
-    provider: 'custom',
+    kind: 'custom',
     sortOrder: 0,
     createdAt: '2026-05-21T10:00:00.000Z',
     config: {
@@ -142,7 +143,7 @@ test('memory upstream repo sorts flag overrides by key when saving rows', async 
   await repo.save(
     upstream({
       id: 'up_copilot_fixes',
-      provider: 'copilot',
+      kind: 'copilot',
       sortOrder: 0,
       createdAt: '2026-05-21T10:00:00.000Z',
       flagOverrides: { 'z-fix': true, 'a-fix': false, 'm-fix': true },
@@ -156,27 +157,27 @@ test('memory upstream repo sorts flag overrides by key when saving rows', async 
 const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
   const custom = upstream({
     id: 'up_custom_sql',
-    provider: 'custom',
+    kind: 'custom',
     name: 'Custom SQL',
     sortOrder: 2,
     createdAt: '2026-05-21T10:00:02.000Z',
     updatedAt: '2026-05-21T10:00:02.000Z',
-    config: { baseUrl: 'https://custom.example/v1', bearerToken: 'sk-custom', endpoints: { chatCompletions: {} } },
+    config: { baseUrl: 'https://custom.example/v1', authStyle: 'bearer', apiKey: 'sk-custom', endpoints: { chatCompletions: {} } },
     flagOverrides: { 'z-fix': true, 'a-fix': true },
     disabledPublicModelIds: [],
   });
   const copilot = upstream({
     id: 'up_copilot_sql',
-    provider: 'copilot',
+    kind: 'copilot',
     name: 'Copilot SQL',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:03.000Z',
     updatedAt: '2026-05-21T10:00:03.000Z',
-    config: { githubToken: 'gho_d1', accountType: 'individual', user: { id: 1, login: 'copilot', name: null, avatar_url: 'https://avatars.test/1.png' } },
+    config: { githubToken: 'gho_d1', user: { id: 1, login: 'copilot', name: null, avatar_url: 'https://avatars.test/1.png' } },
   });
   const azure = upstream({
     id: 'up_azure_sql',
-    provider: 'azure',
+    kind: 'azure',
     name: 'Azure SQL',
     sortOrder: 1,
     createdAt: '2026-05-21T10:00:01.000Z',
@@ -202,7 +203,7 @@ const exerciseSqlUpstreamRepo = async (repo: UpstreamRepo) => {
     sortOrder: 0,
     createdAt: '2099-01-01T00:00:00.000Z',
     updatedAt: '2026-05-21T10:00:04.000Z',
-    config: { baseUrl: 'https://updated.example/v1', bearerToken: 'sk-updated', endpoints: { responses: {} } },
+    config: { baseUrl: 'https://updated.example/v1', authStyle: 'bearer', apiKey: 'sk-updated', endpoints: { responses: {} } },
     flagOverrides: { 'm-fix': true, 'a-fix': true },
     disabledPublicModelIds: [],
   });
@@ -246,6 +247,7 @@ test('SQL upstream repo rejects malformed stored upstream JSON', async () => {
     flag_overrides: '{}',
     disabled_public_model_ids: '[]',
     proxy_fallback_list_json: '[]',
+    model_prefix_json: null,
   });
 
   await assertRejects(() => new SqlRepo(db).upstreams.list(), Error, 'Malformed upstream config JSON for up_bad_config');
@@ -266,6 +268,7 @@ test('SQL upstream repo rejects malformed stored flag overrides JSON', async () 
     flag_overrides: '{bad json',
     disabled_public_model_ids: '[]',
     proxy_fallback_list_json: '[]',
+    model_prefix_json: null,
   });
 
   await assertRejects(() => new SqlRepo(db).upstreams.getById('up_bad_fixes'), Error, 'Malformed upstream flag_overrides JSON for up_bad_fixes');
@@ -286,6 +289,7 @@ test('SQL upstream repo rejects array-shaped flag_overrides with helpful message
     flag_overrides: '[]',
     disabled_public_model_ids: '[]',
     proxy_fallback_list_json: '[]',
+    model_prefix_json: null,
   });
 
   await assertRejects(
@@ -310,6 +314,7 @@ test('SQL upstream repo rejects non-boolean value in flag_overrides with helpful
     flag_overrides: '{"x": 1}',
     disabled_public_model_ids: '[]',
     proxy_fallback_list_json: '[]',
+    model_prefix_json: null,
   });
 
   await assertRejects(
@@ -317,6 +322,73 @@ test('SQL upstream repo rejects non-boolean value in flag_overrides with helpful
     Error,
     'Upstream up_nonbool_fixes flag_overrides["x"] must be a boolean, got number',
   );
+});
+
+test('SQL upstream repo rejects malformed stored model_prefix_json', async () => {
+  const db = new FakeUpstreamsSqlDatabase();
+  db.rows.push({
+    id: 'up_bad_prefix_json',
+    provider: 'custom',
+    name: 'Bad Prefix JSON',
+    enabled: 1,
+    sort_order: 0,
+    created_at: '2026-05-21T10:00:00.000Z',
+    updated_at: '2026-05-21T10:00:00.000Z',
+    config_json: '{}',
+    state_json: null,
+    flag_overrides: '{}',
+    disabled_public_model_ids: '[]',
+    proxy_fallback_list_json: '[]',
+    model_prefix_json: '{not json',
+  });
+
+  await assertRejects(() => new SqlRepo(db).upstreams.getById('up_bad_prefix_json'), Error, 'Malformed upstream model_prefix_json for up_bad_prefix_json');
+});
+
+test('SQL upstream repo rejects shape-invalid model_prefix_json', async () => {
+  const db = new FakeUpstreamsSqlDatabase();
+  db.rows.push({
+    id: 'up_bad_prefix_shape',
+    provider: 'custom',
+    name: 'Bad Prefix Shape',
+    enabled: 1,
+    sort_order: 0,
+    created_at: '2026-05-21T10:00:00.000Z',
+    updated_at: '2026-05-21T10:00:00.000Z',
+    config_json: '{}',
+    state_json: null,
+    flag_overrides: '{}',
+    disabled_public_model_ids: '[]',
+    proxy_fallback_list_json: '[]',
+    // Prefix missing trailing slash — passes JSON.parse but fails the regex.
+    model_prefix_json: '{"prefix":"or","addressable":["unprefixed"],"listed":[]}',
+  });
+
+  await assertRejects(() => new SqlRepo(db).upstreams.getById('up_bad_prefix_shape'), Error, 'Invalid upstream model_prefix_json shape for up_bad_prefix_shape');
+});
+
+test('SQL upstream repo round-trips a non-null model_prefix', async () => {
+  const db = new FakeUpstreamsSqlDatabase();
+  const repo = new SqlRepo(db).upstreams;
+  const now = new Date().toISOString();
+  const record: UpstreamRecord = {
+    id: 'up_prefix_rt',
+    kind: 'custom',
+    name: 'Prefix Round-Trip',
+    enabled: true,
+    sortOrder: 0,
+    createdAt: now,
+    updatedAt: now,
+    config: { baseUrl: 'https://example.com', bearerToken: 'sk', authStyle: 'bearer', endpoints: { chatCompletions: {} }, modelsFetch: { enabled: true } },
+    state: null,
+    flagOverrides: {},
+    disabledPublicModelIds: [],
+    proxyFallbackList: [],
+    modelPrefix: { prefix: 'or/', addressable: ['unprefixed', 'prefixed'], listed: ['prefixed'] },
+  };
+  await repo.save(record);
+  const reloaded = await repo.getById('up_prefix_rt');
+  assertEquals(reloaded?.modelPrefix, { prefix: 'or/', addressable: ['unprefixed', 'prefixed'], listed: ['prefixed'] });
 });
 
 test('migration 0010 creates unified upstreams and rewrites legacy upstream identities', async () => {
@@ -420,6 +492,291 @@ test('migration 0010 creates unified upstreams and rewrites legacy upstream iden
   }
 });
 
+test('migration 0042 renames bearerToken to apiKey and backfills authStyle on legacy rows', async () => {
+  const db = await createMigratedSqlJsDatabase();
+  try {
+    for (const filename of [...migrationSqlByFilename.keys()].filter(f => f >= '0010_unified_upstreams.sql' && f < '0042_custom_apikey_rename.sql').toSorted()) {
+      applySqlJsFile(db, filename);
+    }
+
+    // Seed two custom rows mirroring real legacy shapes:
+    //   - up_legacy:     post-0010 row with bearerToken and no authStyle
+    //   - up_anthropic:  later row with bearerToken AND authStyle: 'anthropic'
+    // and a non-custom (azure) row that the migration must leave untouched.
+    db.run(`INSERT INTO upstreams (id, provider, name, enabled, sort_order, created_at, updated_at, config_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json)
+            VALUES
+              ('up_legacy', 'custom', 'Legacy', 1, 0, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z', json_object('baseUrl', 'https://a.example/v1', 'bearerToken', 'sk-legacy'), '[]', '[]', '[]'),
+              ('up_anthropic', 'custom', 'Anthropic', 1, 1, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z', json_object('baseUrl', 'https://b.example/v1', 'bearerToken', 'sk-ant', 'authStyle', 'anthropic'), '[]', '[]', '[]'),
+              ('up_azure', 'azure', 'Azure', 1, 2, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z', json_object('endpoint', 'https://az.example', 'apiKey', 'az-key'), '[]', '[]', '[]')`);
+
+    applySqlJsFile(db, '0042_custom_apikey_rename.sql');
+
+    const rows = sqlJsRows<{ id: string; bearerToken: unknown; apiKey: string; authStyle: string }>(
+      db,
+      `SELECT
+        id,
+        json_extract(config_json, '$.bearerToken') AS bearerToken,
+        json_extract(config_json, '$.apiKey') AS apiKey,
+        json_extract(config_json, '$.authStyle') AS authStyle
+       FROM upstreams
+       ORDER BY id`,
+    );
+
+    assertEquals(rows.find(r => r.id === 'up_legacy'), { id: 'up_legacy', bearerToken: null, apiKey: 'sk-legacy', authStyle: 'bearer' });
+    assertEquals(rows.find(r => r.id === 'up_anthropic'), { id: 'up_anthropic', bearerToken: null, apiKey: 'sk-ant', authStyle: 'anthropic' });
+    // Non-custom rows are untouched.
+    const azure = rows.find(r => r.id === 'up_azure');
+    assertEquals(azure?.bearerToken, null);
+    assertEquals(azure?.apiKey, 'az-key');
+    assertEquals(azure?.authStyle, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('migration 0044 rewrites pathOverrides keys to the OpenAI-canonical /path/fragment form', async () => {
+  const db = await createMigratedSqlJsDatabase();
+  try {
+    for (const filename of [...migrationSqlByFilename.keys()].filter(f => f >= '0010_unified_upstreams.sql' && f < '0044_custom_pathoverrides_slash_keys.sql').toSorted()) {
+      applySqlJsFile(db, filename);
+    }
+
+    // Seed three rows: a custom upstream carrying every legacy underscore key,
+    // a custom upstream with no pathOverrides at all (must stay untouched),
+    // and a non-custom row that the migration must skip.
+    db.run(`INSERT INTO upstreams (id, provider, name, enabled, sort_order, created_at, updated_at, config_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json)
+            VALUES
+              ('up_overrides', 'custom', 'With Overrides', 1, 0, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z',
+                json_object('baseUrl', 'https://a.example', 'authStyle', 'bearer', 'apiKey', 'sk-a',
+                  'pathOverrides', json_object(
+                    'completions', '/p/completions',
+                    'chat_completions', '/p/chat/completions',
+                    'responses', '/p/responses',
+                    'messages', '/p/messages',
+                    'embeddings', '/p/embeddings',
+                    'images_generations', '/p/images/generations',
+                    'images_edits', '/p/images/edits'
+                  )
+                ), '[]', '[]', '[]'),
+              ('up_blank', 'custom', 'No Overrides', 1, 1, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z',
+                json_object('baseUrl', 'https://b.example', 'authStyle', 'bearer', 'apiKey', 'sk-b'),
+                '[]', '[]', '[]'),
+              ('up_azure', 'azure', 'Azure', 1, 2, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z',
+                json_object('endpoint', 'https://az.example', 'apiKey', 'az-key',
+                  'pathOverrides', json_object('chat_completions', '/should/stay')
+                ), '[]', '[]', '[]')`);
+
+    applySqlJsFile(db, '0044_custom_pathoverrides_slash_keys.sql');
+
+    const overrides = sqlJsRows<{ overrides: string }>(
+      db,
+      `SELECT json_extract(config_json, '$.pathOverrides') AS overrides FROM upstreams WHERE id = 'up_overrides'`,
+    );
+    assertEquals(JSON.parse(overrides[0].overrides), {
+      '/completions': '/p/completions',
+      '/chat/completions': '/p/chat/completions',
+      '/responses': '/p/responses',
+      '/messages': '/p/messages',
+      '/embeddings': '/p/embeddings',
+      '/images/generations': '/p/images/generations',
+      '/images/edits': '/p/images/edits',
+    });
+
+    // A row without pathOverrides is left alone — the field stays absent
+    // rather than getting an empty `{}` shell.
+    const blank = sqlJsRows<{ overrides: unknown }>(
+      db,
+      `SELECT json_extract(config_json, '$.pathOverrides') AS overrides FROM upstreams WHERE id = 'up_blank'`,
+    );
+    assertEquals(blank[0].overrides, null);
+
+    // Non-custom rows are out of scope; an azure row's stale snake_case key
+    // is intentionally preserved (no other migration touches it).
+    const azure = sqlJsRows<{ overrides: string }>(
+      db,
+      `SELECT json_extract(config_json, '$.pathOverrides') AS overrides FROM upstreams WHERE id = 'up_azure'`,
+    );
+    assertEquals(JSON.parse(azure[0].overrides), { chat_completions: '/should/stay' });
+  } finally {
+    db.close();
+  }
+});
+
+test('migration 0047 backfills openaiDeviceId on legacy Codex rows and leaves populated rows alone', async () => {
+  const db = await createMigratedSqlJsDatabase();
+  try {
+    for (const filename of [...migrationSqlByFilename.keys()].filter(f => f >= '0010_unified_upstreams.sql' && f < '0047_codex_account_openai_device_id.sql').toSorted()) {
+      applySqlJsFile(db, filename);
+    }
+
+    // Seed three rows:
+    //   - up_codex_legacy: codex with no openaiDeviceId — migration must mint
+    //   - up_codex_imported: codex with a pre-existing id — migration leaves it
+    //   - up_custom: non-codex — migration ignores
+    db.run(`INSERT INTO upstreams (id, provider, name, enabled, sort_order, created_at, updated_at, config_json, state_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json)
+            VALUES
+              ('up_codex_legacy', 'codex', 'Codex Legacy', 1, 0, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-legacy', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object('chatgptAccountId', 'acc-legacy', 'refresh_token', 'rt', 'state', 'active', 'state_updated_at', '2026-05-21T00:00:00.000Z'))),
+                '[]', '[]', '[]'),
+              ('up_codex_imported', 'codex', 'Codex Imported', 1, 1, '2026-05-22T00:00:00.000Z', '2026-05-22T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-imported', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object('chatgptAccountId', 'acc-imported', 'refresh_token', 'rt', 'state', 'active', 'state_updated_at', '2026-05-22T00:00:00.000Z', 'openaiDeviceId', 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'))),
+                '[]', '[]', '[]'),
+              ('up_custom', 'custom', 'Custom', 1, 2, '2026-05-21T00:00:00.000Z', '2026-05-21T00:00:00.000Z',
+                json_object('baseUrl', 'https://a.example/v1', 'apiKey', 'k', 'authStyle', 'bearer'),
+                NULL,
+                '[]', '[]', '[]')`);
+
+    applySqlJsFile(db, '0047_codex_account_openai_device_id.sql');
+
+    const rows = sqlJsRows<{ id: string; deviceId: string | null }>(
+      db,
+      `SELECT id, json_extract(state_json, '$.accounts[0].openaiDeviceId') AS deviceId
+       FROM upstreams ORDER BY id`,
+    );
+
+    const legacy = rows.find(r => r.id === 'up_codex_legacy');
+    assert(typeof legacy?.deviceId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(legacy.deviceId), `expected UUIDv4 device id for up_codex_legacy, got ${legacy?.deviceId}`);
+    assertEquals(rows.find(r => r.id === 'up_codex_imported')?.deviceId, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+    // Non-codex rows have no state_json; the json_extract returns null.
+    assertEquals(rows.find(r => r.id === 'up_custom')?.deviceId, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('migration 0048 rebuckets Codex quota snapshots by active limit', async () => {
+  const db = await createMigratedSqlJsDatabase();
+  try {
+    for (const filename of [...migrationSqlByFilename.keys()].filter(f => f >= '0010_unified_upstreams.sql' && f < '0048_codex_quota_snapshot_active_limit_map.sql').toSorted()) {
+      applySqlJsFile(db, filename);
+    }
+
+    db.run(`INSERT INTO upstreams (id, provider, name, enabled, sort_order, created_at, updated_at, config_json, state_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json)
+            VALUES
+              ('up_codex_premium', 'codex', 'Codex Premium', 1, 0, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-premium', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-premium',
+                  'openaiDeviceId', '11111111-2222-4333-8444-555555555555',
+                  'quotaSnapshot', json_extract(json_object(
+                    'premium', json_object(
+                      'data', json_object('active_limit', 'premium', 'observed_at', '2026-06-05T00:00:00.000Z', 'primary_used_percent', 42),
+                      'fetchedAt', 1700000000000
+                    )
+                  ), '$.premium'),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_codex_missing_limit', 'codex', 'Codex Missing Limit', 1, 1, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-missing', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-missing',
+                  'openaiDeviceId', '22222222-3333-4444-8555-666666666666',
+                  'quotaSnapshot', json_extract(json_object(
+                    'unknown', json_object(
+                      'data', json_object('observed_at', '2026-06-05T01:00:00.000Z'),
+                      'fetchedAt', 1700000001000
+                    )
+                  ), '$.unknown'),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_codex_unsafe_limit', 'codex', 'Codex Unsafe Limit', 1, 2, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-unsafe', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-unsafe',
+                  'openaiDeviceId', '33333333-4444-4555-8666-777777777777',
+                  'quotaSnapshot', json_extract(json_object(
+                    'unknown', json_object(
+                      'data', json_object('active_limit', 'constructor', 'observed_at', '2026-06-05T02:00:00.000Z'),
+                      'fetchedAt', 1700000002000
+                    )
+                  ), '$.unknown'),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_codex_map', 'codex', 'Codex Map', 1, 3, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('accounts', json_array(json_object('email', 'a@b.com', 'chatgptAccountId', 'acc-map', 'chatgptUserId', 'usr', 'planType', 'plus'))),
+                json_object('accounts', json_array(json_object(
+                  'accessToken', NULL,
+                  'chatgptAccountId', 'acc-map',
+                  'openaiDeviceId', '44444444-5555-4666-8777-888888888888',
+                  'quotaSnapshot', json_object(
+                    'premium', json_object('data', json_object('active_limit', 'premium', 'observed_at', '2026-06-05T03:00:00.000Z'), 'fetchedAt', 1700000003000)
+                  ),
+                  'refresh_token', 'rt',
+                  'state', 'active',
+                  'state_updated_at', '2026-06-05T00:00:00.000Z'
+                ))),
+                '[]', '[]', '[]'),
+              ('up_custom', 'custom', 'Custom', 1, 4, '2026-06-05T00:00:00.000Z', '2026-06-05T00:00:00.000Z',
+                json_object('baseUrl', 'https://a.example/v1', 'apiKey', 'k', 'authStyle', 'bearer'),
+                json_object('accounts', json_array(json_object('quotaSnapshot', json_object('premium', json_object('data', json_object('active_limit', 'premium'), 'fetchedAt', 1))))),
+                '[]', '[]', '[]')`);
+
+    applySqlJsFile(db, '0048_codex_quota_snapshot_active_limit_map.sql');
+
+    const rows = sqlJsRows<{ id: string; stateJson: string; snapshot: string }>(
+      db,
+      `SELECT
+        id,
+        state_json AS stateJson,
+        json_extract(state_json, '$.accounts[0].quotaSnapshot') AS snapshot
+       FROM upstreams
+       ORDER BY id`,
+    );
+    const snapshotFor = (id: string): unknown => JSON.parse(rows.find(r => r.id === id)!.snapshot);
+
+    assertEquals(snapshotFor('up_codex_premium'), {
+      premium: {
+        data: { active_limit: 'premium', observed_at: '2026-06-05T00:00:00.000Z', primary_used_percent: 42 },
+        fetchedAt: 1700000000000,
+      },
+    });
+    assertEquals(rows.find(r => r.id === 'up_codex_premium')!.stateJson, JSON.stringify({
+      accounts: [{
+        accessToken: null,
+        chatgptAccountId: 'acc-premium',
+        openaiDeviceId: '11111111-2222-4333-8444-555555555555',
+        quotaSnapshot: {
+          premium: {
+            data: { active_limit: 'premium', observed_at: '2026-06-05T00:00:00.000Z', primary_used_percent: 42 },
+            fetchedAt: 1700000000000,
+          },
+        },
+        refresh_token: 'rt',
+        state: 'active',
+        state_updated_at: '2026-06-05T00:00:00.000Z',
+      }],
+    }));
+    assertEquals(snapshotFor('up_codex_missing_limit'), {
+      unknown: { data: { observed_at: '2026-06-05T01:00:00.000Z' }, fetchedAt: 1700000001000 },
+    });
+    assertEquals(snapshotFor('up_codex_unsafe_limit'), {
+      unknown: { data: { active_limit: 'constructor', observed_at: '2026-06-05T02:00:00.000Z' }, fetchedAt: 1700000002000 },
+    });
+    assertEquals(snapshotFor('up_codex_map'), {
+      premium: { data: { active_limit: 'premium', observed_at: '2026-06-05T03:00:00.000Z' }, fetchedAt: 1700000003000 },
+    });
+    assertEquals(snapshotFor('up_custom'), {
+      premium: { data: { active_limit: 'premium' }, fetchedAt: 1 },
+    });
+  } finally {
+    db.close();
+  }
+});
+
 type FakeUpstreamRow = {
   id: string;
   provider: string;
@@ -433,6 +790,7 @@ type FakeUpstreamRow = {
   flag_overrides: string;
   disabled_public_model_ids: string;
   proxy_fallback_list_json: string;
+  model_prefix_json: string | null;
 };
 
 class FakeUpstreamsSqlPreparedStatement {
@@ -502,7 +860,7 @@ class FakeUpstreamsSqlDatabase implements SqlDatabase {
   }
 
   upsert(binds: unknown[]): void {
-    const [id, provider, name, enabled, sortOrder, createdAt, updatedAt, configJson, stateJson, flagOverrides, disabledPublicModelIds, proxyFallbackListJson] = binds as [string, string, string, number, number, string, string, string, string | null, string, string, string];
+    const [id, provider, name, enabled, sortOrder, createdAt, updatedAt, configJson, stateJson, flagOverrides, disabledPublicModelIds, proxyFallbackListJson, modelPrefixJson] = binds as [string, string, string, number, number, string, string, string, string | null, string, string, string, string | null];
     const existingIndex = this.rows.findIndex(candidate => candidate.id === id);
     const preservedCreatedAt = existingIndex >= 0 ? this.rows[existingIndex].created_at : createdAt;
     const row = {
@@ -518,6 +876,7 @@ class FakeUpstreamsSqlDatabase implements SqlDatabase {
       flag_overrides: flagOverrides,
       disabled_public_model_ids: disabledPublicModelIds,
       proxy_fallback_list_json: proxyFallbackListJson,
+      model_prefix_json: modelPrefixJson,
     };
     if (existingIndex >= 0) {
       this.rows[existingIndex] = row;

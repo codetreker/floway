@@ -1,56 +1,64 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 
 import AzureConfigPanel from './AzureConfigPanel.vue';
+import ClaudeCodeConfigPanel from './ClaudeCodeConfigPanel.vue';
 import CodexConfigPanel from './CodexConfigPanel.vue';
 import CopilotConfigPanel from './CopilotConfigPanel.vue';
-import type { AzureDraft, CustomDraft } from './customConfig.ts';
+import type { AzureDraft, CustomDraft, OllamaDraft } from './customConfig.ts';
 import CustomConfigPanel from './CustomConfigPanel.vue';
 import FlagOverridesEditor from './FlagOverridesEditor.vue';
-import ProviderPicker from './ProviderPicker.vue';
+import ModelPrefixEditor from './ModelPrefixEditor.vue';
+import ModelsCacheStatus from './ModelsCacheStatus.vue';
+import OllamaConfigPanel from './OllamaConfigPanel.vue';
 import ProxyFallbackListPanel from './ProxyFallbackListPanel.vue';
-import type { CopilotQuotaSnapshot, FlagDef, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import type { FlagDef, ModelPrefixConfig, ProxyFallbackEntry, UpstreamRecord } from '../../api/types.ts';
+import { providerBadgeClass, providerMeta } from '../upstreams/provider-meta.ts';
 import { Input, Switch, TagCombobox } from '@floway-dev/ui';
 
-const activeProvider = defineModel<UpstreamProviderKind>('provider', { required: true });
 const name = defineModel<string>('name', { required: true });
 const enabled = defineModel<boolean>('enabled', { required: true });
 const flagOverrides = defineModel<Record<string, boolean>>('flagOverrides', { required: true });
 const disabledIds = defineModel<string[]>('disabledIds', { required: true });
 const customDraft = defineModel<CustomDraft>('custom', { required: true });
 const azureDraft = defineModel<AzureDraft>('azure', { required: true });
-const proxyFallbackList = defineModel<string[]>('proxyFallbackList', { required: true });
+const ollamaDraft = defineModel<OllamaDraft>('ollama', { required: true });
+const proxyFallbackList = defineModel<ProxyFallbackEntry[]>('proxyFallbackList', { required: true });
+const modelPrefix = defineModel<ModelPrefixConfig | null>('modelPrefix', { required: true });
 
-defineProps<{
-  mode: 'create' | 'edit';
-  record: UpstreamRecord | null;
+// `draft` is the parent's single source of truth; wizards emit patches
+// through `patched` for the parent to merge.
+const props = defineProps<{
+  draft: UpstreamRecord;
   flags: FlagDef[];
-  customBearerTokenSet: boolean;
+  customApiKeySet: boolean;
   azureApiKeySet: boolean;
+  ollamaApiKeySet: boolean;
   fetchLoading: boolean;
   fetchError: string | null;
   fetchStatus: string | null;
   availableModelItems: { value: string; label: string }[];
-  initialCopilotQuota?: CopilotQuotaSnapshot | null;
-  initialCopilotQuotaError?: string | null;
+  // Live cache snapshot for the saved upstream. Null in create mode and for
+  // Azure (which has no fetch step) — `ModelsCacheStatus` is rendered only
+  // when this is provided.
+  modelsCache: UpstreamRecord['modelsCache'] | null;
+  refreshing: boolean;
+  saving: boolean;
+  coloAware: boolean;
+  currentColo: string | null;
 }>();
 
 defineEmits<{
   'fetch-models': [];
-  'copilot-completed': [upstream: UpstreamRecord | undefined];
-  'codex-imported': [upstream: UpstreamRecord];
-  'codex-error': [message: string];
+  'refresh-cache': [];
+  patched: [patch: { config?: unknown; state?: unknown }];
+  'save-and-open-edit': [];
+  error: [message: string];
+  'update:model-prefix-invalid': [invalid: boolean];
 }>();
 
-const providerBadgeClass = (kind: UpstreamProviderKind) => {
-  switch (kind) {
-  case 'azure': return 'border-accent-emerald/30 bg-accent-emerald/10 text-accent-emerald';
-  case 'copilot': return 'border-accent-cyan/30 bg-accent-cyan/10 text-accent-cyan';
-  case 'codex': return 'border-accent-violet/30 bg-accent-violet/10 text-accent-violet';
-  case 'custom':
-  default: return 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber';
-  }
-};
+const kind = computed(() => props.draft.kind);
+const isCreate = computed(() => props.draft.id === '');
 
 // Intrinsic floor for the aside: smallest height at which every
 // non-flag-editor section is fully laid out AND the flag editor still has
@@ -69,9 +77,9 @@ const measureFloor = () => {
   const header = headerRef.value;
   if (!content) return;
   const cs = getComputedStyle(content);
-  const padTop = parseFloat(cs.paddingTop) || 0;
-  const padBottom = parseFloat(cs.paddingBottom) || 0;
-  const gap = parseFloat(cs.rowGap) || 0;
+  const padTop = parseFloat(cs.paddingTop);
+  const padBottom = parseFloat(cs.paddingBottom);
+  const gap = parseFloat(cs.rowGap);
   const children = Array.from(content.children) as HTMLElement[];
   let h = padTop + padBottom;
   if (children.length > 1) h += gap * (children.length - 1);
@@ -81,7 +89,7 @@ const measureFloor = () => {
   if (header) h += header.getBoundingClientRect().height;
   intrinsicFloorPx.value = h;
 };
-watch([contentRef, flagSectionRef, headerRef, activeProvider], () => {
+watch([contentRef, flagSectionRef, headerRef, kind], () => {
   floorObserver?.disconnect();
   const content = contentRef.value;
   if (!content) return;
@@ -103,31 +111,40 @@ onBeforeUnmount(() => floorObserver?.disconnect());
     <header ref="headerRef" class="flex shrink-0 items-center gap-3 border-b border-white/[0.06] px-5 py-4">
       <span
         class="rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-        :class="providerBadgeClass(activeProvider)"
-      >{{ activeProvider }}</span>
+        :class="providerBadgeClass(kind)"
+      >{{ providerMeta(kind).label }}</span>
       <h2 class="min-w-0 truncate text-sm font-semibold text-white">
-        {{ name || (mode === 'create' ? 'New upstream' : 'Upstream') }}
+        {{ name || (isCreate ? 'New upstream' : 'Upstream') }}
       </h2>
       <Switch v-model="enabled" class="ml-auto" />
     </header>
 
     <div ref="contentRef" class="flex min-h-0 flex-1 flex-col gap-6 px-5 py-5">
 
-      <section v-if="mode === 'create'" class="shrink-0">
-        <p class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Provider</p>
-        <ProviderPicker v-model="activeProvider" />
-      </section>
-
-      <section v-if="!(mode === 'create' && (activeProvider === 'copilot' || activeProvider === 'codex'))" class="shrink-0">
+      <section class="shrink-0">
         <label class="mb-1.5 block text-xs font-medium text-gray-500">Name</label>
         <Input v-model="name" placeholder="e.g. OpenAI Production" />
       </section>
 
-      <section v-if="activeProvider === 'custom'" class="shrink-0">
+      <!-- Proxy chain sits at the top so the operator decides on egress
+           BEFORE the per-provider section runs anything that depends on
+           it — the copilot device flow, codex/claude-code OAuth token
+           exchange, and the custom/azure/ollama model probes all dial
+           through this list. Above the fold the panel doubles as a
+           confirmation that a proxy is already configured. -->
+      <ProxyFallbackListPanel
+        v-model="proxyFallbackList"
+        :upstream-id="isCreate ? null : draft.id"
+        :colo-aware="coloAware"
+        :current-colo="currentColo"
+        class="shrink-0"
+      />
+
+      <section v-if="draft.kind === 'custom'" class="shrink-0">
         <CustomConfigPanel
           v-model="customDraft"
-          :bearer-token-set="customBearerTokenSet"
-          :edit-mode="mode === 'edit'"
+          :api-key-set="customApiKeySet"
+          :edit-mode="!isCreate"
           :fetch-loading="fetchLoading"
           :fetch-error="fetchError"
           :fetch-status="fetchStatus"
@@ -135,29 +152,65 @@ onBeforeUnmount(() => floorObserver?.disconnect());
         />
       </section>
 
-      <section v-else-if="activeProvider === 'azure'" class="shrink-0">
+      <section v-else-if="draft.kind === 'azure'" class="shrink-0">
         <AzureConfigPanel
           v-model="azureDraft"
           :api-key-set="azureApiKeySet"
-          :edit-mode="mode === 'edit'"
+          :edit-mode="!isCreate"
         />
       </section>
 
-      <section v-else-if="activeProvider === 'copilot'" class="shrink-0">
+      <section v-else-if="draft.kind === 'ollama'" class="shrink-0">
+        <OllamaConfigPanel
+          v-model="ollamaDraft"
+          :api-key-set="ollamaApiKeySet"
+          :edit-mode="!isCreate"
+          :fetch-loading="fetchLoading"
+          :fetch-error="fetchError"
+          :fetch-status="fetchStatus"
+          @fetch-models="$emit('fetch-models')"
+        />
+      </section>
+
+      <section v-else-if="draft.kind === 'copilot'" class="shrink-0">
         <CopilotConfigPanel
-          :record="record"
-          :initial-quota="initialCopilotQuota"
-          :initial-quota-error="initialCopilotQuotaError"
-          @completed="u => $emit('copilot-completed', u)"
+          :draft="draft"
+          :saving="saving"
+          @patched="p => $emit('patched', p)"
+          @save-and-open-edit="$emit('save-and-open-edit')"
         />
       </section>
 
-      <section v-else-if="activeProvider === 'codex'" class="shrink-0">
+      <section v-else-if="draft.kind === 'codex'" class="shrink-0">
         <CodexConfigPanel
-          :mode="mode"
-          :record="record"
-          @imported="u => $emit('codex-imported', u)"
-          @error="m => $emit('codex-error', m)"
+          :draft="draft"
+          :saving="saving"
+          @patched="p => $emit('patched', p)"
+          @save-and-open-edit="$emit('save-and-open-edit')"
+          @error="m => $emit('error', m)"
+        />
+      </section>
+
+      <section v-else-if="draft.kind === 'claude-code'" class="shrink-0">
+        <ClaudeCodeConfigPanel
+          :draft="draft"
+          :saving="saving"
+          @patched="p => $emit('patched', p)"
+          @save-and-open-edit="$emit('save-and-open-edit')"
+          @error="m => $emit('error', m)"
+        />
+      </section>
+
+      <section class="shrink-0">
+        <ModelPrefixEditor v-model="modelPrefix" @update:invalid="v => $emit('update:model-prefix-invalid', v)" />
+      </section>
+
+      <section v-if="modelsCache" class="shrink-0">
+        <p class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Models Cache</p>
+        <ModelsCacheStatus
+          :models-cache="modelsCache"
+          :refreshing="refreshing"
+          @refresh="$emit('refresh-cache')"
         />
       </section>
 
@@ -187,17 +240,11 @@ onBeforeUnmount(() => floorObserver?.disconnect());
         <FlagOverridesEditor
           v-model="flagOverrides"
           :flags="flags"
-          :provider-kind="activeProvider"
+          :kind="kind"
           name-prefix="upstream-flag"
           class="min-h-0 flex-1"
         />
       </section>
-
-      <ProxyFallbackListPanel
-        v-model="proxyFallbackList"
-        :upstream-id="record?.id ?? null"
-        class="shrink-0"
-      />
 
     </div>
   </aside>

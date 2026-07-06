@@ -13,14 +13,13 @@ const isContextWindowError = (text: string): boolean => text.includes('Request b
  */
 export const rewriteContextWindowError: CopilotMessagesBoundaryInterceptor = async (_ctx, _request, run) => {
   const result = await run();
-  if (result.type !== 'upstream-error') return result;
+  if (result.type !== 'api-error' || result.source !== 'upstream') return result;
 
   const body = new TextDecoder().decode(result.body);
   if (!isContextWindowError(body)) return result;
 
   return {
     ...result,
-    type: 'upstream-error',
     status: 400,
     headers: new Headers({ 'content-type': 'application/json' }),
     body: new TextEncoder().encode(

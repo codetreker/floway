@@ -18,9 +18,11 @@ const projectList = [
   './packages/protocols/tsconfig.json',
   './packages/provider/tsconfig.json',
   './packages/provider-azure/tsconfig.json',
+  './packages/provider-claude-code/tsconfig.json',
   './packages/provider-codex/tsconfig.json',
   './packages/provider-copilot/tsconfig.json',
   './packages/provider-custom/tsconfig.json',
+  './packages/provider-ollama/tsconfig.json',
   './packages/proxy/tsconfig.json',
   './packages/test-utils/tsconfig.json',
   './packages/translate/tsconfig.json',
@@ -244,6 +246,17 @@ const config: Linter.Config[] = [
             message: 'apps/web must reach @floway-dev/proxy only via its /url, /url-kind, /proxy-config, or /constants subpath exports — the root pulls in dialers and userspace TLS.',
           },
         ],
+      }],
+      // Block runtime `import { ... } from '@floway-dev/gateway[/...]'`
+      // — apps/web may only type-import from the gateway package (`import
+      // type`). Runtime imports would land gateway's data plane into the
+      // SPA bundle. Implemented via `no-restricted-syntax` rather than
+      // `@typescript-eslint/no-restricted-imports`'s `allowTypeImports`
+      // because the latter requires type-aware linting (it OOMs eslint's
+      // default heap on this workspace).
+      'no-restricted-syntax': ['error', {
+        selector: 'ImportDeclaration[importKind!="type"][source.value=/^@floway-dev\\u002Fgateway($|\\u002F)/]',
+        message: 'apps/web may only type-import from @floway-dev/gateway. The SPA bundle must not pull gateway runtime code.',
       }],
     },
   },

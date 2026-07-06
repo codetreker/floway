@@ -1,0 +1,7 @@
+#!/bin/sh
+# Warn after every commit (regular, merge-commit, cherry-pick) — the
+# post-commit hook fires on all of them, while pre-commit is bypassed by
+# `git cherry-pick`. The warning is post-fact by design: the helper text
+# tells the agent to `reset to the previous state` if the commit was
+# unauthorized.
+exec "$(dirname "$0")/main-commit-warning"

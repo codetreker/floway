@@ -71,8 +71,9 @@ const resetPassword = (u: WireUser) => {
 
 const onUserSaved = async (savedId: number) => {
   await reload();
-  // Self-edits change the actor's own row; refresh the auth store so cached
-  // identity (e.g. upstream cap) stays in sync.
+  // The actor edited their own row; refresh the in-memory user so admin
+  // flag, telemetry visibility, and upstream cap reflect the saved values
+  // without having to reload the page (where main.ts would re-hydrate).
   if (savedId === actorUserId.value) {
     const { data, error: err } = await callApi<{ user: AuthUser }>(() => api.auth.me.$get());
     if (err) { error.value = err.message; return; }

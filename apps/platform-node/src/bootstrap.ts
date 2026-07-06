@@ -1,29 +1,41 @@
+import { EventTargetChannelBroker } from './event-target-channel-broker.ts';
 import { FsFileProvider } from './fs-file-provider.ts';
 import { createNodeSqliteDatabase } from './node-sqlite-database.ts';
-import { createMemoryImageCache, createSharpImageProcessor } from './sharp-image-processor.ts';
+import { createSharpImageProcessor } from './sharp-image-processor.ts';
 import { nodeSocketDial } from './socket-dial.ts';
+import { SqliteImageCache } from './sqlite-image-cache.ts';
 import { nodeRuntimeRootCAs } from './tls-trust.ts';
+import { FileDumpStore, initDumpBroker, initDumpStore } from '@floway-dev/gateway';
+import { dumpCodec } from '@floway-dev/gateway/dump-codec';
+import type { DumpMetadata } from '@floway-dev/gateway/dump-types';
 import { addTrustedRootCAs } from '@floway-dev/http';
 import {
+  getEnvOptional,
+  IMAGE_CACHE_POLICY,
   initEnv,
   initFileProvider,
+  initImageCacheStore,
   initImageProcessor,
+  initRuntimeKind,
   initSocketDial,
   type SqlDatabase,
 } from '@floway-dev/platform';
 
-export interface NodePlatformOptions {
-  dbPath: string;
-  filesDir: string;
-}
+export const bootstrapNodePlatform = (): { db: SqlDatabase } => {
+  initEnv(name => process.env[name]);
+  initRuntimeKind('node');
 
-// Trust set is seeded here, before any data-plane request can fire a
-// userspace-TLS handshake.
-export const bootstrapNodePlatform = (opts: NodePlatformOptions): { db: SqlDatabase } => {
-  initEnv(name => process.env[name] ?? '');
-  initFileProvider(new FsFileProvider(opts.filesDir));
-  initImageProcessor(createSharpImageProcessor({ cache: createMemoryImageCache() }));
+  const filesDir = getEnvOptional('FLOWAY_FILES_DIR', './data/files');
+  const dbPath = getEnvOptional('FLOWAY_DB_PATH', './data/floway.db');
+
+  const files = new FsFileProvider(filesDir);
+  initFileProvider(files);
   initSocketDial(nodeSocketDial);
   addTrustedRootCAs(nodeRuntimeRootCAs);
-  return { db: createNodeSqliteDatabase(opts.dbPath) };
+  const db = createNodeSqliteDatabase(dbPath);
+  initImageCacheStore(new SqliteImageCache(db, IMAGE_CACHE_POLICY));
+  initImageProcessor(createSharpImageProcessor());
+  initDumpStore(new FileDumpStore(db, files));
+  initDumpBroker(new EventTargetChannelBroker<DumpMetadata>(dumpCodec));
+  return { db };
 };

@@ -1,7 +1,7 @@
 import { targetSizeForResponsesChat } from '../image-size.ts';
 import type { ResponsesBoundaryCtx } from './types.ts';
 import type { ResponsesInputImage } from '@floway-dev/protocols/responses';
-import { compressImageDataUrlToWebp, isBase64ImageDataUrl } from '@floway-dev/provider';
+import { isBase64ImageDataUrl, memoizedDataUrlCompressor } from '@floway-dev/provider';
 
 // Recompresses every inline base64 image in the outgoing Responses payload to
 // WebP before the Copilot upstream call. Images appear both as `input_image`
@@ -9,7 +9,7 @@ import { compressImageDataUrlToWebp, isBase64ImageDataUrl } from '@floway-dev/pr
 // (multimodal tool results, e.g. a screenshot tool). Remote https image
 // references are left untouched. Generic in the run-result type so the same
 // definition feeds both the streaming `/responses` chain and the
-// non-streaming `/responses/compact` chain.
+// non-streaming compaction chain.
 export const withInlineImagesCompressed = async <TResult>(
   ctx: ResponsesBoundaryCtx,
   _request: object,
@@ -27,10 +27,10 @@ export const withInlineImagesCompressed = async <TResult>(
   }
 
   if (targets.length > 0) {
-    const targetSize = targetSizeForResponsesChat(ctx.model.id);
+    const compress = memoizedDataUrlCompressor(targetSizeForResponsesChat(ctx.model.id));
     await Promise.all(
       targets.map(async target => {
-        target.image_url = await compressImageDataUrlToWebp(target.image_url, targetSize);
+        target.image_url = await compress(target.image_url);
       }),
     );
   }

@@ -1,12 +1,9 @@
 // Shared helper for synthesizing the `response.compaction` envelope from a
-// trigger turn that returns one `compaction` output item. Used by both:
-// - Copilot, which has no native /responses/compact and replays codex's
-//   RemoteCompactionV2 client-side over /responses with stream:false.
-// - Codex, where the upstream natively supports the compaction_trigger but
-//   delivers the compaction item via the streamed response.output_item.done
-//   event instead of response.completed.output (which is always empty).
-// Both providers reuse the same retained-message reconstruction logic so the
-// envelope shape is uniform across provider kinds.
+// trigger turn that returns one `compaction` output item. Used by Copilot,
+// which has no native /responses/compact endpoint and replays the official
+// `RemoteCompactionV2` protocol client-side over /responses with stream:false.
+// Providers whose upstream exposes native /responses/compact (Azure, Codex,
+// custom) call that endpoint directly and bypass this helper entirely.
 //
 // References (codex @ ebb79803697acee75baf24073ef49af87ad7e483):
 //   codex-rs/core/src/compact_remote_v2.rs#L409-L457

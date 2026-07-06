@@ -99,6 +99,8 @@ interface ChatCompletionsToMessagesStreamState {
   deferredContent?: string;
   pendingFinishReason?: ChatCompletionsStreamEvent['choices'][0]['finish_reason'];
   pendingUsage?: ChatCompletionsStreamEvent['usage'];
+  // Captured from any chunk's service_tier for speed pass-through.
+  upstreamServiceTier?: string;
   finalMessageSent?: boolean;
 }
 
@@ -316,6 +318,10 @@ const emitFinalMessageIfReady = (state: ChatCompletionsToMessagesStreamState, ev
 
   const usage = mapChatCompletionsUsageToMessagesUsage(state.pendingUsage);
 
+  // Chat Completions `service_tier: 'fast'` surfaces as Messages `speed: 'fast'`;
+  // all other `service_tier` values have no Messages equivalent and are dropped.
+  if (state.upstreamServiceTier === 'fast') usage.speed = 'fast';
+
   events.push(
     {
       type: 'message_delta',
@@ -341,6 +347,8 @@ export const createChatCompletionsToMessagesStreamState = (): ChatCompletionsToM
 
 export const translateChatCompletionsChunkToMessagesEvents = (chunk: ChatCompletionsStreamEvent, state: ChatCompletionsToMessagesStreamState): MessagesStreamEvent[] => {
   const events: MessagesStreamEvent[] = [];
+
+  if (chunk.service_tier != null) state.upstreamServiceTier = chunk.service_tier;
 
   if (chunk.choices.length === 0) {
     if (chunk.usage) {

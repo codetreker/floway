@@ -6,19 +6,22 @@ import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
 const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> =>
   Promise.resolve(eventResult((async function* (): AsyncGenerator<ProtocolFrame<MessagesStreamEvent>> {})(), testTelemetryModelIdentity));
 
-const invocation = (payload: MessagesPayload, anthropicBeta?: readonly string[]): MessagesBoundaryCtx => ({
-  payload,
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { messages: {} } }),
-  ...(anthropicBeta !== undefined ? { anthropicBeta } : {}),
-});
+const invocation = (payload: MessagesPayload, anthropicBeta?: readonly string[]): MessagesBoundaryCtx => {
+  const headers = new Headers();
+  if (anthropicBeta !== undefined) headers.set('anthropic-beta', anthropicBeta.join(','));
+  return {
+    payload,
+    headers,
+    model: stubProviderModel({ endpoints: { messages: {} } }),
+  };
+};
 
 test('keeps only allow-listed anthropic-beta values when caller supplied a header', async () => {
   const ctx = invocation(
@@ -28,7 +31,7 @@ test('keeps only allow-listed anthropic-beta values when caller supplied a heade
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['anthropic-beta'], 'interleaved-thinking-2025-05-14,context-management-2025-06-27');
+  assertEquals(ctx.headers.get('anthropic-beta'), 'interleaved-thinking-2025-05-14,context-management-2025-06-27');
 });
 
 test('forwards inbound interleaved-thinking unchanged when paired with non-adaptive budget thinking', async () => {
@@ -44,7 +47,7 @@ test('forwards inbound interleaved-thinking unchanged when paired with non-adapt
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['anthropic-beta'], 'interleaved-thinking-2025-05-14');
+  assertEquals(ctx.headers.get('anthropic-beta'), 'interleaved-thinking-2025-05-14');
 });
 
 test('respects the caller and does NOT auto-add interleaved-thinking when caller supplied only other betas', async () => {
@@ -64,7 +67,7 @@ test('respects the caller and does NOT auto-add interleaved-thinking when caller
   // interleaved in the no-inbound branch, the caller already expressed
   // intent by sending its own anthropic-beta header. Match VSCode behavior:
   // do not silently inflate the caller's beta set.
-  assertEquals(ctx.headers['anthropic-beta'], 'context-management-2025-06-27');
+  assertEquals(ctx.headers.get('anthropic-beta'), 'context-management-2025-06-27');
 });
 
 test('keeps inbound interleaved-thinking even when adaptive thinking is requested', async () => {
@@ -83,7 +86,7 @@ test('keeps inbound interleaved-thinking even when adaptive thinking is requeste
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['anthropic-beta'], 'interleaved-thinking-2025-05-14,context-management-2025-06-27');
+  assertEquals(ctx.headers.get('anthropic-beta'), 'interleaved-thinking-2025-05-14,context-management-2025-06-27');
 });
 
 test('auto-adds interleaved-thinking when caller sent no header and budget_tokens is set without adaptive thinking', async () => {
@@ -96,7 +99,7 @@ test('auto-adds interleaved-thinking when caller sent no header and budget_token
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['anthropic-beta'], 'interleaved-thinking-2025-05-14');
+  assertEquals(ctx.headers.get('anthropic-beta'), 'interleaved-thinking-2025-05-14');
 });
 
 test('does not auto-add interleaved-thinking when caller sent no header and thinking is adaptive', async () => {
@@ -109,7 +112,7 @@ test('does not auto-add interleaved-thinking when caller sent no header and thin
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals('anthropic-beta' in ctx.headers, false);
+  assertEquals(ctx.headers.has('anthropic-beta'), false);
 });
 
 test('does not set the header when the inbound caller header has nothing allow-listed', async () => {
@@ -120,7 +123,7 @@ test('does not set the header when the inbound caller header has nothing allow-l
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals('anthropic-beta' in ctx.headers, false);
+  assertEquals(ctx.headers.has('anthropic-beta'), false);
 });
 
 test('does not set the header when no anthropic-beta input is present and thinking is not configured', async () => {
@@ -132,5 +135,5 @@ test('does not set the header when no anthropic-beta input is present and thinki
 
   await withAnthropicBetaHeaderFiltered(ctx, stubRequest, okEvents);
 
-  assertEquals('anthropic-beta' in ctx.headers, false);
+  assertEquals(ctx.headers.has('anthropic-beta'), false);
 });

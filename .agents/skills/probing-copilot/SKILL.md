@@ -16,16 +16,26 @@ already own.
 
 1. Read `<DB_NAME>` from `wrangler.jsonc`
    (`d1_databases[0].database_name`).
-2. Query enabled copilot upstreams. Default to local
-   (`pnpm wrangler d1 execute <DB_NAME> --command "..."`); use `--remote` when
-   the probe specifically needs production accounts or local has none.
+2. Query enabled copilot upstreams against production
+   (`pnpm wrangler d1 execute <DB_NAME> --remote --command "..."`). Production
+   is the default because we want to mirror the real account, including its
+   proxy chain. Only fall back to local D1 when production is unreachable
+   or the probe is specifically validating a local-only seed.
+
+   The query also pulls the first proxy URL from the upstream's
+   `proxy_fallback_list_json` so the probe can route through the same egress
+   production uses for this account:
 
    ```sql
-   SELECT id, name,
-          json_extract(config_json, '$.accountType') AS account_type,
-          json_extract(config_json, '$.githubToken') AS github_token
-   FROM upstreams
-   WHERE provider = 'copilot' AND enabled = 1;
+   SELECT u.id, u.name,
+          json_extract(u.config_json, '$.accountType') AS account_type,
+          json_extract(u.config_json, '$.githubToken') AS github_token,
+          (SELECT p.url FROM proxies p, json_each(u.proxy_fallback_list_json) j
+           WHERE json_extract(j.value, '$.id') = p.id
+           ORDER BY j.key
+           LIMIT 1) AS proxy_url
+   FROM upstreams u
+   WHERE u.provider = 'copilot' AND u.enabled = 1;
    ```
 
 3. Pick any returned row — order doesn't matter unless the probe needs a
@@ -35,6 +45,23 @@ already own.
 
 4. Treat the PAT as a secret: do not echo it into commit messages, code
    comments, or the chat transcript.
+
+## Route through the upstream's proxy
+
+If `proxy_url` came back non-null, pass it as curl's `-x` so both the
+token exchange and the upstream call traverse the same egress production
+uses. `api.github.com` is not geo-restricted for token exchange, but
+keeping a single egress path makes the probe a faithful mirror and avoids
+mismatched IP reputations.
+
+- `http://`, `https://`, `socks5://` — curl-native; use `curl -x "$proxy_url" …`.
+- `ss://`, `trojan://`, `vless://` — only our `@floway-dev/proxy` dialers
+  speak these; curl cannot. Skip the proxy and go direct, and call that
+  out in the probe report so the human knows the probe doesn't share
+  egress with production.
+
+Token exchange is not bound to the upstream host; the same `-x` applies
+to the `api.github.com` call.
 
 ## Exchange the PAT
 
@@ -47,7 +74,7 @@ method is GET, not POST — POST returns 404 from this endpoint.
 
 Base URL by account type:
 
-- `individual`  → `https://api.githubcopilot.com`
+- `individual`  → `https://api.individual.githubcopilot.com`
 - `business`    → `https://api.business.githubcopilot.com`
 - `enterprise`  → `https://api.enterprise.githubcopilot.com`
 

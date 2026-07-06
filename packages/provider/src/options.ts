@@ -18,7 +18,7 @@ export const directFetcher: Fetcher = (url, init) => fetch(url, init);
 // Bundling the recorder with the fetcher in the options bag keeps helpers
 // from re-threading it through every call signature.
 export interface UpstreamFetchOptions {
-  extraHeaders?: Record<string, string>;
+  extraHeaders?: Headers;
   fetcher: Fetcher;
   recordUpstreamLatency?: <T>(promise: Promise<T>) => Promise<T>;
 }

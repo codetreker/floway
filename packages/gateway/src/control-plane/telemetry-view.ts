@@ -1,4 +1,4 @@
-import type { Context } from 'hono';
+import { type AuthedContext, canViewGlobalTelemetry, userFromContext } from '../middleware/auth.ts';
 
 export type TelemetryView = 'all-by-user' | 'self-by-key';
 
@@ -8,12 +8,12 @@ export type ResolvedTelemetryView =
   | { view: 'all-by-user' };
 
 export const resolveTelemetryView = (
-  c: Context,
+  c: AuthedContext,
   rawView: TelemetryView | undefined,
   rawKeyId: string | undefined,
 ): ResolvedTelemetryView | { error: 'forbidden' | 'bad_request'; message: string } => {
-  const userId = c.get('userId') as number;
-  const canViewGlobal = c.get('canViewGlobalTelemetry') === true;
+  const user = userFromContext(c);
+  const canViewGlobal = canViewGlobalTelemetry(user);
 
   const view = rawView ?? (canViewGlobal ? 'all-by-user' : 'self-by-key');
 
@@ -31,6 +31,6 @@ export const resolveTelemetryView = (
   }
 
   return view === 'self-by-key'
-    ? { view: 'self-by-key', scopeUserId: userId }
+    ? { view: 'self-by-key', scopeUserId: user.id }
     : { view: 'all-by-user' };
 };

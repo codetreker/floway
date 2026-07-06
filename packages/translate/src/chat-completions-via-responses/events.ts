@@ -351,7 +351,6 @@ interface ChatCompletionsErrorPayload {
     name?: string;
     stack?: string;
     cause?: unknown;
-    source_api?: string;
     target_api?: string;
   };
 }
@@ -362,7 +361,6 @@ const debugFieldsFrom = (value: Record<string, unknown>) => ({
   ...(typeof value.name === 'string' ? { name: value.name } : {}),
   ...(typeof value.stack === 'string' ? { stack: value.stack } : {}),
   ...(value.cause !== undefined ? { cause: value.cause } : {}),
-  ...(typeof value.source_api === 'string' ? { source_api: value.source_api } : {}),
   ...(typeof value.target_api === 'string' ? { target_api: value.target_api } : {}),
 });
 
@@ -374,7 +372,6 @@ const chatErrorPayloadFromResponsesError = (event: ResponsesEvent<'error'>): Cha
     ...(event.name ? { name: event.name } : {}),
     ...(event.stack ? { stack: event.stack } : {}),
     ...(event.cause !== undefined ? { cause: event.cause } : {}),
-    ...(event.source_api ? { source_api: event.source_api } : {}),
     ...(event.target_api ? { target_api: event.target_api } : {}),
   },
 });

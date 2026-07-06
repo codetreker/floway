@@ -1,8 +1,9 @@
 import { messagesThinkingBlockFromChatCompletionsScalarReasoning } from '../shared/chat-completions-and-messages/reasoning.ts';
 import { parseToolArgumentsObject } from '../shared/messages/tool-arguments.ts';
-import { applyLastMessageCacheBreakpoint, applyLastToolCacheBreakpoint, EPHEMERAL_CACHE_CONTROL } from '../shared/via-messages/cache-breakpoints.ts';
+import { applyLastMessageCacheBreakpoint, applyLastSystemCacheBreakpoint, applyLastToolCacheBreakpoint } from '../shared/via-messages/cache-breakpoints.ts';
 import { fetchRemoteImage, type RemoteImageLoader, resolveImageUrlToMessagesImage } from '../shared/via-messages/remote-images.ts';
-import type { ChatCompletionsPayload, ChatCompletionsContentPart, ChatCompletionsMessage, ChatCompletionsTool } from '@floway-dev/protocols/chat-completions';
+import { TranslatorInputError } from '../translator-input-error.ts';
+import type { ChatCompletionsPayload, ChatCompletionsMessage, ChatCompletionsTool } from '@floway-dev/protocols/chat-completions';
 import { MESSAGES_FALLBACK_MAX_TOKENS, type MessagesAssistantContentBlock, type MessagesMessage, type MessagesPayload, type MessagesTextBlock, type MessagesUserContentBlock } from '@floway-dev/protocols/messages';
 
 interface TranslateChatCompletionsToMessagesOptions {
@@ -73,13 +74,38 @@ const convertUserContent = async (message: ChatCompletionsMessage, loadRemoteIma
         return resolveImageUrlToMessagesImage(part.image_url.url, loadRemoteImage);
       }
 
-      throw new Error(`Chat Completions → Messages translator does not accept ${(part as { type: string }).type} content parts.`);
+      throw new TranslatorInputError(`Invalid '${(part as { type: string }).type}' content part. Only 'text' and 'image_url' are supported in user content.`);
     }),
   );
 
   const blocks = resolved.filter((block): block is MessagesUserContentBlock => block !== null);
 
   return blocks.length > 0 ? blocks : [{ type: 'text', text: '' }];
+};
+
+// Anthropic's Messages system field (top-level `MessagesPayload.system` and
+// inline `MessagesSystemMessage.content`) accepts only text. Image parts in
+// system / developer messages are rejected here at the translator boundary so
+// the caller hits an explicit failure instead of having the image silently
+// dropped on the wire. Returns blocks (possibly empty) so the hoist and
+// inline call sites share one shape.
+const convertSystemContent = (content: ChatCompletionsMessage['content']): MessagesTextBlock[] => {
+  if (typeof content === 'string') {
+    return content ? [{ type: 'text', text: content }] : [];
+  }
+  if (!Array.isArray(content)) return [];
+
+  const blocks: MessagesTextBlock[] = [];
+  for (const part of content) {
+    if (part.type === 'image_url') {
+      throw new TranslatorInputError("Invalid 'image_url' content part in system or developer message. Only 'text' content parts are supported in system messages on this model.");
+    }
+    if (part.type === 'text') {
+      blocks.push({ type: 'text', text: part.text });
+    }
+  }
+
+  return blocks;
 };
 
 const buildMessagesInput = async (messages: ChatCompletionsMessage[], loadRemoteImage: RemoteImageLoader): Promise<MessagesMessage[]> => {
@@ -98,7 +124,7 @@ const buildMessagesInput = async (messages: ChatCompletionsMessage[], loadRemote
       break;
     case 'tool':
       if (!message.tool_call_id) {
-        throw new Error('tool message requires tool_call_id for Messages translation');
+        throw new TranslatorInputError("Missing required field 'tool_call_id' on a 'tool' role message.");
       }
 
       appendUserBlocks(result, [
@@ -109,8 +135,24 @@ const buildMessagesInput = async (messages: ChatCompletionsMessage[], loadRemote
         },
       ]);
       break;
+    case 'system':
+    case 'developer': {
+      // Inline path for non-leading system / developer (the leading prefix
+      // was hoisted earlier). Anthropic upstreams diverge on inline
+      // role:'system' here (Bedrock accepts it under placement rules;
+      // Vertex rejects it outright), so the gateway's
+      // `demote-interleaved-system-to-user` interceptor flag is the safety
+      // net for any inline system that would otherwise reach an upstream
+      // that does not accept it.
+      const blocks = convertSystemContent(message.content);
+      result.push({
+        role: 'system',
+        content: blocks.length > 0 ? blocks : '',
+      });
+      break;
+    }
     default:
-      throw new Error(`Chat Completions → Messages translator does not accept ${message.role} messages.`);
+      throw new TranslatorInputError(`Invalid role '${message.role}'.`);
     }
   }
 
@@ -138,36 +180,24 @@ const CHAT_TOOL_CHOICES = {
 } satisfies Record<Extract<ChatCompletionsPayload['tool_choice'], string>, MessagesPayload['tool_choice']>;
 
 export const translateChatCompletionsToMessages = async (payload: ChatCompletionsPayload, options: TranslateChatCompletionsToMessagesOptions = {}): Promise<MessagesPayload> => {
-  const systemParts: string[] = [];
-  const nonSystemMessages: ChatCompletionsMessage[] = [];
-
+  // Hoist the leading contiguous run of system/developer messages to
+  // MessagesPayload.system, preserving each ContentPart text as its own
+  // MessagesTextBlock so part boundaries survive the hoist. Non-leading
+  // system/developer messages stay inline as MessagesSystemMessage at their
+  // chronological position.
+  const systemBlocks: MessagesTextBlock[] = [];
+  let prefixEnd = 0;
   for (const message of payload.messages) {
-    if (message.role === 'system' || message.role === 'developer') {
-      const text =
-        typeof message.content === 'string'
-          ? message.content
-          : Array.isArray(message.content)
-            ? message.content
-                .filter((part): part is Extract<ChatCompletionsContentPart, { type: 'text' }> => part.type === 'text')
-                .map(part => part.text)
-                .join('')
-            : '';
-
-      if (text) systemParts.push(text);
-      continue;
-    }
-
-    nonSystemMessages.push(message);
+    if (message.role !== 'system' && message.role !== 'developer') break;
+    systemBlocks.push(...convertSystemContent(message.content));
+    prefixEnd++;
   }
 
-  const messages = await buildMessagesInput(nonSystemMessages, options.loadRemoteImage ?? fetchRemoteImage);
+  const messages = await buildMessagesInput(payload.messages.slice(prefixEnd), options.loadRemoteImage ?? fetchRemoteImage);
 
   const maxTokens = payload.max_tokens ?? options.fallbackMaxOutputTokens ?? MESSAGES_FALLBACK_MAX_TOKENS;
-  const systemText = systemParts.length > 0 ? systemParts.join('\n\n') : '';
-  const systemBlocks: MessagesTextBlock[] | undefined = systemText
-    ? [{ type: 'text', text: systemText, cache_control: EPHEMERAL_CACHE_CONTROL }]
-    : undefined;
   const tools = payload.tools?.length ? translateChatCompletionsTools(payload.tools) : undefined;
+  applyLastSystemCacheBreakpoint(systemBlocks);
   applyLastToolCacheBreakpoint(tools);
   applyLastMessageCacheBreakpoint(messages);
 
@@ -188,13 +218,23 @@ export const translateChatCompletionsToMessages = async (payload: ChatCompletion
   if (formatSchema) outputConfig.format = { type: 'json_schema', schema: formatSchema };
   const hasOutputConfig = Object.keys(outputConfig).length > 0;
 
+  // `service_tier: 'fast'` from the Chat Completions caller maps to
+  // Anthropic's `speed: 'fast'`; all other defined service_tier values
+  // pass through as `service_tier` on the Messages wire.
+  const serviceTierFields: Partial<MessagesPayload> =
+    payload.service_tier === 'fast'
+      ? { speed: 'fast' }
+      : payload.service_tier != null
+        ? { service_tier: payload.service_tier }
+        : {};
+
   // Leave OpenAI `user` and generic metadata out of the Messages fallback instead
   // of treating them as a backchannel for Anthropic `metadata.user_id`.
   return {
     model: payload.model,
     messages,
     max_tokens: maxTokens,
-    ...(systemBlocks ? { system: systemBlocks } : {}),
+    ...(systemBlocks.length > 0 ? { system: systemBlocks } : {}),
     ...(payload.temperature != null ? { temperature: payload.temperature } : {}),
     ...(payload.top_p != null ? { top_p: payload.top_p } : {}),
     ...(payload.stop != null
@@ -206,6 +246,7 @@ export const translateChatCompletionsToMessages = async (payload: ChatCompletion
     ...(tools ? { tools } : {}),
     ...(payload.tool_choice != null ? { tool_choice: translateChatCompletionsToolChoice(payload.tool_choice) } : {}),
     ...(hasOutputConfig ? { output_config: outputConfig } : {}),
+    ...serviceTierFields,
   };
 };
 

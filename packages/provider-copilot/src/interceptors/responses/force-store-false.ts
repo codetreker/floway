@@ -9,8 +9,8 @@ import type { ResponsesBoundaryCtx } from './types.ts';
  * value captured at parse time and is unaffected by this upstream-only flag.
  *
  * Generic in the run-result type so the same definition feeds both the
- * streaming `/responses` chain and the non-streaming `/responses/compact`
- * chain — the compact endpoint also accepts only `store: false`.
+ * streaming `/responses` chain and the non-streaming compaction chain — the
+ * synth-via-trigger compact call also rejects `store: true`.
  */
 export const withStoreForcedFalse = async <TResult>(
   ctx: ResponsesBoundaryCtx,

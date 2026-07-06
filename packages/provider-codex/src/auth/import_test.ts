@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { extractCodexCallbackParams, importCodexFromAuthJson, importCodexFromCallback } from './import.ts';
+import { importCodexFromAuthJson, importCodexFromCallback } from './import.ts';
+import { directFetcher, type Fetcher } from '@floway-dev/provider';
 
 const encodeBase64Url = (input: string): string => {
   const b64 = btoa(input);
@@ -21,51 +22,35 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('importCodexFromAuthJson', () => {
   test('happy path returns identity + tokens', async () => {
-    const authJson = {
+    const authJson = JSON.stringify({
       tokens: {
         access_token: 'at1',
         refresh_token: 'rt1',
         id_token: makeJwt(identityPayload),
         account_id: 'acc',
       },
-    };
+    });
     const result = await importCodexFromAuthJson(authJson);
     expect(result.config.accounts).toEqual([{ email: 'a@b.com', chatgptAccountId: 'acc', chatgptUserId: 'usr', planType: 'plus' }]);
     expect(result.state.accounts[0].chatgptAccountId).toBe('acc');
     expect(result.state.accounts[0].refresh_token).toBe('rt1');
     expect(result.state.accounts[0].state).toBe('active');
-    expect(result.accessToken.access_token).toBe('at1');
-    // expires_at defaults from now + a conservative TTL if auth.json doesn't carry one.
-    expect(result.accessToken.expires_at).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    expect(result.state.accounts[0].accessToken?.token).toBe('at1');
+    expect(result.state.accounts[0].accessToken?.expiresAt).toBeGreaterThan(Date.now());
+    expect(result.state.accounts[0].openaiDeviceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
   test('rejects malformed payload', async () => {
-    await expect(importCodexFromAuthJson(null)).rejects.toThrow();
-    await expect(importCodexFromAuthJson({})).rejects.toThrow(/tokens/);
-    await expect(importCodexFromAuthJson({ tokens: { refresh_token: 'r', id_token: makeJwt(identityPayload) } })).rejects.toThrow(/access_token/);
+    await expect(importCodexFromAuthJson('not json')).rejects.toThrow(/not valid JSON/);
+    await expect(importCodexFromAuthJson('null')).rejects.toThrow();
+    await expect(importCodexFromAuthJson('{}')).rejects.toThrow(/tokens/);
+    await expect(importCodexFromAuthJson(JSON.stringify({ tokens: { refresh_token: 'r', id_token: makeJwt(identityPayload) } }))).rejects.toThrow(/access_token/);
   });
 
   test('id_token must contain identity claims', async () => {
-    await expect(importCodexFromAuthJson({
+    await expect(importCodexFromAuthJson(JSON.stringify({
       tokens: { access_token: 'a', refresh_token: 'r', id_token: makeJwt({ /* empty */ }) },
-    })).rejects.toThrow();
-  });
-});
-
-describe('extractCodexCallbackParams', () => {
-  test('parses a full localhost URL', () => {
-    const params = extractCodexCallbackParams('http://localhost:1455/auth/callback?code=CODE&state=STATE');
-    expect(params).toEqual({ code: 'CODE', state: 'STATE' });
-  });
-
-  test('parses a raw query string', () => {
-    expect(extractCodexCallbackParams('code=CODE&state=STATE')).toEqual({ code: 'CODE', state: 'STATE' });
-    expect(extractCodexCallbackParams('?code=CODE&state=STATE')).toEqual({ code: 'CODE', state: 'STATE' });
-  });
-
-  test('throws on missing code/state', () => {
-    expect(() => extractCodexCallbackParams('http://localhost:1455/auth/callback')).toThrow();
-    expect(() => extractCodexCallbackParams('http://localhost:1455/auth/callback?code=CODE')).toThrow(/state/);
+    }))).rejects.toThrow();
   });
 });
 
@@ -74,9 +59,19 @@ describe('importCodexFromCallback', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       access_token: 'at', refresh_token: 'rt', id_token: makeJwt(identityPayload), expires_in: 600,
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
-    const result = await importCodexFromCallback({ code: 'CODE', codeVerifier: 'VER' });
+    const result = await importCodexFromCallback({ code: 'CODE', codeVerifier: 'VER', fetcher: directFetcher });
     expect(result.config.accounts[0].email).toBe('a@b.com');
     expect(result.state.accounts[0].refresh_token).toBe('rt');
-    expect(result.accessToken.access_token).toBe('at');
+    expect(result.state.accounts[0].accessToken?.token).toBe('at');
+    expect(result.state.accounts[0].openaiDeviceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test('routes the token exchange through the supplied fetcher', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => new Response(JSON.stringify({
+      access_token: 'at', refresh_token: 'rt', id_token: makeJwt(identityPayload), expires_in: 600,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    await importCodexFromCallback({ code: 'CODE', codeVerifier: 'VER', fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toBe('https://auth.openai.com/oauth/token');
   });
 });

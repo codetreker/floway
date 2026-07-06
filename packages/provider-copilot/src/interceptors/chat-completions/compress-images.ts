@@ -1,6 +1,6 @@
 import { targetSizeForResponsesChat } from '../image-size.ts';
 import type { CopilotChatCompletionsBoundaryInterceptor } from './types.ts';
-import { compressImageDataUrlToWebp, isBase64ImageDataUrl } from '@floway-dev/provider';
+import { isBase64ImageDataUrl, memoizedDataUrlCompressor } from '@floway-dev/provider';
 
 // Recompresses every inline base64 image (`data:image/*;base64,...` in an
 // `image_url` part) in the outgoing Chat Completions payload to WebP before
@@ -15,10 +15,10 @@ export const withInlineImagesCompressed: CopilotChatCompletionsBoundaryIntercept
   }
 
   if (targets.length > 0) {
-    const targetSize = targetSizeForResponsesChat(ctx.model.id);
+    const compress = memoizedDataUrlCompressor(targetSizeForResponsesChat(ctx.model.id));
     await Promise.all(
       targets.map(async target => {
-        target.url = await compressImageDataUrlToWebp(target.url, targetSize);
+        target.url = await compress(target.url);
       }),
     );
   }

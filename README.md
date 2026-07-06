@@ -2,9 +2,11 @@
 
 Floway is an LLM API gateway that fronts multiple model upstreams behind one
 set of standard APIs. Point a coding agent at Floway and it can use a
-GitHub Copilot account, a ChatGPT subscription via Codex CLI, a custom
-OpenAI- or Anthropic-compatible provider, or an Azure deployment through
-whichever API shape the agent already speaks.
+GitHub Copilot account, a ChatGPT subscription via Codex CLI, a Claude.ai
+Pro / Max subscription via Claude Code CLI, a custom OpenAI- or
+Anthropic-compatible provider, an Azure deployment, or an Ollama server
+(ollama.com or self-hosted) through whichever API shape the agent already
+speaks.
 Cloudflare Workers is the production deployment target; a Node.js deployment
 target ships in the same repo for self-hosting on a long-lived process.
 
@@ -12,6 +14,7 @@ target ships in the same repo for self-hosting on a long-lived process.
 
 | Source API                              | Path                          |
 | --------------------------------------- | ----------------------------- |
+| OpenAI Completions                      | `POST /v1/completions`        |
 | Anthropic Messages                      | `POST /v1/messages`, `POST /v1/messages/count_tokens` |
 | OpenAI Responses                        | `POST /v1/responses`, `POST /v1/responses/compact`, `GET /v1/responses` WebSocket |
 | OpenAI Chat Completions                 | `POST /v1/chat/completions`   |
@@ -21,16 +24,19 @@ target ships in the same repo for self-hosting on a long-lived process.
 | OpenAI Models                           | `GET  /v1/models`             |
 | Google Gemini (generate / count tokens) | `POST /v1beta/models/...`     |
 
-For each public model, Floway picks the first provider binding that can serve
-the request, translating between source and target protocols when the upstream
-speaks a different shape.
+For each public model, Floway picks the first (provider, model) pair that can
+serve the request, translating between source and target protocols when the
+upstream speaks a different shape. `/v1/completions` is forwarded to upstreams that
+expose the OpenAI text-completions endpoint (Custom OpenAI-compatible, Azure
+OpenAI, Ollama) without cross-protocol translation.
 
 ## Quick Start
 
 Prereqs: Node.js 22.5+ (for `node:sqlite` if you want the Node target),
 pnpm 10.x, and at least one upstream credential — Copilot subscription,
-ChatGPT Plus / Pro / Team subscription (via Codex CLI auth), an
-OpenAI-compatible bearer token, or Azure endpoint plus API key.
+ChatGPT Plus / Pro / Team subscription (via Codex CLI auth), Claude.ai
+Pro / Max subscription (via Claude Code CLI auth), an OpenAI-compatible
+bearer token, or Azure endpoint plus API key.
 
 ### Cloudflare Workers (production)
 
@@ -39,7 +45,7 @@ A Cloudflare account is required.
 ```bash
 pnpm install
 
-# Local Worker config (gitignored). Fill in account_id, database_id, name.
+# Local Worker config (gitignored). Replace every <YOUR_*> placeholder.
 cp wrangler.example.jsonc wrangler.jsonc
 pnpm wrangler login
 pnpm wrangler d1 create <DB_NAME>
@@ -67,9 +73,32 @@ PORT=8788 \
 pnpm run dev:node
 ```
 
+Optionally set `RUNTIME_LOCATION=<tag>` to label this instance in the
+performance telemetry's `runtimeLocation` dimension and as the dial-time
+key for the proxy fallback list's per-instance colo whitelist. The value
+is uppercased on read so `local`, `Local`, and `LOCAL` all match the
+dashboard's uppercased whitelist input; defaults to `LOCAL` when unset.
+
 The Node target serves no SPA — point the dashboard at the same admin host
 through your own static-file server, or use the Cloudflare deploy for the
 dashboard while running data-plane traffic on Node.
+
+### Docker Compose (self-hosted web + server)
+
+```bash
+git clone https://github.com/Menci/Floway.git
+cd Floway
+ADMIN_KEY=<admin-secret> docker compose -f docker/docker-compose.yml up --build -d
+```
+
+Compose starts two services: `server` runs the Node.js target on
+`http://localhost:8788` with SQLite/files persisted in the `floway-data`
+volume, and `web` serves the built dashboard on `http://localhost:18088`.
+The nginx web container proxies Floway API paths to `server`, including
+WebSocket-capable `/v1/responses` and the Codex-compatible
+`/azure-api.codex/*` routes. Pass `FLOWAY_WEB_PORT` or
+`FLOWAY_SERVER_PORT` alongside `ADMIN_KEY` if those host ports are already in
+use.
 
 ### After the first boot
 
@@ -78,10 +107,13 @@ Open the deployed URL (or `http://localhost:8788` for Node), log in with
 
 1. **Settings -> Upstreams -> Add Upstream**. Upstreams are *Custom*
    (OpenAI/Anthropic-shaped, static credential), *Azure* (one endpoint, API key,
-   deployment list), *Copilot* (GitHub device OAuth), or *Codex* (ChatGPT
+   deployment list), *Copilot* (GitHub device OAuth), *Codex* (ChatGPT
    subscription via the Codex CLI's OAuth client; paste `~/.codex/auth.json`
-   or run the OAuth flow from the dashboard). List order is routing order;
-   earlier providers win for a shared public model id.
+   or run the OAuth flow from the dashboard), *Claude Code* (Claude.ai
+   subscription via the Claude Code CLI's OAuth client; PKCE flow, Setup
+   Token flow, or paste `~/.claude/.credentials.json`), or *Ollama* (base
+   URL + optional API key — ollama.com or a self-hosted daemon). List
+   order is routing order; earlier providers win for a shared public model id.
 2. **API Keys -> New Key**. Give the generated key to your client.
 3. Copy the Claude Code or Codex CLI snippet from the API Keys panel into the
    agent config.
@@ -119,6 +151,35 @@ The same endpoint accepts `GET` WebSocket upgrades for streaming Responses
 events. WebSocket `store: false` keeps replay state only inside the open
 session, so same-socket `previous_response_id` works without writing those
 items or snapshots to durable storage.
+
+## Model Aliases
+
+An alias is an operator-defined virtual model id that maps to a list of
+real targets. When a client sends a request with the alias name as
+`model`, Floway picks one target from the list (per the alias's
+`selection` mode — `first-available` walks the list in order, `random`
+picks uniformly across the available subset), applies the target's
+per-request rule overrides onto the outbound wire body, and routes the
+request as if the client had asked for the picked id directly.
+
+Aliases surface on every listing endpoint (`/v1/models`,
+`/v1beta/models`, the Codex catalog); a visible alias whose name
+collides with a real id replaces the real entry on the wire so the row
+count stays one-per-id. The upstream response's `model` field reports
+the target the request actually landed on, so a client that wants to
+tell alias-vs-direct routing apart can compare the response's model id
+against the id it sent.
+
+Chat aliases (kind `chat`) can carry per-target rules — reasoning
+effort, verbosity, service tier, and Anthropic thinking configuration.
+Rules apply post-translate on the chosen target IR; a rule with no
+native slot on that target is dropped by design. Passthrough aliases
+(kinds `embedding` / `image`) must have empty rules.
+
+Schema and the seeded `codex-auto-review` alias live in
+`packages/gateway/migrations/0046_model_aliases.sql`; behavior and
+rule-mapping details are covered in [RESOLUTION.md](./RESOLUTION.md) and
+[TRANSLATION.md](./TRANSLATION.md).
 
 ## Development
 

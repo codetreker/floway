@@ -1,12 +1,12 @@
 import { test } from 'vitest';
 
 import { assertCustomUpstreamRecord, fetchCustomModels } from './index.ts';
-import { isProviderModelsHttpStatus, ProviderModelsUnavailableError, directFetcher, type Fetcher } from '@floway-dev/provider';
+import { ProviderModelsUnavailableError, directFetcher, type Fetcher } from '@floway-dev/provider';
 import { assertEquals, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
 const upstreamRecord = () => ({
   id: 'up_custom',
-  provider: 'custom' as const,
+  kind: 'custom' as const,
   name: 'Custom',
   enabled: true,
   sortOrder: 0,
@@ -15,9 +15,11 @@ const upstreamRecord = () => ({
   flagOverrides: {},
   disabledPublicModelIds: [],
   proxyFallbackList: [],
+  modelPrefix: null,
   config: {
     baseUrl: 'https://custom.example.com',
-    bearerToken: 'token',
+    authStyle: 'bearer',
+    apiKey: 'token',
     endpoints: { chatCompletions: {} },
   },
   state: null,
@@ -141,8 +143,6 @@ test('fetchCustomModels throws ProviderModelsUnavailableError with httpResponse 
   assertEquals(thrown.httpResponse?.status, 429);
   assertEquals(thrown.httpResponse?.body, 'rate limit');
   assertEquals(thrown.httpResponse?.headers.get('retry-after'), '5');
-  assertEquals(isProviderModelsHttpStatus(thrown, 429), true);
-  assertEquals(isProviderModelsHttpStatus(thrown, 500), false);
 });
 
 test('fetchCustomModels throws ProviderModelsUnavailableError with null httpResponse on network error', async () => {
@@ -156,7 +156,6 @@ test('fetchCustomModels throws ProviderModelsUnavailableError with null httpResp
   );
   if (!(thrown instanceof ProviderModelsUnavailableError)) throw new Error('expected ProviderModelsUnavailableError');
   assertEquals(thrown.httpResponse, null);
-  assertEquals(isProviderModelsHttpStatus(thrown, 429), false);
 });
 
 test('fetchCustomModels throws ProviderModelsUnavailableError with null httpResponse on shape error', async () => {
@@ -187,4 +186,72 @@ test('fetchCustomModels routes the catalog GET through the injected fetcher, not
   assertEquals(calls[0].url, 'https://custom.example.com/v1/models');
   assertEquals(calls[0].authorization, 'Bearer token');
   assertEquals(result.data[0].id, 'injected-model');
+});
+
+test('fetchCustomModels reads chat metadata from Floway-shaped upstreams', async () => {
+  const { config } = assertCustomUpstreamRecord(upstreamRecord());
+  await withMockedFetch(
+    () => jsonResponse({
+      object: 'list',
+      data: [{
+        id: 'm-1',
+        chat: {
+          modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+          },
+          reasoning: {
+            effort: {
+              supported: ['low', 'medium', 'high'],
+              default: 'medium',
+            },
+          },
+        },
+      }],
+    }),
+    async () => {
+      const result = await fetchCustomModels(config, directFetcher);
+      const model = result.data[0];
+      assertEquals(model.id, 'm-1');
+      assertEquals(model.chat?.modalities?.input, ['text', 'image']);
+      assertEquals(model.chat?.modalities?.output, ['text']);
+      assertEquals(model.chat?.reasoning?.effort?.supported, ['low', 'medium', 'high']);
+      assertEquals(model.chat?.reasoning?.effort?.default, 'medium');
+    },
+  );
+});
+
+test('fetchCustomModels skips malformed chat field without error', async () => {
+  const { config } = assertCustomUpstreamRecord(upstreamRecord());
+  await withMockedFetch(
+    () => jsonResponse({
+      object: 'list',
+      data: [{
+        id: 'm-1',
+        chat: 'malformed',
+      }],
+    }),
+    async () => {
+      const result = await fetchCustomModels(config, directFetcher);
+      const model = result.data[0];
+      assertEquals(model.id, 'm-1');
+      assertEquals(model.chat, undefined);
+    },
+  );
+});
+
+test('fetchCustomModels skips missing chat field', async () => {
+  const { config } = assertCustomUpstreamRecord(upstreamRecord());
+  await withMockedFetch(
+    () => jsonResponse({
+      object: 'list',
+      data: [{ id: 'm-1' }],
+    }),
+    async () => {
+      const result = await fetchCustomModels(config, directFetcher);
+      const model = result.data[0];
+      assertEquals(model.id, 'm-1');
+      assertEquals(model.chat, undefined);
+    },
+  );
 });

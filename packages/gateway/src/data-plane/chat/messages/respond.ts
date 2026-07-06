@@ -1,0 +1,223 @@
+import type { Context } from 'hono';
+import { streamSSE } from 'hono/streaming';
+
+import { billableServiceTier, tokenUsage } from '../../shared/telemetry/usage.ts';
+import type { GatewayCtx } from '../shared/gateway-ctx.ts';
+import { SourceStreamState, eventResultMetadata, forwardUpstreamHeaders, mergeForwardedUpstreamHeaders, plainResultToResponse, recordPerformance, recordUsage } from '../shared/respond.ts';
+import { type StreamCompletion, writeSSEFrames } from '../shared/stream/sse.ts';
+import { type ProtocolFrame, sseFrame } from '@floway-dev/protocols/common';
+import { messagesProtocolFrameToSSEFrame, MESSAGES_MISSING_TERMINAL_MESSAGE, collectMessagesProtocolEventsToResult } from '@floway-dev/protocols/messages';
+import type { MessagesMessageDeltaEvent, MessagesStreamEvent, MessagesUsage } from '@floway-dev/protocols/messages';
+import { type ExecuteResult, type PlainResult, type InternalDebugError, toInternalDebugError } from '@floway-dev/provider';
+import { apiErrorToResponse } from '@floway-dev/provider';
+
+type MessagesUsageLike = MessagesUsage | NonNullable<MessagesMessageDeltaEvent['usage']>;
+
+// Renders an upstream Messages result into the client HTTP/SSE response. An
+// error-typed result is a pre-stream failure and always answers as HTTP; an
+// events result drains to one JSON body (non-streaming) or is proxied frame by
+// frame (streaming). `success` reports whether a non-streaming body was
+// produced, so the orchestrator knows whether to flush stored items.
+export const respondMessages = async (
+  c: Context,
+  result: ExecuteResult<ProtocolFrame<MessagesStreamEvent>> | PlainResult,
+  wantsStream: boolean,
+  ctx: GatewayCtx,
+): Promise<{ success: boolean; response: Response }> => {
+  if (result.type === 'api-error') {
+    recordPerformance(ctx, result.performance, true);
+    ctx.dump?.error(result.source, result.upstream);
+    return { success: false, response: apiErrorToResponse(result) };
+  }
+
+  if (result.type === 'internal-error') {
+    recordPerformance(ctx, result.performance, true);
+    ctx.dump?.failed(result.error.message);
+    return { success: false, response: internalMessagesErrorResponse(result.status, result.error) };
+  }
+
+  if (result.type === 'plain') {
+    if (result.status >= 400) {
+      ctx.dump?.error(result.upstream !== undefined ? 'upstream' : 'gateway', result.upstream);
+    }
+    return { success: true, response: plainResultToResponse(result) };
+  }
+
+  const state = new SourceStreamState();
+  const usageState = createMessagesStreamUsageState();
+  const frames = observeMessagesFrames(result.events, state, usageState, wantsStream, ctx);
+
+  if (!wantsStream) {
+    try {
+      const response = await collectMessagesProtocolEventsToResult(frames);
+      const metadata = await eventResultMetadata(result);
+      const usage = tokenUsageFromMessagesUsage(response.usage);
+      ctx.dump?.success(metadata.modelIdentity, usage);
+      await recordUsage(ctx, metadata.modelIdentity, usage);
+      recordPerformance(ctx, metadata.performance, state.failed);
+      return { success: true, response: Response.json(response, { headers: mergeForwardedUpstreamHeaders(undefined, result.headers) }) };
+    } catch (error) {
+      recordPerformance(ctx, result.performance, true);
+      ctx.dump?.failed(error);
+      return { success: false, response: internalMessagesErrorResponse(502, toInternalDebugError(error)) };
+    }
+  }
+
+  forwardUpstreamHeaders(c, result.headers);
+  const response = streamSSE(c, async stream => {
+    let completion: StreamCompletion = 'error';
+    try {
+      completion = await writeSSEFrames(stream, messagesSseFrames(frames, state), {
+        keepAlive: { frame: sseFrame(JSON.stringify({ type: 'ping' }), 'ping') },
+        ...(ctx.downstreamAbortController !== undefined ? { downstreamAbortController: ctx.downstreamAbortController } : {}),
+      });
+    } finally {
+      const metadata = await eventResultMetadata(result);
+      const failed = state.failedAfter(completion);
+      if (failed) {
+        ctx.dump?.failed(`messages stream failed (completion=${completion}, source-failed=${state.failed})`);
+      } else {
+        ctx.dump?.success(metadata.modelIdentity, state.usage);
+      }
+      try {
+        await recordUsage(ctx, metadata.modelIdentity, state.usage);
+      } catch (error) {
+        console.error('Failed to record Messages usage:', error);
+      } finally {
+        recordPerformance(ctx, metadata.performance, failed);
+      }
+    }
+  });
+
+  return { success: true, response };
+};
+
+// Anthropic already reports disjoint token counts: input_tokens excludes the
+// cache figures. Map them straight onto the billing dimensions without
+// summing. When the upstream emits the `cache_creation` sub-object
+// (extended-cache-ttl-2025-04-11), split the per-TTL counts onto the 5m and
+// 1h dimensions; the flat `cache_creation_input_tokens` is the sum and is
+// only consulted when the sub-object is absent.
+//
+// Response usage carries two server-stamped tier fields: `speed` (fast mode)
+// and `service_tier` (capacity assignment). Fast mode is documented as
+// unavailable with Priority Tier and the Batch API, so at most one
+// non-`standard` value lands on a single response — prefer `speed` first
+// (the only multi-x override today) then fall through to `service_tier`.
+// `standard` on either side collapses to null so per-tier rows aggregate
+// with base; unknown values flow through verbatim so a future Anthropic
+// release does not silently bill at base.
+//   * https://docs.claude.com/en/build-with-claude/fast-mode
+//   * https://docs.claude.com/en/api/service-tiers
+const tokenUsageFromMessagesUsage = (u: MessagesUsageLike) => {
+  const cacheWrite5m = u.cache_creation?.ephemeral_5m_input_tokens;
+  const cacheWrite1h = u.cache_creation?.ephemeral_1h_input_tokens;
+  const cacheWriteRolledUp = u.cache_creation_input_tokens ?? 0;
+  const tier = billableServiceTier(u.speed) ?? billableServiceTier(u.service_tier);
+  return tokenUsage({
+    input: u.input_tokens ?? 0,
+    input_cache_read: u.cache_read_input_tokens ?? 0,
+    input_cache_write: cacheWrite5m ?? cacheWriteRolledUp,
+    input_cache_write_1h: cacheWrite1h ?? 0,
+    output: u.output_tokens,
+    tier,
+  });
+};
+
+export const createMessagesStreamUsageState = () => ({
+  current: tokenUsage({}),
+  gotInputFromStart: false,
+});
+
+type MessagesStreamUsageState = ReturnType<typeof createMessagesStreamUsageState>;
+
+// Returns a snapshot of the running usage on every frame that revises it, not
+// only on `message_stop`, so the respond layer can checkpoint billing state
+// into `SourceStreamState.usage` as the stream progresses. A client disconnect
+// that races the terminal frame would otherwise discard the last
+// `message_delta`'s output count. Each call returns a fresh object so the
+// snapshot stored in `SourceStreamState.usage` does not silently mutate when
+// the next delta lands.
+export const tokenUsageFromMessagesFrame = (frame: ProtocolFrame<MessagesStreamEvent>, state: MessagesStreamUsageState) => {
+  if (frame.type !== 'event') return null;
+  const { event } = frame;
+  if (event.type === 'message_start') {
+    state.current = tokenUsageFromMessagesUsage(event.message.usage);
+    // A fully cache-hit prompt reports message_start with input=0 but non-zero
+    // cache reads; the input accounting still arrived, so the flag must reflect
+    // every input-side dimension, not bare input alone — otherwise a later
+    // delta carrying input_tokens re-merges and drops the cache counts.
+    state.gotInputFromStart ||= (state.current.input ?? 0) + (state.current.input_cache_read ?? 0) + (state.current.input_cache_write ?? 0) + (state.current.input_cache_write_1h ?? 0) > 0;
+    return { ...state.current };
+  }
+  if (event.type === 'message_delta' && event.usage) {
+    // Anthropic's wire schema lets a delta re-stamp `speed`/`service_tier`,
+    // and both fields are per-message properties of this billing bucket. A
+    // delta-supplied tier therefore wins; absent that, message_start's tier
+    // carries forward across the bucket. Two branches below: the cache-hit
+    // prompt path (message_start carried zero input, this delta now carries
+    // the real input accounting) rebuilds state.current from the delta and
+    // backfills tier from the prior; the normal path updates the running
+    // output and restamps tier when the delta provides one.
+    const deltaResolved = tokenUsageFromMessagesUsage(event.usage);
+    if (!state.gotInputFromStart && event.usage.input_tokens !== undefined) {
+      const priorTier = state.current.tier;
+      state.current = deltaResolved;
+      state.current.tier ??= priorTier;
+    } else {
+      state.current.output = event.usage.output_tokens;
+      if (deltaResolved.tier != null) state.current.tier = deltaResolved.tier;
+    }
+    return { ...state.current };
+  }
+  return event.type === 'message_stop' ? { ...state.current } : null;
+};
+
+const internalMessagesErrorPayload = (error: InternalDebugError) => ({
+  type: 'error',
+  error: {
+    type: error.type,
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    cause: error.cause,
+    target_api: error.target_api,
+  },
+});
+
+const internalMessagesErrorResponse = (status: number, error: InternalDebugError): Response => Response.json(internalMessagesErrorPayload(error), { status });
+
+const isMessagesTerminalFrame = (frame: ProtocolFrame<MessagesStreamEvent>) => frame.type === 'event' && (frame.event.type === 'message_stop' || frame.event.type === 'error');
+
+const observeMessagesFrames = async function* (
+  frames: AsyncIterable<ProtocolFrame<MessagesStreamEvent>>,
+  state: SourceStreamState,
+  usageState: MessagesStreamUsageState,
+  observeUsage: boolean,
+  ctx: GatewayCtx,
+) {
+  for await (const frame of frames) {
+    ctx.dump?.frame(frame);
+    const failed = frame.type === 'event' && frame.event.type === 'error';
+    if (failed) state.failed = true;
+    if (observeUsage) {
+      state.rememberUsage(tokenUsageFromMessagesFrame(frame, usageState));
+    }
+    if (isMessagesTerminalFrame(frame) && !failed) state.completed = true;
+    yield frame;
+    if (isMessagesTerminalFrame(frame)) return;
+  }
+  throw new Error(MESSAGES_MISSING_TERMINAL_MESSAGE);
+};
+
+const messagesSseFrames = async function* (frames: AsyncIterable<ProtocolFrame<MessagesStreamEvent>>, state: SourceStreamState) {
+  try {
+    for await (const frame of frames) {
+      const sse = messagesProtocolFrameToSSEFrame(frame);
+      if (sse) yield sse;
+    }
+  } catch (error) {
+    state.failed = true;
+    yield sseFrame(JSON.stringify(internalMessagesErrorPayload(toInternalDebugError(error))), 'error');
+  }
+};

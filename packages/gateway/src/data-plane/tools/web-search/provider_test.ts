@@ -16,6 +16,7 @@ test('resolveConfiguredWebSearchProvider returns disabled, missing-credential, o
       provider: 'tavily',
       tavily: { apiKey: '' },
       microsoftGrounding: { apiKey: 'ms-test' },
+      jina: { apiKey: '' },
     }),
     {
       type: 'missing-credential',
@@ -27,6 +28,7 @@ test('resolveConfiguredWebSearchProvider returns disabled, missing-credential, o
     provider: 'microsoft-grounding',
     tavily: { apiKey: 'tvly-test' },
     microsoftGrounding: { apiKey: 'ms-test' },
+    jina: { apiKey: '' },
   });
 
   assertEquals(resolved.type, 'enabled');
@@ -52,6 +54,7 @@ test('testSearchConfigConnection returns structured disabled and missing-credent
       provider: 'tavily',
       tavily: { apiKey: '' },
       microsoftGrounding: { apiKey: 'ms-test' },
+      jina: { apiKey: '' },
     }),
     {
       ok: false,
@@ -98,6 +101,7 @@ test('testSearchConfigConnection previews at most three normalized results', asy
         provider: 'tavily',
         tavily: { apiKey: 'tvly-test' },
         microsoftGrounding: { apiKey: 'ms-test' },
+        jina: { apiKey: '' },
       });
 
       assertEquals(result.ok, true);
@@ -126,6 +130,7 @@ test('testSearchConfigConnection returns no_results when the provider returns no
           provider: 'tavily',
           tavily: { apiKey: 'tvly-test' },
           microsoftGrounding: { apiKey: 'ms-test' },
+          jina: { apiKey: '' },
         }),
         {
           ok: false,
@@ -159,6 +164,7 @@ test('testSearchConfigConnection returns preview results for Microsoft Grounding
         provider: 'microsoft-grounding',
         tavily: { apiKey: 'tvly-test' },
         microsoftGrounding: { apiKey: 'ms-test' },
+        jina: { apiKey: '' },
       });
 
       assertEquals(result.ok, true);
@@ -200,6 +206,7 @@ test('testSearchConfigConnection does not record search usage', async () => {
         provider: 'tavily',
         tavily: { apiKey: 'tvly-test' },
         microsoftGrounding: { apiKey: '' },
+        jina: { apiKey: '' },
       });
 
       assertEquals(result.ok, true);

@@ -1,4 +1,5 @@
 // Data transfer routes — export/import operator-managed database data as JSON.
+//
 // Ephemeral stored Responses state is omitted from exports and cleared on
 // replace imports; clients can regenerate it through normal Responses use.
 //
@@ -7,23 +8,32 @@
 // UUIDs / PSKs. The endpoint is admin-only via x-api-key; operators are
 // responsible for handling the dumped file with the same care as a DB backup.
 
+import type { Context } from 'hono';
+
+import { fetchUpstreamModelsCached } from '../../data-plane/providers/models-cache.ts';
+import { createProviderInstance } from '../../data-plane/providers/registry.ts';
 import { parseSearchConfigDefault, parseSearchConfigStrict } from '../../data-plane/tools/web-search/search-config.ts';
 import type { SearchConfig } from '../../data-plane/tools/web-search/types.ts';
+import { createPerRequestFetcher } from '../../dial/per-request.ts';
+import { getDumpStore, notifyDisabledBestEffort } from '../../dump/registry.ts';
 import { type CtxWithJson, type CtxWithQuery } from '../../middleware/zod-validator.ts';
 import { parseDisabledPublicModelIdsWire } from '../../repo/disabled-public-models.ts';
 import { getRepo } from '../../repo/index.ts';
 import { DIRECT_PROXY_ID, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
 import type { ApiKey, PerformanceMetricScope, PerformanceTelemetryRecord, SearchUsageRecord, TokenUsage, UsageRecord, User } from '../../repo/types.ts';
+import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
+import { getCurrentColo } from '../../runtime/runtime-info.ts';
 import { PASSWORD_HASH_SCHEME } from '../../shared/passwords.ts';
 import { isWebSearchProviderName } from '../../shared/web-search-providers.ts';
 import { parseUpstreamIdsValue } from '../api-keys/upstream-ids.ts';
-import { USERNAME_PATTERN, type exportQuery, type importBody } from '../schemas.ts';
+import { USERNAME_PATTERN, type exportQuery, type importBody, DUMP_RETENTION_MAX_SECONDS } from '../schemas.ts';
 import { copilotConfigField, isRecord, nonEmptyStringField } from '../shared/field-validators.ts';
 import { type SerializedUpstreamRecord, upstreamRecordToFullJson } from '../upstreams/serialize.ts';
 import { BILLING_DIMENSIONS, type ModelPricing } from '@floway-dev/protocols/common';
-import { invalidateModelsStore, parseFlagOverridesWire } from '@floway-dev/provider';
-import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import { ALL_PROVIDER_KINDS, normalizeModelPrefix, parseFlagOverridesWire } from '@floway-dev/provider';
+import type { ProxyFallbackEntry, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import { assertAzureUpstreamRecord } from '@floway-dev/provider-azure';
+import { assertClaudeCodeUpstreamRecord, assertClaudeCodeUpstreamState } from '@floway-dev/provider-claude-code';
 import { assertCodexUpstreamRecord, assertCodexUpstreamState } from '@floway-dev/provider-codex';
 import { assertCustomUpstreamRecord } from '@floway-dev/provider-custom';
 import { parseProxyUri } from '@floway-dev/proxy';
@@ -57,48 +67,75 @@ interface ExportPayload {
 const EXPORT_VERSION = 6;
 const SEARCH_USAGE_HOUR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}$/;
 const PERFORMANCE_METRIC_SCOPES = new Set<PerformanceMetricScope>(['request_total', 'upstream_success']);
-const UPSTREAM_PROVIDERS = new Set<UpstreamProviderKind>(['custom', 'azure', 'copilot', 'codex']);
+const UPSTREAM_PROVIDERS = new Set<UpstreamProviderKind>(ALL_PROVIDER_KINDS);
 const LEGACY_UPSTREAM_PREFIXES = ['openai:', 'copilot:'];
 
 const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
 
 const isLegacyUpstreamIdentity = (value: string): boolean => LEGACY_UPSTREAM_PREFIXES.some(prefix => value.startsWith(prefix));
 
+const isNonNegativeSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+const isPerformanceMetricScope = (value: unknown): value is PerformanceMetricScope => typeof value === 'string' && PERFORMANCE_METRIC_SCOPES.has(value as PerformanceMetricScope);
+
 const importErrorBuilder = (field: string, expected: string) => new Error(`${field} must be ${expected}`);
 
 const nonEmptyString = (value: unknown, field: string): string => nonEmptyStringField(value, field, importErrorBuilder);
 
 const normalizeUpstreamConfig = (record: UpstreamRecord): unknown => {
-  if (record.provider === 'custom') return assertCustomUpstreamRecord(record).config;
-  if (record.provider === 'azure') return assertAzureUpstreamRecord(record).config;
-  if (record.provider === 'codex') {
+  if (record.kind === 'custom') return assertCustomUpstreamRecord(record).config;
+  if (record.kind === 'azure') return assertAzureUpstreamRecord(record).config;
+  if (record.kind === 'codex') {
     assertCodexUpstreamRecord(record);
+    return record.config;
+  }
+  if (record.kind === 'claude-code') {
+    assertClaudeCodeUpstreamRecord(record);
     return record.config;
   }
   return copilotConfigField(record.config, importErrorBuilder);
 };
 
-// State is persisted only for providers that own autonomous runtime state. Codex
-// rotates a refresh_token and tracks credential health; Custom/Azure/Copilot
-// have no such state and serialize to null. Round-trip codex state through
-// the same shape assertion the runtime uses so a corrupt or hand-edited
-// import can't smuggle unknown fields onto the column.
+// State is persisted only for providers that own autonomous runtime state.
+// Codex rotates a refresh_token and tracks credential health; Claude Code
+// holds per-account refresh tokens, OAuth-minted access tokens, and quota
+// snapshots; Custom/Azure/Copilot have no such state and serialize to null.
+// Round-trip the stateful providers through the same shape assertion the
+// runtime uses so a corrupt or hand-edited import can't smuggle unknown
+// fields onto the column.
 const normalizeUpstreamState = (provider: UpstreamProviderKind, value: unknown): unknown => {
-  if (provider !== 'codex') return null;
+  if (provider !== 'codex' && provider !== 'claude-code') return null;
   if (value === null || value === undefined) {
-    throw new Error('codex upstream import is missing state — re-export with current code');
+    throw new Error(`${provider} upstream is missing state — re-export with current code`);
   }
-  assertCodexUpstreamState(value);
+  if (provider === 'codex') assertCodexUpstreamState(value);
+  else assertClaudeCodeUpstreamState(value);
   return value;
 };
 
-const parseProxyFallbackListField = (value: unknown): string[] => {
+const parseProxyFallbackListField = (value: unknown): ProxyFallbackEntry[] => {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error('proxy_fallback_list must be an array');
-  for (const entry of value) {
-    if (typeof entry !== 'string') throw new Error('proxy_fallback_list entries must be strings');
+  const entries: ProxyFallbackEntry[] = [];
+  for (const raw of value) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error('proxy_fallback_list entries must be objects');
+    }
+    const entry = raw as { id?: unknown; colos?: unknown };
+    if (typeof entry.id !== 'string') throw new Error('proxy_fallback_list entry .id must be a string');
+    let colos: string[] | undefined;
+    if (entry.colos !== undefined) {
+      if (!Array.isArray(entry.colos)) throw new Error('proxy_fallback_list entry .colos must be an array');
+      const list: string[] = [];
+      for (const c of entry.colos) {
+        if (typeof c !== 'string') throw new Error('proxy_fallback_list entry .colos members must be strings');
+        list.push(c);
+      }
+      colos = list;
+    }
+    entries.push(colos === undefined ? { id: entry.id } : { id: entry.id, colos });
   }
-  return normalizeProxyFallbackList(value as string[]);
+  return normalizeProxyFallbackList(entries);
 };
 
 const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRecord[] } | { type: 'invalid'; index: number; error: string } => {
@@ -112,8 +149,8 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
       if (hasOwn(item, 'enabled_fixes')) {
         throw new Error("legacy 'enabled_fixes' field is no longer supported; re-export with current code");
       }
-      if (typeof item.provider !== 'string' || !UPSTREAM_PROVIDERS.has(item.provider as UpstreamProviderKind)) {
-        throw new Error('provider must be one of custom, azure, copilot, codex');
+      if (typeof item.kind !== 'string' || !UPSTREAM_PROVIDERS.has(item.kind as UpstreamProviderKind)) {
+        throw new Error(`kind must be one of ${ALL_PROVIDER_KINDS.join(', ')}`);
       }
       if (typeof item.enabled !== 'boolean') throw new Error('enabled must be a boolean');
       if (typeof item.sort_order !== 'number' || !Number.isFinite(item.sort_order)) throw new Error('sort_order must be a finite number');
@@ -121,10 +158,10 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
       const id = nonEmptyString(item.id, 'id');
       if (isLegacyUpstreamIdentity(id)) throw new Error('id must use a raw upstream id, not a legacy provider-prefixed identity');
 
-      const provider = item.provider as UpstreamProviderKind;
+      const kind = item.kind as UpstreamProviderKind;
       const record: UpstreamRecord = {
         id,
-        provider,
+        kind,
         name: nonEmptyString(item.name, 'name'),
         enabled: item.enabled,
         sortOrder: Math.floor(item.sort_order),
@@ -133,8 +170,9 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
         flagOverrides: parseFlagOverridesWire(item.flag_overrides),
         disabledPublicModelIds: parseDisabledPublicModelIdsWire(item.disabled_public_model_ids),
         proxyFallbackList: parseProxyFallbackListField(item.proxy_fallback_list),
+        modelPrefix: normalizeModelPrefix(item.model_prefix),
         config: item.config,
-        state: normalizeUpstreamState(provider, item.state),
+        state: normalizeUpstreamState(kind, item.state),
       };
       records.push({ ...record, config: normalizeUpstreamConfig(record) });
     } catch (error) {
@@ -147,9 +185,7 @@ const parseUpstreamRecords = (value: unknown): { type: 'ok'; records: UpstreamRe
 
 const parseProxyRecords = (value: unknown): { type: 'ok'; records: SerializedProxy[] } | { type: 'invalid'; index: number; error: string } => {
   // Proxies are optional in the import contract: an absent or empty array
-  // means "the source deployment had no proxies". The cross-reference check
-  // later still fails the import if upstreams point at ids this array
-  // doesn't carry, so a dangling reference cannot slip through silently.
+  // means "the source deployment had no proxies".
   if (value === undefined) return { type: 'ok', records: [] };
   if (!Array.isArray(value)) return { type: 'invalid', index: -1, error: 'proxies must be an array' };
 
@@ -206,12 +242,20 @@ const validateProxyFallbackReferences = (
   knownIds.add(DIRECT_PROXY_ID);
   for (const upstream of upstreams) {
     for (const ref of upstream.proxyFallbackList) {
-      if (!knownIds.has(ref)) {
-        return `upstream ${upstream.id} references unknown proxy ${ref}`;
+      if (!knownIds.has(ref.id)) {
+        return `upstream ${upstream.id} references unknown proxy ${ref.id}`;
       }
     }
   }
   return null;
+};
+
+const parseImportedDumpRetention = (value: unknown): number | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > DUMP_RETENTION_MAX_SECONDS) {
+    throw new Error(`dumpRetentionSeconds must be null or a positive integer up to ${DUMP_RETENTION_MAX_SECONDS}`);
+  }
+  return value;
 };
 
 const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } | { type: 'invalid'; index: number; error: string } => {
@@ -240,6 +284,7 @@ const parseApiKeyRecords = (value: unknown): { type: 'ok'; records: ApiKey[] } |
         ...(record.lastUsedAt !== undefined ? { lastUsedAt: nonEmptyString(record.lastUsedAt, 'lastUsedAt') } : {}),
         upstreamIds: upstreamIdsParsed.value,
         deletedAt: record.deletedAt,
+        dumpRetentionSeconds: parseImportedDumpRetention(record.dumpRetentionSeconds),
       });
     } catch (error) {
       return { type: 'invalid', index: i, error: error instanceof Error ? error.message : String(error) };
@@ -326,16 +371,18 @@ const validateApiKeyIdentities = (records: readonly ApiKey[], existing: readonly
   return null;
 };
 
-const parseImportedCost = (value: unknown): UsageRecord['cost'] => {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== 'object' || Array.isArray(value)) return null;
+const parseImportedCost = (value: unknown): { type: 'ok'; cost: UsageRecord['cost'] } | { type: 'invalid' } => {
+  if (value === undefined || value === null) return { type: 'ok', cost: null };
+  if (typeof value !== 'object' || Array.isArray(value)) return { type: 'invalid' };
   const obj = value as Record<string, unknown>;
   const cost: ModelPricing = {};
   for (const dimension of BILLING_DIMENSIONS) {
     const rate = obj[dimension];
-    if (typeof rate === 'number') cost[dimension] = rate;
+    if (rate === undefined) continue;
+    if (typeof rate !== 'number' || !Number.isFinite(rate)) return { type: 'invalid' };
+    cost[dimension] = rate;
   }
-  return Object.keys(cost).length > 0 ? cost : null;
+  return { type: 'ok', cost: Object.keys(cost).length > 0 ? cost : null };
 };
 
 const parseImportedTokens = (value: unknown): { type: 'ok'; tokens: TokenUsage } | { type: 'invalid' } => {
@@ -376,17 +423,30 @@ const parseUsageRecords = (value: unknown): { type: 'ok'; records: UsageRecord[]
     if (typeof record.upstream === 'string' && isLegacyUpstreamIdentity(record.upstream)) {
       return { type: 'invalid', index: i, error: 'upstream must use a raw upstream id, not a legacy provider-prefixed identity' };
     }
+    if (record.tier !== undefined && record.tier !== null && typeof record.tier !== 'string') {
+      return { type: 'invalid', index: i, error: 'tier, when present, must be a string or null' };
+    }
+    if (record.tier === '') {
+      return { type: 'invalid', index: i, error: 'tier must be a non-empty string or null/absent' };
+    }
+    // Empty-string is rejected rather than normalized to null: the unique
+    // index folds NULL/'' under COALESCE, so a '' import would silently
+    // merge with base-tier rows.
+    const tier: string | null = typeof record.tier === 'string' ? record.tier : null;
     const tokensResult = parseImportedTokens(record.tokens);
     if (tokensResult.type === 'invalid') return { type: 'invalid', index: i, error: 'record has invalid token dimension counts' };
+    const costResult = parseImportedCost(record.cost);
+    if (costResult.type === 'invalid') return { type: 'invalid', index: i, error: 'record has invalid cost dimension rates' };
     records.push({
       keyId: record.keyId,
       model: record.model,
-      upstream: record.upstream as string | null,
+      upstream: record.upstream,
       modelKey: record.modelKey,
       hour: record.hour,
+      tier,
       requests: record.requests,
       tokens: tokensResult.tokens,
-      cost: parseImportedCost(record.cost),
+      cost: costResult.cost,
     });
   }
 
@@ -440,13 +500,13 @@ const parsePerformanceIncluded = (data: Record<string, unknown>): { type: 'ok'; 
   return { type: 'ok', included: data.performanceIncluded };
 };
 
-const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: PerformanceTelemetryRecord[] } | { type: 'invalid'; index: number } => {
-  if (!Array.isArray(value)) return { type: 'invalid', index: -1 };
+const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: PerformanceTelemetryRecord[] } | { type: 'invalid'; index: number; error: string } => {
+  if (!Array.isArray(value)) return { type: 'invalid', index: -1, error: 'performance must be an array when included' };
 
   const records: PerformanceTelemetryRecord[] = [];
   for (let i = 0; i < value.length; i++) {
     const record = value[i];
-    if (!record || typeof record !== 'object') return { type: 'invalid', index: i };
+    if (!record || typeof record !== 'object') return { type: 'invalid', index: i, error: 'record is not an object' };
 
     const item = record as Record<string, unknown>;
     if (
@@ -469,15 +529,15 @@ const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: Perform
       !isNonNegativeSafeInteger(item.totalMsSum) ||
       !Array.isArray(item.buckets)
     ) {
-      return { type: 'invalid', index: i };
+      return { type: 'invalid', index: i, error: 'record fields are missing or malformed' };
     }
 
     const buckets = [];
     for (const bucket of item.buckets) {
-      if (!bucket || typeof bucket !== 'object') return { type: 'invalid', index: i };
+      if (!bucket || typeof bucket !== 'object') return { type: 'invalid', index: i, error: 'bucket is not an object' };
       const bucketItem = bucket as Record<string, unknown>;
       if (!isNonNegativeSafeInteger(bucketItem.lowerMs) || !isNonNegativeSafeInteger(bucketItem.upperMs) || !isNonNegativeSafeInteger(bucketItem.count) || bucketItem.upperMs <= bucketItem.lowerMs) {
-        return { type: 'invalid', index: i };
+        return { type: 'invalid', index: i, error: 'bucket lowerMs/upperMs/count fields are missing or malformed' };
       }
       buckets.push({ lowerMs: bucketItem.lowerMs, upperMs: bucketItem.upperMs, count: bucketItem.count });
     }
@@ -487,7 +547,7 @@ const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: Perform
       metricScope: item.metricScope,
       keyId: item.keyId,
       model: item.model,
-      upstream: item.upstream as string | null,
+      upstream: item.upstream,
       modelKey: item.modelKey,
       stream: item.stream,
       runtimeLocation: item.runtimeLocation,
@@ -501,9 +561,25 @@ const parsePerformanceRecords = (value: unknown): { type: 'ok'; records: Perform
   return { type: 'ok', records };
 };
 
-const isNonNegativeSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-
-const isPerformanceMetricScope = (value: unknown): value is PerformanceMetricScope => typeof value === 'string' && PERFORMANCE_METRIC_SCOPES.has(value as PerformanceMetricScope);
+// Synchronously populate the SWR models cache for each saved upstream so the
+// dashboard's next navigation lands on a populated row. In merge mode the
+// upstreams.save above is an ON CONFLICT UPDATE that does not touch the
+// models_cache row through any FK cascade, so without this call a re-import
+// that changes an upstream's config would keep serving the prior cached
+// model list until SWR's soft window expired. Replace mode wiped the table
+// before the loop; warming there is a no-op population. Per-upstream warm
+// failures (network blip, dead credential among many) must not abort the
+// import — the cache layer persists `lastError` on the row for the dashboard
+// to surface. Provider-instance and fetcher construction errors signal
+// genuine misconfiguration and are not swallowed.
+const warmModelsCache = async (record: UpstreamRecord, c: Context): Promise<void> => {
+  const scheduler = backgroundSchedulerFromContext(c);
+  const instance = await createProviderInstance(record);
+  const fetcher = (await createPerRequestFetcher(getCurrentColo(c.req.raw)))(record.id);
+  try {
+    await fetchUpstreamModelsCached(instance, { scheduler, fetcher, force: true });
+  } catch {}
+};
 
 export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   const repo = getRepo();
@@ -612,27 +688,42 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const performanceIncluded = performanceIncludedResult.included;
   const performanceResult = performanceIncluded ? parsePerformanceRecords(data.performance) : { type: 'ok' as const, records: [] };
   if (performanceResult.type === 'invalid') {
-    return c.json({ error: performanceResult.index >= 0 ? `invalid performance record at index ${performanceResult.index}` : 'invalid performance: performance must be an array when included' }, 400);
+    return c.json({ error: performanceResult.index >= 0 ? `invalid performance record at index ${performanceResult.index}: ${performanceResult.error}` : `invalid performance: ${performanceResult.error}` }, 400);
   }
   const performance = performanceResult.records;
 
   const repo = getRepo();
-  const apiKeyIdentityError = validateApiKeyIdentities(apiKeys, mode === 'merge' ? await repo.apiKeys.listIncludingDeleted() : [], mode);
+  // Snapshot pre-import key state once and reuse it for identity validation
+  // and the dump-purge transitions below. Replace mode also needs to purge
+  // each pre-existing key's dumps (otherwise the new owner of a reused id
+  // silently inherits the old owner's captures); merge mode needs the prior
+  // `dumpRetentionSeconds` per key id so a retention shrink/disable in the
+  // imported payload triggers the same purge transition `updateKey` would.
+  const preImportKeys = await repo.apiKeys.listIncludingDeleted();
+  const preImportRetentionById = new Map<string, number | null>(preImportKeys.map(k => [k.id, k.dumpRetentionSeconds]));
+  const apiKeyIdentityError = validateApiKeyIdentities(apiKeys, mode === 'merge' ? preImportKeys : [], mode);
   if (apiKeyIdentityError) return c.json({ error: `invalid apiKeys: ${apiKeyIdentityError}` }, 400);
 
-  // Merge mode keeps the existing proxies table alongside the imported rows,
-  // so an upstream may reference either set. Replace mode wipes the table
-  // before saving and only the imported ids will exist post-import.
+  // In merge mode an imported upstream's proxy_fallback_list may reference an
+  // existing local proxy alongside an imported one; replace mode wipes the
+  // table first, so only the imported ids count.
   const existingProxyIdsForRefs = mode === 'merge' ? (await repo.proxies.list()).map(p => p.id) : [];
   const fallbackRefError = validateProxyFallbackReferences(upstreams, proxies, existingProxyIdsForRefs);
   if (fallbackRefError) return c.json({ error: `invalid upstreams: ${fallbackRefError}` }, 400);
 
   if (mode === 'replace') {
+    // Wipe each existing key's dump capture before the replace deletes wave so
+    // a reused id in the imported payload cannot inherit the previous owner's
+    // captures, and any live SSE subscriber is told the key went away.
+    for (const k of preImportKeys) {
+      await getDumpStore().purgeAll(k.id);
+      await notifyDisabledBestEffort(k.id, 'replace-mode import');
+    }
+
     // Replace mode is intentionally non-atomic across repos: D1 binding does not expose multi-repo
     // transactions, and a coordinated batch would require every repo to surface its writes as
     // prepared statements. A failure between the deleteAll wave and the per-record save loop
     // leaves the deployment partially wiped. Operators should back up before running replace mode.
-    const existingUpstreams = await repo.upstreams.list();
     const deletes: Promise<unknown>[] = [
       repo.sessions.deleteAll(),
       repo.apiKeys.deleteAll(),
@@ -651,7 +742,6 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     ];
     if (performanceIncluded) deletes.push(repo.performance.deleteAll());
     await Promise.all(deletes);
-    await Promise.all([...existingUpstreams, ...upstreams].map(upstream => invalidateModelsStore(upstream.id)));
   }
 
   // Users land before api keys so the FK from api_keys.user_id can resolve.
@@ -667,13 +757,24 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
       dialTimeoutSeconds: proxy.dial_timeout_seconds,
     });
   }
-  for (const key of apiKeys) await repo.apiKeys.save(key);
+  for (const key of apiKeys) {
+    // Merge mode mirrors `updateKey`'s purge transition when retention is
+    // flipped off or shrunk; replace mode already purged everything above.
+    const previous = preImportRetentionById.get(key.id) ?? null;
+    await repo.apiKeys.save(key);
+    if (mode === 'merge' && previous !== key.dumpRetentionSeconds) {
+      if (key.dumpRetentionSeconds === null && previous !== null) {
+        await getDumpStore().purgeAll(key.id);
+        await notifyDisabledBestEffort(key.id, 'merge-mode retention disable');
+      } else if (previous !== null && key.dumpRetentionSeconds !== null && key.dumpRetentionSeconds < previous) {
+        await getDumpStore().purgeExpired(key.id, key.dumpRetentionSeconds);
+      }
+    }
+  }
   for (const record of usage) await repo.usage.set(record);
   for (const record of searchUsage) await repo.searchUsage.set(record);
-  for (const upstream of upstreams) {
-    await repo.upstreams.save(upstream);
-    await invalidateModelsStore(upstream.id);
-  }
+  for (const upstream of upstreams) await repo.upstreams.save(upstream);
+  await Promise.all(upstreams.map(upstream => warmModelsCache(upstream, c)));
   for (const record of performance) await repo.performance.set(record);
   await repo.searchConfig.save(searchConfig);
 

@@ -1419,7 +1419,63 @@ test('translateResponsesToChatCompletions throws on a stray web_search_call inpu
       parallel_tool_calls: true,
     }),
     Error,
-    'Responses → Chat Completions translator does not accept web_search_call input items',
+    "Invalid input item type 'web_search_call'",
+  );
+});
+
+test('translateResponsesToChatCompletions throws on a stray compaction_trigger input item (compact-shim owns the strip)', () => {
+  // The compact-shim is structurally required on non-responses targets and
+  // strips compaction_trigger items before reaching this translator.
+  // Reaching here with one in input means the shim disengaged; the
+  // translator's catch-all guard surfaces the regression.
+  assertThrows(
+    () => translateResponsesToChatCompletions({
+      model: 'gpt-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction_trigger' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    "Invalid input item type 'compaction_trigger'",
+  );
+});
+
+test('translateResponsesToChatCompletions throws on a stray compaction input item (compact-shim owns the expansion)', () => {
+  // The compact-shim expands its own shim-encoded compaction items inline
+  // before reaching this translator and round-trips foreign compactions
+  // back to the upstream as raw items. Either way the translator should
+  // never see one.
+  assertThrows(
+    () => translateResponsesToChatCompletions({
+      model: 'gpt-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction', id: 'cmp_x', encrypted_content: 'opaque', created_by: 'compaction_session' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    "Invalid input item type 'compaction'",
   );
 });
 
@@ -1454,4 +1510,39 @@ test('translateResponsesToChatCompletions maps multimodal function_call_output i
     { type: 'text', text: 'captured' },
     { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID', detail: 'high' } },
   ]);
+});
+
+// ── Native field forwarding ──
+
+test('translateResponsesToChatCompletions maps text.verbosity onto verbosity', () => {
+  const result = translateResponsesToChatCompletions({
+    model: 'gpt-test',
+    input: [{ type: 'message', role: 'user', content: 'hi' }],
+    text: { verbosity: 'low' },
+  });
+
+  assertEquals(result.target.verbosity, 'low');
+});
+
+test('translateResponsesToChatCompletions co-emits reasoning.effort onto reasoning_effort and service_tier verbatim', () => {
+  const result = translateResponsesToChatCompletions({
+    model: 'gpt-test',
+    input: [{ type: 'message', role: 'user', content: 'hi' }],
+    reasoning: { effort: 'xhigh' },
+    service_tier: 'priority',
+  });
+
+  assertEquals(result.target.reasoning_effort, 'xhigh');
+  assertEquals(result.target.service_tier, 'priority');
+});
+
+test('translateResponsesToChatCompletions drops reasoning.summary (Chat has no slot)', () => {
+  const result = translateResponsesToChatCompletions({
+    model: 'gpt-test',
+    input: [{ type: 'message', role: 'user', content: 'hi' }],
+    reasoning: { effort: 'medium', summary: 'concise' },
+  });
+
+  assertEquals(result.target.reasoning_effort, 'medium');
+  assertEquals('reasoning_summary' in result.target, false);
 });

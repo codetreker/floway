@@ -17,7 +17,7 @@ import type { CopilotChatCompletionsBoundaryInterceptor } from './types.ts';
 export const withInitiatorHeaderSet: CopilotChatCompletionsBoundaryInterceptor = async (ctx, _request, run) => {
   const lastMessage = ctx.payload.messages.at(-1);
   const initiator: 'user' | 'agent' = lastMessage?.role === 'assistant' || lastMessage?.role === 'tool' ? 'agent' : 'user';
-  ctx.headers['x-initiator'] = initiator;
+  ctx.headers.set('x-initiator', initiator);
 
   return await run();
 };

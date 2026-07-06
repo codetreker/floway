@@ -1,34 +1,25 @@
-import { directFetcher, type CacheRepo, type LlmTargetApi, type ModelProvider, type ModelProviderInstance, type ProviderCandidate, type ProviderModelRecord, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamModel } from '@floway-dev/provider';
+import { directFetcher, type InternalModel, type ProviderInstance, type Provider, type ProviderModel, type ModelCandidate, type TelemetryModelIdentity, type UpstreamCallOptions } from '@floway-dev/provider';
 
-// No-op UpstreamCallOptions for tests calling provider methods directly:
-// identity recordUpstreamLatency satisfies the contract without piping
-// latency anywhere; the fetcher uses runtime fetch so `globalThis.fetch`
-// spies still intercept.
-export const noopUpstreamCallOptions: UpstreamCallOptions = {
+// No-op UpstreamCallOptions factory for tests calling provider methods
+// directly: identity recordUpstreamLatency satisfies the contract without
+// piping latency anywhere; the fetcher uses runtime fetch so
+// `globalThis.fetch` spies still intercept; waitUntil drops the promise
+// (the runtime would have absorbed it in production). Each invocation hands
+// back a fresh `Headers` instance so tests that mutate the bag do not bleed
+// state across cases.
+export const noopUpstreamCallOptions = (overrides: Partial<UpstreamCallOptions> = {}): UpstreamCallOptions => ({
   fetcher: directFetcher,
   recordUpstreamLatency: <T>(promise: Promise<T>): Promise<T> => promise,
-};
+  waitUntil: () => {},
+  headers: new Headers(),
+  ...overrides,
+});
 
-export const memoryCacheRepo = (): CacheRepo => {
-  const store = new Map<string, string>();
-  return {
-    get: key => Promise.resolve(store.get(key) ?? null),
-    set: (key, value) => {
-      store.set(key, value);
-      return Promise.resolve();
-    },
-    delete: key => {
-      store.delete(key);
-      return Promise.resolve();
-    },
-    deletePrefix: prefix => {
-      for (const key of [...store.keys()]) if (key.startsWith(prefix)) store.delete(key);
-      return Promise.resolve();
-    },
-  };
-};
-
-export const stubUpstreamModel = (overrides: Partial<UpstreamModel> = {}): UpstreamModel => ({
+// Provider-side shape: what `getProvidedModels` returns and what every
+// `provider.callXxx` takes at dispatch time. Interceptor boundary ctx types
+// (Copilot / Codex / Claude Code) also use this shape, so interceptor tests
+// that build a ctx by hand use `stubProviderModel` directly.
+export const stubProviderModel = (overrides: Partial<ProviderModel> = {}): ProviderModel => ({
   id: 'test-model',
   limits: {},
   kind: 'chat',
@@ -36,6 +27,31 @@ export const stubUpstreamModel = (overrides: Partial<UpstreamModel> = {}): Upstr
   enabledFlags: new Set<string>(),
   ...overrides,
 });
+
+// Gateway-side shape: what the resolver hands the attempt layer. Defaults
+// seed `providerModels` with a single entry keyed on the given upstream id —
+// the entry mirrors the outer metadata so tests that resolve
+// `providerModelOf(candidate)` see a coherent shape without extra ceremony.
+// Callers that need a specific per-upstream shape pass `providerModels`
+// explicitly. Every stub is a real-row `InternalModel`; alias-row fixtures
+// belong on the alias-listing side and construct their `InternalModel`
+// directly with `aliasedFrom`.
+export const stubInternalModel = (
+  overrides: Partial<Omit<InternalModel, 'aliasedFrom' | 'providerModels'>> & { readonly providerModels?: Record<string, ProviderModel> } = {},
+  upstream = 'test-upstream',
+): InternalModel => {
+  const base = {
+    id: overrides.id ?? 'test-model',
+    limits: overrides.limits ?? {},
+    kind: overrides.kind ?? 'chat',
+    endpoints: overrides.endpoints ?? { chatCompletions: {}, responses: {}, messages: {} },
+  } as const;
+  return {
+    ...base,
+    ...overrides,
+    providerModels: overrides.providerModels ?? { [upstream]: stubProviderModel(base) },
+  };
+};
 
 export const testTelemetryModelIdentity: TelemetryModelIdentity = {
   model: 'test-model',
@@ -58,12 +74,12 @@ const autoWrap = <T>(impl: T | undefined): T | undefined => {
   }) as unknown as T;
 };
 
-export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvider => ({
+export const stubProvider = (overrides: Partial<ProviderInstance> = {}): ProviderInstance => ({
   getProvidedModels: overrides.getProvidedModels ?? (() => Promise.resolve([])),
   getPricingForModelKey: overrides.getPricingForModelKey ?? (() => null),
+  callCompletions: autoWrap(overrides.callCompletions) ?? (() => Promise.reject(new Error('stubProvider.callCompletions was called'))),
   callChatCompletions: autoWrap(overrides.callChatCompletions) ?? (() => Promise.reject(new Error('stubProvider.callChatCompletions was called'))),
   callResponses: autoWrap(overrides.callResponses) ?? (() => Promise.reject(new Error('stubProvider.callResponses was called'))),
-  callResponsesCompact: autoWrap(overrides.callResponsesCompact) ?? (() => Promise.reject(new Error('stubProvider.callResponsesCompact was called'))),
   callMessages: autoWrap(overrides.callMessages) ?? (() => Promise.reject(new Error('stubProvider.callMessages was called'))),
   callMessagesCountTokens: autoWrap(overrides.callMessagesCountTokens) ?? (() => Promise.reject(new Error('stubProvider.callMessagesCountTokens was called'))),
   callEmbeddings: autoWrap(overrides.callEmbeddings) ?? (() => Promise.reject(new Error('stubProvider.callEmbeddings was called'))),
@@ -71,29 +87,50 @@ export const stubProvider = (overrides: Partial<ModelProvider> = {}): ModelProvi
   callImagesEdits: autoWrap(overrides.callImagesEdits) ?? (() => Promise.reject(new Error('stubProvider.callImagesEdits was called'))),
 });
 
-export const stubProviderCandidate = (overrides: { targetApi?: LlmTargetApi; binding?: Partial<ProviderModelRecord>; provider?: ModelProviderInstance } = {}): ProviderCandidate => {
+// Stitches together a candidate whose `model.providerModels` map carries an
+// entry under the wired provider's upstream id — that's what
+// `providerModelOf(candidate)` resolves to at dispatch time. The
+// `enabledFlags` / `providerData` shortcuts populate that ProviderModel
+// directly — the common case for interceptor tests that just need a flag set
+// for the resolver's own upstream key. Any `model.providerModels` supplied
+// through `overrides.model` replaces both the default entry and those
+// shortcuts wholesale.
+export const stubModelCandidate = (overrides: {
+  model?: Partial<Omit<InternalModel, 'aliasedFrom' | 'providerModels'>> & { readonly providerModels?: Record<string, ProviderModel> };
+  provider?: Provider;
+  enabledFlags?: ReadonlySet<string>;
+  providerData?: unknown;
+} = {}): ModelCandidate => {
   const provider = overrides.provider ?? {
     upstream: 'test-upstream',
-    providerKind: 'custom',
+    kind: 'custom',
     name: 'Test Upstream',
     disabledPublicModelIds: [],
-    provider: stubProvider(),
+    modelPrefix: null,
+    instance: stubProvider(),
     supportsResponsesItemReference: false,
   };
-  const bindingOverrides = overrides.binding ?? {};
+  const modelOverrides = overrides.model ?? {};
+  const outerMeta = {
+    id: modelOverrides.id ?? 'test-model',
+    limits: modelOverrides.limits ?? {},
+    kind: modelOverrides.kind ?? 'chat',
+    endpoints: modelOverrides.endpoints ?? { chatCompletions: {}, responses: {}, messages: {} },
+  } as const;
+  const providerModel = stubProviderModel({
+    id: outerMeta.id,
+    limits: outerMeta.limits,
+    kind: outerMeta.kind,
+    endpoints: outerMeta.endpoints,
+    enabledFlags: overrides.enabledFlags ?? new Set<string>(),
+    ...(overrides.providerData !== undefined ? { providerData: overrides.providerData } : {}),
+  });
   return {
     provider,
-    binding: {
-      upstream: 'test-upstream',
-      upstreamName: 'Test Upstream',
-      providerKind: 'custom',
-      provider: provider.provider,
-      upstreamModel: stubUpstreamModel(),
-      enabledFlags: new Set<string>(),
-      supportsResponsesItemReference: false,
-      ...bindingOverrides,
-    },
-    targetApi: overrides.targetApi ?? 'messages',
+    model: stubInternalModel({
+      ...modelOverrides,
+      providerModels: modelOverrides.providerModels ?? { [provider.upstream]: providerModel },
+    }),
     fetcher: directFetcher,
   };
 };

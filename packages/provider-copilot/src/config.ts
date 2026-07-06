@@ -1,4 +1,3 @@
-import { isCopilotAccountType, type CopilotAccountType } from './auth.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
 
 export interface CopilotUpstreamUser {
@@ -10,12 +9,11 @@ export interface CopilotUpstreamUser {
 
 export interface CopilotUpstreamConfig {
   githubToken: string;
-  accountType: CopilotAccountType;
   user: CopilotUpstreamUser;
 }
 
 export type CopilotUpstreamRecord = UpstreamRecord & {
-  provider: 'copilot';
+  kind: 'copilot';
   config: CopilotUpstreamConfig;
 };
 
@@ -23,13 +21,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 
 const stringField = (value: unknown, field: string): string => {
   if (typeof value !== 'string') throw new Error(`Malformed copilot upstream config: ${field} must be a string`);
-  return value;
-};
-
-const accountTypeField = (value: unknown): CopilotAccountType => {
-  if (!isCopilotAccountType(value)) {
-    throw new Error('Malformed copilot upstream config: accountType must be one of individual, business, enterprise');
-  }
   return value;
 };
 
@@ -54,14 +45,13 @@ const copilotUserField = (value: unknown): CopilotUpstreamUser => {
 };
 
 export const assertCopilotUpstreamRecord = (record: UpstreamRecord): CopilotUpstreamRecord => {
-  if (record.provider !== 'copilot') throw new Error(`Expected copilot upstream record, got ${record.provider}`);
+  if (record.kind !== 'copilot') throw new Error(`Expected copilot upstream record, got ${record.kind}`);
   if (!isRecord(record.config)) throw new Error('Malformed copilot upstream config: config must be an object');
   return {
     ...record,
-    provider: 'copilot',
+    kind: 'copilot',
     config: {
       githubToken: stringField(record.config.githubToken, 'githubToken'),
-      accountType: accountTypeField(record.config.accountType),
       user: copilotUserField(record.config.user),
     },
   };

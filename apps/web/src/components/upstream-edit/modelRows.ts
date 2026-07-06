@@ -10,7 +10,7 @@ export const newUiId = () => `m${++nextUiId}`;
 export const configOf = (row: Row): UpstreamModelConfig =>
   row.kind === 'manual' ? row.config : row.auto;
 
-const CHAT_ENDPOINT_KEYS: ModelEndpointKey[] = ['chatCompletions', 'responses', 'messages'];
+const CHAT_ENDPOINT_KEYS: ModelEndpointKey[] = ['completions', 'chatCompletions', 'responses', 'messages'];
 const IMAGE_ENDPOINT_KEYS: ModelEndpointKey[] = ['imagesGenerations', 'imagesEdits'];
 
 // The endpoint map to apply when switching INTO a kind, preserving any current
@@ -37,6 +37,7 @@ export const seedFromAuto = (auto: UpstreamModelConfig): UpstreamModelConfig => 
     ...(auto.display_name ? { display_name: auto.display_name } : {}),
     ...(auto.limits ? { limits: { ...auto.limits } } : {}),
     ...(auto.cost ? { cost: { ...auto.cost } } : {}),
+    ...(auto.chat ? { chat: auto.chat } : {}),
   };
 };
 

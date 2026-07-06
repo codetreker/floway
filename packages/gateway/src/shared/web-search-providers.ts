@@ -1,4 +1,4 @@
-export const WEB_SEARCH_PROVIDER_NAMES = ['tavily', 'microsoft-grounding'] as const;
+export const WEB_SEARCH_PROVIDER_NAMES = ['tavily', 'microsoft-grounding', 'jina'] as const;
 
 export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDER_NAMES)[number];
 

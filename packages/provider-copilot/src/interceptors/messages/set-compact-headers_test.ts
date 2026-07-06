@@ -6,7 +6,7 @@ import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
@@ -15,8 +15,8 @@ const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> 
 
 const invocation = (payload: MessagesPayload): MessagesBoundaryCtx => ({
   payload,
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { messages: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { messages: {} } }),
 });
 
 const COMPACT_LAST_MESSAGE_TEXT =
@@ -33,8 +33,8 @@ test('Compact headers set when the last user message carries all three markers',
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
-  assertEquals(ctx.headers['x-interaction-type'], 'conversation-compaction');
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
+  assertEquals(ctx.headers.get('x-interaction-type'), 'conversation-compaction');
 });
 
 test('Compact headers set from a multi-block last message that joins to the full marker set', async () => {
@@ -55,7 +55,7 @@ test('Compact headers set from a multi-block last message that joins to the full
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-interaction-type'], 'conversation-compaction');
+  assertEquals(ctx.headers.get('x-interaction-type'), 'conversation-compaction');
 });
 
 test('Compact headers set when the system prompt starts with a compact summarization prefix', async () => {
@@ -68,8 +68,8 @@ test('Compact headers set when the system prompt starts with a compact summariza
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
-  assertEquals(ctx.headers['x-interaction-type'], 'conversation-compaction');
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
+  assertEquals(ctx.headers.get('x-interaction-type'), 'conversation-compaction');
 });
 
 test('Compact headers set when an array system prompt contains a compact prefix block', async () => {
@@ -85,7 +85,7 @@ test('Compact headers set when an array system prompt contains a compact prefix 
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-interaction-type'], 'conversation-compaction');
+  assertEquals(ctx.headers.get('x-interaction-type'), 'conversation-compaction');
 });
 
 test('Compact headers absent when only the text-only guard is present (other markers missing)', async () => {
@@ -97,8 +97,8 @@ test('Compact headers absent when only the text-only guard is present (other mar
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-initiator' in ctx.headers, false);
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-initiator'), false);
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 test('Compact headers absent for an ordinary user turn', async () => {
@@ -110,8 +110,8 @@ test('Compact headers absent for an ordinary user turn', async () => {
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-initiator' in ctx.headers, false);
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-initiator'), false);
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 // Real client scenario: clients that round-trip the previous request's user
@@ -131,8 +131,8 @@ test('Compact headers absent when the last message is assistant-role with compac
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-initiator' in ctx.headers, false);
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-initiator'), false);
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 test('Compact headers absent when the last assistant message is a multi-block compact-summary replay', async () => {
@@ -153,8 +153,8 @@ test('Compact headers absent when the last assistant message is a multi-block co
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-initiator' in ctx.headers, false);
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-initiator'), false);
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 test('Auto-continue absent when the assistant role carries the resume prompt verbatim', async () => {
@@ -172,8 +172,8 @@ test('Auto-continue absent when the assistant role carries the resume prompt ver
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-initiator' in ctx.headers, false);
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-initiator'), false);
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 test('Auto-continue marks Claude Code resume prompts with x-initiator: agent only', async () => {
@@ -190,8 +190,8 @@ test('Auto-continue marks Claude Code resume prompts with x-initiator: agent onl
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 test('Auto-continue marks OpenCode primary continuation prompts with x-initiator: agent only', async () => {
@@ -208,8 +208,8 @@ test('Auto-continue marks OpenCode primary continuation prompts with x-initiator
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });
 
 test('Auto-continue marks OpenCode media-eviction continuation prompts with x-initiator: agent only', async () => {
@@ -226,6 +226,6 @@ test('Auto-continue marks OpenCode media-eviction continuation prompts with x-in
 
   await withCompactHeadersSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-initiator'], 'agent');
-  assertEquals('x-interaction-type' in ctx.headers, false);
+  assertEquals(ctx.headers.get('x-initiator'), 'agent');
+  assertEquals(ctx.headers.has('x-interaction-type'), false);
 });

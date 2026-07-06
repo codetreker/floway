@@ -108,8 +108,8 @@ const classifyCompact = (payload: { messages: MessagesMessage[]; system?: string
 export const withCompactHeadersSet: CopilotMessagesBoundaryInterceptor = async (ctx, _request, run) => {
   const kind = classifyCompact(ctx.payload);
   if (kind === 'compact-request') {
-    ctx.headers['x-initiator'] = 'agent';
-    ctx.headers['x-interaction-type'] = 'conversation-compaction';
+    ctx.headers.set('x-initiator', 'agent');
+    ctx.headers.set('x-interaction-type', 'conversation-compaction');
     // openai-intent stays at copilotFetch's `conversation-agent` default — that
     // is the same value caozhiyuan/copilot-api re-pins inside prepareForCompact,
     // so explicitly setting it here would be a no-op.
@@ -118,7 +118,7 @@ export const withCompactHeadersSet: CopilotMessagesBoundaryInterceptor = async (
     // at copilotFetch's `conversation-agent` default. This mirrors
     // prepareForCompact's behavior when compactType === COMPACT_AUTO_CONTINUE:
     // it sets x-initiator: agent and leaves x-interaction-type untouched.
-    ctx.headers['x-initiator'] = 'agent';
+    ctx.headers.set('x-initiator', 'agent');
   }
   return await run();
 };

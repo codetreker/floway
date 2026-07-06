@@ -6,7 +6,7 @@ import { assertEquals, assertThrows } from '@floway-dev/test-utils';
 
 const baseRecord: UpstreamRecord = {
   id: 'up_azure',
-  provider: 'azure',
+  kind: 'azure',
   name: 'Azure Resource',
   enabled: true,
   sortOrder: 0,
@@ -26,6 +26,7 @@ const baseRecord: UpstreamRecord = {
   flagOverrides: {},
   disabledPublicModelIds: [],
   proxyFallbackList: [],
+  modelPrefix: null,
 };
 
 test('assertAzureUpstreamRecord validates Azure opaque config strictly', () => {
@@ -33,7 +34,7 @@ test('assertAzureUpstreamRecord validates Azure opaque config strictly', () => {
     () =>
       assertAzureUpstreamRecord({
         ...baseRecord,
-        provider: 'custom',
+        kind: 'custom',
       }),
     Error,
     'Expected azure upstream record, got custom',

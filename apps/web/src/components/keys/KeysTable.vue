@@ -14,6 +14,7 @@ const props = defineProps<{
   upstreams: UpstreamOption[];
   selectedId: string;
   copied: string | null;
+  copyFailed: string | null;
 }>();
 
 defineEmits<{
@@ -108,12 +109,18 @@ const upstreamsTextClass = (k: ApiKey) => {
           <td class="py-3 pr-2 text-right">
             <div class="flex items-center justify-end gap-1">
               <button
-                class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-gray-600 hover:text-accent-cyan hover:bg-white/[0.04] transition-colors p-1"
+                class="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md hover:bg-white/[0.04] transition-colors p-1"
+                :class="copyFailed === 'key-' + k.id ? 'text-accent-rose' : 'text-gray-600 hover:text-accent-cyan'"
                 aria-label="Copy API key"
-                title="Copy key"
+                :title="copyFailed === 'key-' + k.id ? 'Copy failed' : 'Copy key'"
                 @click.stop="$emit('copy', k.key, 'key-' + k.id)"
               >
-                <svg v-if="copied !== 'key-' + k.id" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg v-if="copyFailed === 'key-' + k.id" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="15" y1="9" x2="9" y2="15" />
+                  <line x1="9" y1="9" x2="15" y2="15" />
+                </svg>
+                <svg v-else-if="copied !== 'key-' + k.id" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="9" y="9" width="13" height="13" rx="2" />
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                 </svg>

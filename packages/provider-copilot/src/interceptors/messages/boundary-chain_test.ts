@@ -8,7 +8,7 @@ import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
@@ -17,8 +17,8 @@ const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> 
 
 const invocation = (payload: MessagesPayload): MessagesBoundaryCtx => ({
   payload,
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { messages: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { messages: {} } }),
 });
 
 const COMPACT_LAST_MESSAGE_TEXT =
@@ -52,15 +52,15 @@ test('Claude Code SDK compact request: Claude-agent overrides compact intent, bo
   // last-message structure, so the final wire value reflects the wire-shape
   // pass. (That is the same value the pre-merge production code shipped,
   // because the target chain always overrode the source-side tag.)
-  assertEquals(ctx.headers['x-initiator'], 'user');
+  assertEquals(ctx.headers.get('x-initiator'), 'user');
   // Compact set `conversation-compaction`; Claude-agent's `messages-proxy`
   // runs after and overrides it. This mirrors caozhiyuan/copilot-api's
   // prepareForCompact → prepareMessageProxyHeaders order.
-  assertEquals(ctx.headers['x-interaction-type'], 'messages-proxy');
-  assertEquals(ctx.headers['openai-intent'], 'messages-proxy');
-  assertEquals(ctx.headers['user-agent'], CLAUDE_AGENT_USER_AGENT);
+  assertEquals(ctx.headers.get('x-interaction-type'), 'messages-proxy');
+  assertEquals(ctx.headers.get('openai-intent'), 'messages-proxy');
+  assertEquals(ctx.headers.get('user-agent'), CLAUDE_AGENT_USER_AGENT);
   // Empty-string sentinel: copilotFetch will delete the base header.
-  assertEquals(ctx.headers['copilot-integration-id'], '');
+  assertEquals(ctx.headers.get('copilot-integration-id'), '');
   // SHA-256-then-UUIDv4 of 'sess-1' (matches caozhiyuan's getUUID).
-  assertEquals(ctx.headers['x-interaction-id'], 'abe633f3-a47a-4758-974e-abe9160daf36');
+  assertEquals(ctx.headers.get('x-interaction-id'), 'abe633f3-a47a-4758-974e-abe9160daf36');
 });

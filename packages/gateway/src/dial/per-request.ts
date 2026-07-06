@@ -5,27 +5,20 @@ import { getSocketDial } from '@floway-dev/platform';
 import { directFetcher, type Fetcher } from '@floway-dev/provider';
 import { parseProxyUri, type ProxyUriError, runProxiedRequest } from '@floway-dev/proxy';
 
-// Build a per-request mapper that hands each upstream id its own
-// proxy-aware Fetcher. The proxies catalog and the request's set of
-// fallback lists are loaded eagerly once per data-plane call so each
-// per-upstream fetcher can be constructed synchronously by id. Upstreams
-// whose `proxyFallbackList` is empty receive a fetcher that walks the
-// implicit ['direct'] list — i.e. plain runtime `fetch`.
-//
-// Parse failures on individual proxy rows are isolated to the upstreams
-// that actually reference them: a single malformed URL must not take down
-// every other upstream in the same request. Per-upstream fetchers built
-// against a bad row throw at call time rather than at build time, mirroring
-// how the dial layer surfaces other dial-time failures.
-export const createPerRequestFetcher = async (): Promise<(upstreamId: string) => Fetcher> => {
+// Parse failures on individual proxy rows are isolated to the upstreams that
+// actually reference them: a single malformed URL must not take down every
+// other upstream in the same request. Per-upstream fetchers built against a
+// bad row throw at call time rather than at build time, mirroring how the
+// dial layer surfaces other dial-time failures.
+export const createPerRequestFetcher = async (currentColo: string): Promise<(upstreamId: string) => Fetcher> => {
   const repo = getRepo();
   const upstreams = await repo.upstreams.list();
   const fallbackById = new Map(upstreams.map(u => [u.id, u.proxyFallbackList] as const));
 
   const referencedProxyIds = new Set<string>();
   for (const list of fallbackById.values()) {
-    for (const id of list) {
-      if (id !== DIRECT_PROXY_ID) referencedProxyIds.add(id);
+    for (const entry of list) {
+      if (entry.id !== DIRECT_PROXY_ID) referencedProxyIds.add(entry.id);
     }
   }
 
@@ -58,9 +51,9 @@ export const createPerRequestFetcher = async (): Promise<(upstreamId: string) =>
     if (list === undefined) {
       throw new Error(`unknown upstream id requested from per-request fetcher: ${upstreamId}`);
     }
-    const badRefs = list.filter(id => proxyParseErrors.has(id));
+    const badRefs = list.filter(entry => proxyParseErrors.has(entry.id));
     if (badRefs.length > 0) {
-      const first = badRefs[0]!;
+      const first = badRefs[0]!.id;
       const err = proxyParseErrors.get(first)!;
       return async () => {
         throw new Error(`upstream ${upstreamId} references malformed proxy ${first}: ${err.message}`);
@@ -70,6 +63,7 @@ export const createPerRequestFetcher = async (): Promise<(upstreamId: string) =>
       repo,
       upstreamId,
       fallbackList: list,
+      currentColo,
       proxyById,
       runProxied: runProxiedRequest,
       runDirect: directFetcher,

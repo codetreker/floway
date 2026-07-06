@@ -16,7 +16,7 @@ import { assertEquals, withMockedFetch } from '@floway-dev/test-utils';
 
 const baseRecord: UpstreamRecord = {
   id: 'up_azure',
-  provider: 'azure',
+  kind: 'azure',
   name: 'Azure Resource',
   enabled: true,
   sortOrder: 0,
@@ -36,6 +36,7 @@ const baseRecord: UpstreamRecord = {
   flagOverrides: {},
   disabledPublicModelIds: [],
   proxyFallbackList: [],
+  modelPrefix: null,
 };
 
 test('OpenAI v1 transports apply api-key auth and the canonical paths', async () => {
@@ -239,7 +240,7 @@ test('Azure Foundry Anthropic surface uses x-api-key + anthropic-version', async
       return new Response('{}', { status: 200 });
     },
     async () => {
-      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { extraHeaders: { 'anthropic-beta': 'context-1m' }, fetcher: directFetcher });
+      await azureFetchMessages(config, { method: 'POST', body: '{}' }, { extraHeaders: new Headers({ 'anthropic-beta': 'context-1m' }), fetcher: directFetcher });
       await azureFetchMessagesCountTokens(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher });
     },
   );

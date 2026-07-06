@@ -16,6 +16,7 @@ const seedUsage = async (
     upstream: 'up_test',
     modelKey: model,
     hour,
+    tier: null,
     requests,
     tokens: { input: 100, output: 50 },
     cost: null,
@@ -57,6 +58,7 @@ test('/api/token-usage self-by-key surfaces soft-deleted keys metadata to their 
     createdAt: '2026-04-30T11:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   const response = await requestApp(

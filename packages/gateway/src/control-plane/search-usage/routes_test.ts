@@ -12,6 +12,7 @@ const seedSearchUsage = async (repo: import('../../repo/memory.ts').InMemoryRepo
     createdAt: '2026-03-15T00:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   await repo.searchUsage.set({ provider: 'tavily', keyId: primaryKeyId, action: 'search', hour: '2026-03-15T10', requests: 2 });
@@ -47,6 +48,7 @@ test('/api/search-usage in self-by-key mode includes per-key metadata for the ac
     provider: 'microsoft-grounding',
     tavily: { apiKey: 'tvly-test' },
     microsoftGrounding: { apiKey: 'ms-test' },
+    jina: { apiKey: '' },
   });
 
   const response = await requestApp('/api/search-usage?start=2026-03-15T00&end=2026-03-16T00&include_key_metadata=1', {

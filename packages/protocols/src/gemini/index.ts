@@ -42,7 +42,7 @@ export interface GeminiGenerationConfig {
 
 export interface GeminiThinkingConfig {
   thinkingBudget?: number;
-  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high' | string;
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | string;
   includeThoughts?: boolean;
 }
 
@@ -106,3 +106,7 @@ export interface GeminiErrorResponse {
 }
 
 export type GeminiStreamEvent = GeminiResult | GeminiErrorResponse;
+
+export { GEMINI_MISSING_TERMINAL_MESSAGE, isGeminiErrorEvent, isGeminiTerminalEvent, collectGeminiProtocolEventsToResult } from './to-result.ts';
+export { reassembleGeminiEvents } from './reassemble.ts';
+export { geminiProtocolFrameToSSEFrame } from './to-sse.ts';

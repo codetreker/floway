@@ -49,10 +49,10 @@ export const withClaudeAgentHeadersSet: CopilotMessagesBoundaryInterceptor = asy
 
   const { safetyIdentifier, sessionId } = parseUserIdMetadata(ctx.payload.metadata?.user_id);
   if (safetyIdentifier && sessionId) {
-    ctx.headers['x-interaction-type'] = 'messages-proxy';
-    ctx.headers['openai-intent'] = 'messages-proxy';
-    ctx.headers['user-agent'] = CLAUDE_AGENT_USER_AGENT;
-    ctx.headers['copilot-integration-id'] = '';
+    ctx.headers.set('x-interaction-type', 'messages-proxy');
+    ctx.headers.set('openai-intent', 'messages-proxy');
+    ctx.headers.set('user-agent', CLAUDE_AGENT_USER_AGENT);
+    ctx.headers.set('copilot-integration-id', '');
   }
   return await run();
 };

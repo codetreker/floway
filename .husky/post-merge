@@ -1,0 +1,6 @@
+#!/bin/sh
+# Catches the fast-forward path: `git merge --ff-only` and `git pull --ff`
+# don't create a commit object, so post-commit never fires, but the linked
+# commits still land. post-merge runs after every successful merge (FF or
+# not) and emits the warning post-fact.
+exec "$(dirname "$0")/main-commit-warning"

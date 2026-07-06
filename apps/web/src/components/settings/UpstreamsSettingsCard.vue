@@ -1,7 +1,12 @@
 <script setup lang="ts">
+import {
+  DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger,
+} from 'reka-ui';
+
 import UpstreamRow from './UpstreamRow.vue';
 import { callApi, useApi } from '../../api/client.ts';
-import type { ControlPlaneModel, UpstreamRecord } from '../../api/types.ts';
+import type { ControlPlaneModel, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import { PROVIDER_META, providerSwatchClass } from '../upstreams/provider-meta.ts';
 import { Spinner } from '@floway-dev/ui';
 
 const props = defineProps<{
@@ -11,7 +16,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'add': [];
+  'add': [kind: UpstreamProviderKind];
   'edit': [record: UpstreamRecord];
   'changed': [];
   'update:ordered': [list: UpstreamRecord[]];
@@ -21,13 +26,10 @@ const api = useApi();
 
 // Azure counts its configured models directly so the card still renders a
 // useful number for a freshly created upstream that has not been probed yet;
-// the other providers count public models that have a binding pointing at this
-// upstream row.
+// the other providers count public models that are served by this upstream
+// row.
 const modelCountFor = (record: UpstreamRecord): number => {
-  if (record.provider === 'azure') {
-    const cfg = record.config as { models?: unknown[] };
-    return cfg.models?.length ?? 0;
-  }
+  if (record.kind === 'azure') return record.config.models.length;
   const list = props.models ?? [];
   return list.filter(m => m.upstreams.some(b => b.id === record.id)).length;
 };
@@ -93,7 +95,39 @@ const moveDisabled = (id: string, direction: -1 | 1) => {
         <h3 class="text-white font-semibold mb-1">Upstreams</h3>
         <p class="text-sm text-gray-400">Ordered providers used for model routing and fallback.</p>
       </div>
-      <button class="btn-primary !py-2.5 !px-3 text-xs whitespace-nowrap" @click="emit('add')">Add Upstream</button>
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger class="btn-primary !py-2.5 !px-3 text-xs whitespace-nowrap inline-flex items-center gap-1.5">
+          Add Upstream
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </DropdownMenuTrigger>
+        <DropdownMenuPortal>
+          <DropdownMenuContent
+            align="end"
+            :side-offset="4"
+            class="z-50 min-w-[16rem] overflow-hidden rounded-[10px] border border-white/[0.06] bg-surface-800 p-1 text-white shadow-xl"
+          >
+            <DropdownMenuItem
+              v-for="meta in PROVIDER_META"
+              :key="meta.kind"
+              class="flex cursor-pointer select-none items-center gap-3 rounded-sm px-2 py-2 outline-none data-[highlighted]:bg-white/[0.05]"
+              @select="emit('add', meta.kind)"
+            >
+              <span
+                class="grid size-8 shrink-0 place-items-center rounded-md"
+                :class="providerSwatchClass(meta.kind)"
+              >
+                <i :class="[meta.icon, 'size-4']" />
+              </span>
+              <span class="min-w-0">
+                <span class="block text-sm font-semibold text-white">{{ meta.label }}</span>
+                <span class="mt-0.5 block text-xs text-gray-400">{{ meta.subtitle }}</span>
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenuPortal>
+      </DropdownMenuRoot>
     </div>
 
     <p v-if="ordered.length === 0" class="text-sm text-gray-500">

@@ -12,6 +12,8 @@ const authFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   return response;
 };
 
+export { authFetch };
+
 const client = hc<AppType>('/', { fetch: authFetch });
 
 export type ApiClient = typeof client;

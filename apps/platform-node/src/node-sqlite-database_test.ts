@@ -88,6 +88,22 @@ test('batch rolls back on mid-batch failure', () => withTempDb(async path => {
   assertEquals(rows.results, [{ id: 1 }]);
 }));
 
+test('concurrent batch calls do not interleave transactions', () => withTempDb(async path => {
+  // Regression: an `await` between BEGIN and COMMIT used to yield a microtask,
+  // letting a second batch call's BEGIN run while the first transaction was
+  // still open and trip "cannot start a transaction within a transaction".
+  const db = createNodeSqliteDatabase(path);
+  await db.prepare('CREATE TABLE t (id INTEGER PRIMARY KEY)').run();
+
+  await Promise.all([
+    db.batch!([db.prepare('INSERT INTO t (id) VALUES (?)').bind(1)]),
+    db.batch!([db.prepare('INSERT INTO t (id) VALUES (?)').bind(2)]),
+  ]);
+
+  const rows = await db.prepare('SELECT id FROM t ORDER BY id').all<{ id: number }>();
+  assertEquals(rows.results, [{ id: 1 }, { id: 2 }]);
+}));
+
 test('foreign key enforcement is on', () => withTempDb(async path => {
   const db = createNodeSqliteDatabase(path);
   await db.prepare('CREATE TABLE parent (id INTEGER PRIMARY KEY)').run();

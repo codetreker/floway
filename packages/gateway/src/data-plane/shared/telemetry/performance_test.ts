@@ -1,28 +1,7 @@
 import { test } from 'vitest';
 
-import { createUpstreamLatencyRecorder, runtimeLocationFromRequest } from './performance.ts';
-import { initEnv } from '@floway-dev/platform';
+import { createUpstreamLatencyRecorder, requireRecordedDurationMs } from './performance.ts';
 import { assert, assertEquals, assertThrows } from '@floway-dev/test-utils';
-
-test('runtimeLocationFromRequest prefers Cloudflare colo', () => {
-  initEnv(() => 'fallback-location');
-  const request = new Request('https://example.test');
-  Object.defineProperty(request, 'cf', { value: { colo: 'SJC' } });
-
-  assertEquals(runtimeLocationFromRequest(request), 'SJC');
-});
-
-test('runtimeLocationFromRequest uses env fallback outside Cloudflare', () => {
-  initEnv(name => (name === 'RUNTIME_LOCATION' ? 'worker-local' : ''));
-
-  assertEquals(runtimeLocationFromRequest(new Request('https://example.test')), 'worker-local');
-});
-
-test('runtimeLocationFromRequest uses unknown without colo or env', () => {
-  initEnv(() => '');
-
-  assertEquals(runtimeLocationFromRequest(new Request('https://example.test')), 'unknown');
-});
 
 // Defer settle so the test can observe pre/post-settle state without racing
 // the immediate microtask. resolve(value) only after the test deliberately
@@ -33,9 +12,13 @@ const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => 
   return { promise, resolve };
 };
 
-test('createUpstreamLatencyRecorder.durationMs throws when record was never called', () => {
+test('createUpstreamLatencyRecorder.durationMs returns null when record was never called', () => {
   const recorder = createUpstreamLatencyRecorder();
-  assertThrows(() => recorder.durationMs(), Error, 'recordUpstreamLatency');
+  // The recorder honestly reports "no measurement"; per-call-site asserts
+  // decide whether that's a bug. requireRecordedDurationMs is the helper
+  // for the success-side asserts.
+  assertEquals(recorder.durationMs(), null);
+  assertThrows(() => requireRecordedDurationMs(recorder, 'test'), Error, 'recordUpstreamLatency');
 });
 
 test('createUpstreamLatencyRecorder.durationMs returns the wrapped promise duration', async () => {
@@ -46,14 +29,15 @@ test('createUpstreamLatencyRecorder.durationMs returns the wrapped promise durat
   assertEquals(await wrapped, 'ok');
   // The recorder measures up to settle; for a deferred resolution that's
   // ~0 ms but always non-negative.
-  assert(recorder.durationMs() >= 0);
+  const duration = recorder.durationMs();
+  assert(duration !== null && duration >= 0);
 });
 
 test('createUpstreamLatencyRecorder retries: most-recent invocation wins', async () => {
   const recorder = createUpstreamLatencyRecorder();
   // First wrap settles immediately so its duration is captured first.
   await recorder.record(Promise.resolve('first'));
-  const firstDuration = recorder.durationMs();
+  const firstDuration = requireRecordedDurationMs(recorder, 'first');
 
   // Second wrap: hop the microtask queue many times before resolving so its
   // measured duration is reliably larger than the first's. Macrotask
@@ -65,7 +49,8 @@ test('createUpstreamLatencyRecorder retries: most-recent invocation wins', async
     return 'second';
   })());
   assertEquals(await second, 'second');
-  assert(recorder.durationMs() > firstDuration, `expected last-wins; got ${recorder.durationMs()} vs first ${firstDuration}`);
+  const secondDuration = requireRecordedDurationMs(recorder, 'second');
+  assert(secondDuration > firstDuration, `expected last-wins; got ${secondDuration} vs first ${firstDuration}`);
 });
 
 test('createUpstreamLatencyRecorder.record propagates rejection without swallowing', async () => {
@@ -80,5 +65,6 @@ test('createUpstreamLatencyRecorder.record propagates rejection without swallowi
   assertEquals(caught, rejection);
   // Even on rejection, durationMs must be available — the contract is "wrap
   // happened", not "wrap succeeded".
-  assert(recorder.durationMs() >= 0);
+  const duration = recorder.durationMs();
+  assert(duration !== null && duration >= 0);
 });

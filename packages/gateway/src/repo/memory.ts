@@ -12,7 +12,10 @@ import type {
   ApiKey,
   ApiKeyRepo,
   BackoffRow,
-  CacheRepo,
+  CachedModelsRow,
+  ModelAliasesRepo,
+  ModelAliasRecord,
+  ModelsCacheRepo,
   PerformanceDimensions,
   PerformanceErrorSample,
   PerformanceLatencySample,
@@ -41,8 +44,8 @@ import { serializeStoredState } from './upstream-json.ts';
 import { latencyBucketForMs } from '../shared/performance-histogram.ts';
 import { generateSessionToken } from '../shared/session-tokens.ts';
 import { assertWebSearchProviderName } from '../shared/web-search-providers.ts';
-import { BILLING_DIMENSIONS, type BillingDimension, type ModelPricing, unitPriceForDimension } from '@floway-dev/protocols/common';
-import type { UpstreamRecord } from '@floway-dev/provider';
+import { BILLING_DIMENSIONS, type BillingDimension, type ModelPricing, resolveEffectivePricing, unitPriceForDimension } from '@floway-dev/protocols/common';
+import type { ProviderModel, UpstreamRecord } from '@floway-dev/provider';
 
 const SEED_ADMIN_USER: User = {
   id: 1,
@@ -228,6 +231,7 @@ interface UsageBucketIdentity {
   upstream: string | null;
   modelKey: string;
   hour: string;
+  tier: string | null;
 }
 
 interface UsageBucketState extends UsageBucketIdentity {
@@ -240,13 +244,14 @@ class MemoryUsageRepo implements UsageRepo {
   private store = new Map<string, UsageBucketState>();
 
   private key(r: UsageBucketIdentity): string {
-    return [r.keyId, r.model, r.upstream ?? '', r.modelKey, r.hour].join('\0');
+    return [r.keyId, r.model, r.upstream ?? '', r.modelKey, r.hour, r.tier ?? ''].join('\0');
   }
 
   private dimensionEntries(record: UsageRecord): { dimension: BillingDimension; tokens: number; unitPrice: number | null }[] {
+    const effective = resolveEffectivePricing(record.cost, record.tier);
     return BILLING_DIMENSIONS.flatMap(dimension => {
       const tokens = record.tokens[dimension] ?? 0;
-      return tokens > 0 ? [{ dimension, tokens, unitPrice: unitPriceForDimension(record.cost, dimension) }] : [];
+      return tokens > 0 ? [{ dimension, tokens, unitPrice: unitPriceForDimension(effective, dimension) }] : [];
     });
   }
 
@@ -259,14 +264,14 @@ class MemoryUsageRepo implements UsageRepo {
       const unitPrice = state.unitPrices[dimension];
       if (unitPrice !== undefined) (cost ??= {})[dimension] = unitPrice;
     }
-    return { keyId: state.keyId, model: state.model, upstream: state.upstream ?? null, modelKey: state.modelKey, hour: state.hour, requests: state.requests, tokens, cost };
+    return { keyId: state.keyId, model: state.model, upstream: state.upstream ?? null, modelKey: state.modelKey, hour: state.hour, tier: state.tier, requests: state.requests, tokens, cost };
   }
 
   private bucket(record: UsageRecord): UsageBucketState {
     const k = this.key(record);
     let state = this.store.get(k);
     if (!state) {
-      state = { keyId: record.keyId, model: record.model, upstream: record.upstream ?? null, modelKey: record.modelKey, hour: record.hour, tokens: {}, unitPrices: {}, requests: 0 };
+      state = { keyId: record.keyId, model: record.model, upstream: record.upstream ?? null, modelKey: record.modelKey, hour: record.hour, tier: record.tier, tokens: {}, unitPrices: {}, requests: 0 };
       this.store.set(k, state);
     }
     return state;
@@ -306,6 +311,7 @@ class MemoryUsageRepo implements UsageRepo {
       upstream: record.upstream ?? null,
       modelKey: record.modelKey,
       hour: record.hour,
+      tier: record.tier,
       tokens: {},
       unitPrices: {},
       requests: record.requests,
@@ -466,36 +472,29 @@ class MemoryPerformanceRepo implements PerformanceRepo {
   }
 }
 
-class MemoryCacheRepo implements CacheRepo {
-  private store = new Map<string, { value: string; expiresAt?: number }>();
+class MemoryModelsCacheRepo implements ModelsCacheRepo {
+  private rows = new Map<string, CachedModelsRow>();
 
-  get(key: string): Promise<string | null> {
-    const entry = this.store.get(key);
-    if (!entry) return Promise.resolve(null);
-
-    if (entry.expiresAt && entry.expiresAt <= Date.now()) {
-      this.store.delete(key);
-      return Promise.resolve(null);
-    }
-
-    return Promise.resolve(entry.value);
+  get(upstreamId: string): Promise<CachedModelsRow | null> {
+    const row = this.rows.get(upstreamId);
+    return Promise.resolve(row ? { ...row, models: [...row.models] } : null);
   }
 
-  set(key: string, value: string, ttlMs?: number): Promise<void> {
-    this.store.set(key, ttlMs ? { value, expiresAt: Date.now() + ttlMs } : { value });
-
+  put(upstreamId: string, row: { fetchedAt: number; models: ProviderModel[] }): Promise<void> {
+    this.rows.set(upstreamId, { fetchedAt: row.fetchedAt, models: [...row.models], lastError: null });
     return Promise.resolve();
   }
 
-  delete(key: string): Promise<void> {
-    this.store.delete(key);
+  setLastError(upstreamId: string, error: { message: string; at: number } | null): Promise<void> {
+    // No-op when no row exists: lastError annotates a previously-successful fetch.
+    const existing = this.rows.get(upstreamId);
+    if (!existing) return Promise.resolve();
+    this.rows.set(upstreamId, { ...existing, lastError: error });
     return Promise.resolve();
   }
 
-  deletePrefix(prefix: string): Promise<void> {
-    for (const key of this.store.keys()) {
-      if (key.startsWith(prefix)) this.store.delete(key);
-    }
+  delete(upstreamId: string): Promise<void> {
+    this.rows.delete(upstreamId);
     return Promise.resolve();
   }
 }
@@ -559,6 +558,7 @@ const cloneUpstreamRecord = (upstream: UpstreamRecord): UpstreamRecord => ({
   flagOverrides: normalizeFlagOverrides(upstream.flagOverrides),
   disabledPublicModelIds: normalizeDisabledPublicModelIds(upstream.disabledPublicModelIds),
   proxyFallbackList: normalizeProxyFallbackList(upstream.proxyFallbackList),
+  modelPrefix: structuredClone(upstream.modelPrefix),
 });
 
 class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
@@ -614,7 +614,10 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
     for (const item of items) {
       if (item.payload === null) continue;
       const existing = this.store.get(responsesItemStoreKey(item.apiKeyId, item.id));
-      if (existing?.payload !== null) continue;
+      // Row may be absent if a concurrent TTL prune removed it between load and persist;
+      // SQL's `UPDATE ... WHERE id = ?` is a no-op in the same case, so we mirror that.
+      if (existing === undefined) continue;
+      if (existing.payload !== null) continue;
       existing.payload = structuredClone(item.payload);
       existing.contentHash = item.contentHash;
       existing.encryptedContentHash = item.encryptedContentHash;
@@ -651,9 +654,9 @@ class MemoryResponsesItemsRepo implements ResponsesItemsRepo {
 
   deleteOlderThan(refreshedBefore: number): Promise<number> {
     let changes = 0;
-    for (const [id, row] of this.store) {
+    for (const [key, row] of this.store) {
       if (row.refreshedAt < refreshedBefore) {
-        this.store.delete(id);
+        this.store.delete(key);
         changes += 1;
       }
     }
@@ -760,7 +763,7 @@ class MemoryProxyRepo implements ProxyRepo {
     // between a prior findUpstreamsReferencing read and this delete is
     // rejected at the storage layer.
     const upstreams = await this.upstreams.list();
-    if (upstreams.some(u => u.proxyFallbackList.includes(id))) return false;
+    if (upstreams.some(u => u.proxyFallbackList.some(e => e.id === id))) return false;
     return this.store.delete(id);
   }
 
@@ -789,7 +792,7 @@ class MemoryProxyRepo implements ProxyRepo {
 
   async findUpstreamsReferencing(proxyId: string): Promise<string[]> {
     const upstreams = await this.upstreams.list();
-    return upstreams.filter(u => u.proxyFallbackList.includes(proxyId)).map(u => u.id);
+    return upstreams.filter(u => u.proxyFallbackList.some(e => e.id === proxyId)).map(u => u.id);
   }
 }
 
@@ -881,6 +884,54 @@ class MemoryProxyBackoffRepo implements ProxyBackoffRepo {
 
 const cloneBackoffRow = (row: BackoffRow): BackoffRow => ({ ...row });
 
+const cloneModelAliasRecord = (record: ModelAliasRecord): ModelAliasRecord => ({
+  ...record,
+  targets: structuredClone(record.targets),
+  announcedMetadata: record.announcedMetadata === null ? null : structuredClone(record.announcedMetadata),
+});
+
+class MemoryModelAliasesRepo implements ModelAliasesRepo {
+  private store = new Map<string, ModelAliasRecord>();
+
+  list(): Promise<ModelAliasRecord[]> {
+    return Promise.resolve(
+      [...this.store.values()]
+        .map(cloneModelAliasRecord)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)),
+    );
+  }
+
+  getByName(name: string): Promise<ModelAliasRecord | null> {
+    const found = this.store.get(name);
+    return Promise.resolve(found ? cloneModelAliasRecord(found) : null);
+  }
+
+  insert(record: ModelAliasRecord): Promise<void> {
+    if (this.store.has(record.name)) throw new Error('UNIQUE constraint failed: model_aliases.name');
+    this.store.set(record.name, cloneModelAliasRecord(record));
+    return Promise.resolve();
+  }
+
+  update(oldName: string, record: ModelAliasRecord): Promise<void> {
+    if (!this.store.has(oldName)) throw new Error(`alias ${oldName} not found`);
+    if (oldName !== record.name && this.store.has(record.name)) {
+      throw new Error('UNIQUE constraint failed: model_aliases.name');
+    }
+    this.store.delete(oldName);
+    this.store.set(record.name, cloneModelAliasRecord(record));
+    return Promise.resolve();
+  }
+
+  delete(name: string): Promise<boolean> {
+    return Promise.resolve(this.store.delete(name));
+  }
+
+  deleteAll(): Promise<void> {
+    this.store.clear();
+    return Promise.resolve();
+  }
+}
+
 export class InMemoryRepo implements Repo {
   apiKeys: ApiKeyRepo;
   users: UsersRepo;
@@ -888,11 +939,12 @@ export class InMemoryRepo implements Repo {
   usage: UsageRepo;
   searchUsage: SearchUsageRepo;
   performance: PerformanceRepo;
-  cache: CacheRepo;
+  modelsCache: ModelsCacheRepo;
   searchConfig: SearchConfigRepo;
   upstreams: UpstreamRepo;
   proxies: ProxyRepo;
   proxyBackoffs: ProxyBackoffRepo;
+  modelAliases: ModelAliasesRepo;
   responsesItems: ResponsesItemsRepo;
   responsesSnapshots: ResponsesSnapshotsRepo;
 
@@ -903,11 +955,12 @@ export class InMemoryRepo implements Repo {
     this.usage = new MemoryUsageRepo();
     this.searchUsage = new MemorySearchUsageRepo();
     this.performance = new MemoryPerformanceRepo();
-    this.cache = new MemoryCacheRepo();
+    this.modelsCache = new MemoryModelsCacheRepo();
     this.searchConfig = new MemorySearchConfigRepo();
     this.upstreams = new MemoryUpstreamRepo();
     this.proxies = new MemoryProxyRepo(this.upstreams);
     this.proxyBackoffs = new MemoryProxyBackoffRepo();
+    this.modelAliases = new MemoryModelAliasesRepo();
     this.responsesItems = new MemoryResponsesItemsRepo();
     this.responsesSnapshots = new MemoryResponsesSnapshotsRepo();
   }

@@ -28,13 +28,17 @@ class NodeSqlitePreparedStatement implements SqlPreparedStatement {
     return Promise.resolve({ results: rows, success: true, meta: {} });
   }
 
-  run(): Promise<SqlResult> {
+  runSync(): SqlResult {
     const result = this.stmt.run(...(this.bound as never[]));
-    return Promise.resolve({
+    return {
       results: [],
       success: true,
       meta: { changes: Number(result.changes) },
-    });
+    };
+  }
+
+  run(): Promise<SqlResult> {
+    return Promise.resolve(this.runSync());
   }
 }
 
@@ -46,13 +50,22 @@ class NodeSqliteDatabase implements SqlDatabase {
   }
 
   // Wraps the supplied statements in a single transaction so the batch is
-  // atomic.
-  async batch(statements: SqlPreparedStatement[]): Promise<SqlResult[]> {
-    const results: SqlResult[] = [];
+  // atomic. node:sqlite is fully synchronous, so we drive the batch with
+  // runSync() to keep BEGIN…COMMIT inside one microtask — an `await` between
+  // statements would yield, letting a concurrently-scheduled batch's BEGIN
+  // run while this transaction is still open and trip
+  // "cannot start a transaction within a transaction".
+  batch(statements: SqlPreparedStatement[]): Promise<SqlResult[]> {
     this.db.exec('BEGIN');
     try {
-      for (const stmt of statements) results.push(await stmt.run());
+      const results = statements.map(stmt => {
+        if (!(stmt instanceof NodeSqlitePreparedStatement)) {
+          throw new Error('NodeSqliteDatabase.batch received a statement from a different database adapter');
+        }
+        return stmt.runSync();
+      });
       this.db.exec('COMMIT');
+      return Promise.resolve(results);
     } catch (e) {
       // SQLite auto-rolls-back on a hard error class (SQLITE_FULL,
       // SQLITE_IOERR, SQLITE_BUSY, SQLITE_NOMEM, SQLITE_INTERRUPT — see
@@ -64,7 +77,6 @@ class NodeSqliteDatabase implements SqlDatabase {
       try { this.db.exec('ROLLBACK'); } catch { /* txn already auto-rolled-back */ }
       throw e;
     }
-    return results;
   }
 
   exec(sql: string): Promise<unknown> {

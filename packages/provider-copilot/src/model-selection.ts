@@ -5,18 +5,17 @@ export const CONTEXT_1M_BETA = 'context-1m-2025-08-07';
 
 const CLAUDE_DATE_SUFFIX = /-\d{8}$/;
 const STANDARD_CLAUDE_BASE_ID = /^claude-[a-z0-9-]+-\d+(?:\.\d+)?$/;
-const KNOWN_CLAUDE_VARIANT_SUFFIXES = new Set(['high', 'xhigh', '1m', '1m-internal']);
+const KNOWN_CLAUDE_VARIANT_SUFFIXES = new Set(['high', 'xhigh', '1m', '1m-internal', 'fast']);
 
 export interface ModelSelectionHints {
   context1m?: boolean;
   reasoningEffort?: string;
+  fast?: boolean;
 }
 
 const stripClaudeDateSuffix = (id: string): string => (id.startsWith('claude-') ? id.replace(CLAUDE_DATE_SUFFIX, '') : id);
 
 const normalizedClaudeLookupId = (id: string): string => copilotRawModelId(stripClaudeDateSuffix(id));
-
-export const hasContext1mBeta = (anthropicBeta: readonly string[] | undefined): boolean => anthropicBeta?.includes(CONTEXT_1M_BETA) === true;
 
 const standardClaudeBaseId = (id: string): string | undefined => {
   if (!id.startsWith('claude-')) return undefined;
@@ -51,6 +50,12 @@ const supportsReasoningEffort = (model: CopilotRawModel, effort: string | undefi
   return model.capabilities?.supports?.reasoning_effort?.includes(effort) === true;
 };
 
+// https://docs.claude.com/en/build-with-claude/fast-mode — Copilot exposes Fast
+// Mode as a separate raw variant suffixed `-fast` (currently only on the Opus
+// family). The id-level marker is the contract: selection trusts the suffix
+// and does not inspect capability flags.
+const supportsFastMode = (model: CopilotRawModel): boolean => model.id.endsWith('-fast');
+
 const byModelPreference = (a: CopilotRawModel, b: CopilotRawModel): number => {
   const aBase = a.id.split('-').length;
   const bBase = b.id.split('-').length;
@@ -59,20 +64,37 @@ const byModelPreference = (a: CopilotRawModel, b: CopilotRawModel): number => {
 
 const firstPreferred = (models: readonly CopilotRawModel[]): CopilotRawModel | undefined => [...models].sort(byModelPreference)[0];
 
+// A narrowing filter that rolls back to the original pool when it would empty
+// it. Keeps selection best-effort over hints so a unit caller that bypasses
+// the entry-point pre-check still gets a reasonable answer; in production
+// Fast Mode is a hard constraint at the callMessages entry and the rollback
+// is unreachable there.
+const narrow = (pool: readonly CopilotRawModel[], predicate: (model: CopilotRawModel) => boolean): readonly CopilotRawModel[] => {
+  const filtered = pool.filter(predicate);
+  return filtered.length > 0 ? filtered : pool;
+};
+
 const chooseClaudeVariant = (candidates: readonly CopilotRawModel[], exactBase: CopilotRawModel | undefined, hints: ModelSelectionHints): CopilotRawModel | undefined => {
   const effort = hints.reasoningEffort;
-  if (!hints.context1m && !effort) {
+  if (!hints.context1m && !effort && !hints.fast) {
     return exactBase ?? firstPreferred(candidates);
   }
 
+  // Fast Mode narrows the pool first because it has the strongest contract.
+  // 1m and effort then layer on top: 1m runs as an explicit branch (pair
+  // the 1m filter with effort, fall back to bare-1m on miss); the
+  // effort-only branch implicitly prefers 1m variants within its narrowed
+  // pool because 1m models tend to advertise broader effort coverage.
+  const pool = hints.fast ? narrow(candidates, supportsFastMode) : candidates;
+
   if (hints.context1m) {
-    const oneMillion = candidates.filter(supportsOneMillionContext);
+    const oneMillion = pool.filter(supportsOneMillionContext);
     const oneMillionWithEffort = oneMillion.filter(model => supportsReasoningEffort(model, effort));
-    return firstPreferred(oneMillionWithEffort) ?? firstPreferred(oneMillion) ?? exactBase ?? firstPreferred(candidates);
+    return firstPreferred(oneMillionWithEffort) ?? firstPreferred(oneMillion) ?? firstPreferred(pool) ?? exactBase ?? firstPreferred(candidates);
   }
 
-  const withEffort = candidates.filter(model => supportsReasoningEffort(model, effort));
-  return firstPreferred(withEffort.filter(supportsOneMillionContext)) ?? firstPreferred(withEffort) ?? exactBase ?? firstPreferred(candidates);
+  const withEffort = pool.filter(model => supportsReasoningEffort(model, effort));
+  return firstPreferred(withEffort.filter(supportsOneMillionContext)) ?? firstPreferred(withEffort) ?? firstPreferred(pool) ?? exactBase ?? firstPreferred(candidates);
 };
 
 export const resolveCopilotRawModel = (models: CopilotModelsResponse, modelId: string, hints: ModelSelectionHints = {}): CopilotRawModel | undefined => {
@@ -90,3 +112,5 @@ export const resolveCopilotRawModel = (models: CopilotModelsResponse, modelId: s
 
   return chooseClaudeVariant(candidates, exactBase, hints);
 };
+
+export const copilotModelSupportsFastMode = (rawModels: readonly CopilotRawModel[]): boolean => rawModels.some(supportsFastMode);

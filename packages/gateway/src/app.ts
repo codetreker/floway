@@ -4,7 +4,7 @@ import { logger } from 'hono/logger';
 
 import { controlPlaneRoutes } from './control-plane/routes.ts';
 import { mountDataPlane } from './data-plane/routes.ts';
-import { authMiddleware } from './middleware/auth.ts';
+import { type AuthVars, authMiddleware } from './middleware/auth.ts';
 import { internalErrorResponse } from './middleware/internal-error-response.ts';
 
 // `app` is built as a single chained expression so its TypeScript type carries
@@ -14,7 +14,11 @@ import { internalErrorResponse } from './middleware/internal-error-response.ts';
 // chain because apps/web does not consume data-plane routes through the RPC
 // client — it talks to /v1/chat/completions etc. via plain fetch — and the
 // data-plane router does not need its types preserved.
-export const app = new Hono()
+//
+// The `Variables: AuthVars` generic gives every handler typed c.set / c.get
+// on the three auth slots (apiKey, user, sessionId); string-key typos and
+// type mismatches now fail compile instead of producing silent `any`.
+export const app = new Hono<{ Variables: AuthVars }>()
   .onError(internalErrorResponse)
   .use('*', logger())
   .use('*', cors())

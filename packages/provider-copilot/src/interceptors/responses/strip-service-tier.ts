@@ -6,7 +6,7 @@ import type { ResponsesBoundaryCtx } from './types.ts';
  * the Responses target so source-side behavior and telemetry still see the
  * caller's original request. Generic in the run-result type so the same
  * definition feeds both the streaming `/responses` chain and the
- * non-streaming `/responses/compact` chain.
+ * non-streaming compaction chain.
  *
  * References:
  * - https://github.com/caozhiyuan/copilot-api/commit/f7835a44f06976cab874700e4d94a5f5c0379369

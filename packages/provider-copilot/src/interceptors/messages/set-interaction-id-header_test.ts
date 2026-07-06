@@ -6,7 +6,7 @@ import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { MessagesPayload, MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import type { ExecuteResult } from '@floway-dev/provider';
 import { eventResult } from '@floway-dev/provider';
-import { assert, assertEquals, stubUpstreamModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
+import { assert, assertEquals, stubProviderModel, testTelemetryModelIdentity } from '@floway-dev/test-utils';
 
 const stubRequest = {};
 
@@ -15,8 +15,8 @@ const okEvents = (): Promise<ExecuteResult<ProtocolFrame<MessagesStreamEvent>>> 
 
 const invocation = (payload: MessagesPayload): MessagesBoundaryCtx => ({
   payload,
-  headers: {},
-  model: stubUpstreamModel({ endpoints: { messages: {} } }),
+  headers: new Headers(),
+  model: stubProviderModel({ endpoints: { messages: {} } }),
 });
 
 const payloadWith = (userId: string | undefined): MessagesPayload => ({
@@ -39,7 +39,7 @@ test('Interaction-id forwarded as a SHA-256 UUID for the legacy fingerprint with
 
   await withInteractionIdHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-interaction-id'], SESS_LEGACY_UUID);
+  assertEquals(ctx.headers.get('x-interaction-id'), SESS_LEGACY_UUID);
 });
 
 test('Interaction-id forwarded as a SHA-256 UUID for the JSON fingerprint carrying session_id', async () => {
@@ -47,7 +47,7 @@ test('Interaction-id forwarded as a SHA-256 UUID for the JSON fingerprint carryi
 
   await withInteractionIdHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-interaction-id'], SESS_JSON_UUID);
+  assertEquals(ctx.headers.get('x-interaction-id'), SESS_JSON_UUID);
 });
 
 test('Interaction-id forwarded as a SHA-256 UUID even when only the sessionId half is parseable', async () => {
@@ -57,7 +57,7 @@ test('Interaction-id forwarded as a SHA-256 UUID even when only the sessionId ha
 
   await withInteractionIdHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals(ctx.headers['x-interaction-id'], SESS_ALONE_UUID);
+  assertEquals(ctx.headers.get('x-interaction-id'), SESS_ALONE_UUID);
 });
 
 test('Interaction-id hashing is deterministic across repeated invocations', async () => {
@@ -67,7 +67,7 @@ test('Interaction-id hashing is deterministic across repeated invocations', asyn
   await withInteractionIdHeaderSet(first, stubRequest, okEvents);
   await withInteractionIdHeaderSet(second, stubRequest, okEvents);
 
-  assertEquals(first.headers['x-interaction-id'], second.headers['x-interaction-id']);
+  assertEquals(first.headers.get('x-interaction-id'), second.headers.get('x-interaction-id'));
 });
 
 test('Interaction-id has the UUID v4 shape (8-4-4-4-12 hex with version + variant bits)', async () => {
@@ -75,10 +75,10 @@ test('Interaction-id has the UUID v4 shape (8-4-4-4-12 hex with version + varian
 
   await withInteractionIdHeaderSet(ctx, stubRequest, okEvents);
 
-  const value = ctx.headers['x-interaction-id'];
+  const value = ctx.headers.get('x-interaction-id');
   // RFC 4122 v4 layout: third group starts with '4', fourth group starts
   // with one of 8/9/a/b. Same bit-pattern caozhiyuan stamps.
-  assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value));
+  assert(value !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value));
 });
 
 test('Interaction-id absent when metadata.user_id is missing', async () => {
@@ -86,7 +86,7 @@ test('Interaction-id absent when metadata.user_id is missing', async () => {
 
   await withInteractionIdHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-interaction-id' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-interaction-id'), false);
 });
 
 test('Interaction-id absent when metadata.user_id carries no session marker', async () => {
@@ -94,5 +94,5 @@ test('Interaction-id absent when metadata.user_id carries no session marker', as
 
   await withInteractionIdHeaderSet(ctx, stubRequest, okEvents);
 
-  assertEquals('x-interaction-id' in ctx.headers, false);
+  assertEquals(ctx.headers.has('x-interaction-id'), false);
 });

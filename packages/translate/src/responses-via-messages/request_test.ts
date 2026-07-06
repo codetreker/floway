@@ -6,7 +6,52 @@ import { MESSAGES_FALLBACK_MAX_TOKENS, type MessagesClientTool, type MessagesToo
 
 const stubRemoteImageLoader = (result: { mediaType: string | null; data: Uint8Array } | null) => () => Promise.resolve(result);
 
-test('translateResponsesToMessages maps reasoning.effort none to thinking.disabled', async () => {
+const minimalPayload = {
+  model: 'claude-test',
+  input: [{ type: 'message' as const, role: 'user' as const, content: 'hi' }],
+  instructions: null,
+  temperature: null,
+  top_p: null,
+  max_output_tokens: 256,
+  tools: null,
+  tool_choice: 'auto' as const,
+  metadata: null,
+  stream: null,
+  store: false,
+  parallel_tool_calls: true,
+};
+
+// ── service_tier → speed mapping ──
+
+test('translateResponsesToMessages maps service_tier:fast to speed:fast (no service_tier on target)', async () => {
+  const result = await translateResponsesToMessages({ ...minimalPayload, service_tier: 'fast' });
+
+  assertEquals(result.target.speed, 'fast');
+  assertFalse('service_tier' in result.target);
+});
+
+test('translateResponsesToMessages passes service_tier:priority through as service_tier (no speed override)', async () => {
+  const result = await translateResponsesToMessages({ ...minimalPayload, service_tier: 'priority' });
+
+  assertEquals(result.target.service_tier, 'priority');
+  assertFalse('speed' in result.target);
+});
+
+test('translateResponsesToMessages passes service_tier:auto through as service_tier', async () => {
+  const result = await translateResponsesToMessages({ ...minimalPayload, service_tier: 'auto' });
+
+  assertEquals(result.target.service_tier, 'auto');
+  assertFalse('speed' in result.target);
+});
+
+test('translateResponsesToMessages omits both speed and service_tier when service_tier is absent', async () => {
+  const result = await translateResponsesToMessages(minimalPayload);
+
+  assertFalse('speed' in result.target);
+  assertFalse('service_tier' in result.target);
+});
+
+test('translateResponsesToMessages maps reasoning.effort none to thinking.disabled (summary ignored when reasoning is disabled)', async () => {
   const result = await translateResponsesToMessages({
     model: 'claude-test',
     input: [{ type: 'message', role: 'user', content: 'hi' }],
@@ -41,7 +86,7 @@ test('translateResponsesToMessages maps reasoning.effort directly to output_conf
     stream: null,
     store: false,
     parallel_tool_calls: true,
-    reasoning: { effort: 'minimal', summary: 'detailed' },
+    reasoning: { effort: 'minimal' },
   });
 
   assertEquals(result.target.output_config, { effort: 'minimal' });
@@ -456,7 +501,63 @@ test('translateResponsesToMessages throws on a stray web_search_call input item 
       parallel_tool_calls: true,
     }),
     Error,
-    'Responses → Messages translator does not accept web_search_call input items',
+    "Invalid input item type 'web_search_call'",
+  );
+});
+
+test('translateResponsesToMessages throws on a stray compaction_trigger input item (compact-shim owns the strip)', async () => {
+  // The compact-shim is structurally required on non-responses targets and
+  // strips compaction_trigger items before reaching this translator.
+  // Reaching here with one in input means the shim disengaged; the
+  // translator's exhaustive default surfaces the regression.
+  await assertRejects(
+    () => translateResponsesToMessages({
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction_trigger' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    'Invalid input item:',
+  );
+});
+
+test('translateResponsesToMessages throws on a stray compaction input item (compact-shim owns the expansion)', async () => {
+  // The compact-shim expands its own shim-encoded compaction items inline
+  // before reaching this translator and round-trips foreign compactions
+  // back to the upstream as raw items. Either way the translator should
+  // never see one.
+  await assertRejects(
+    () => translateResponsesToMessages({
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'compaction', id: 'cmp_x', encrypted_content: 'opaque', created_by: 'compaction_session' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    }),
+    Error,
+    'Invalid input item:',
   );
 });
 
@@ -557,3 +658,195 @@ test('translateResponsesToMessages drops text.format json_object (no Anthropic e
 
   assertFalse('output_config' in result.target);
 });
+
+test('translateResponsesToMessages hoists leading role:"system" to top-level system field', async () => {
+  const result = await translateResponsesToMessages(
+    {
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'system', content: 'be terse' },
+        { type: 'message', role: 'user', content: 'q1' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    },
+    { loadRemoteImage: stubRemoteImageLoader(null) },
+  );
+
+  assertEquals(result.target.system, [{ type: 'text', text: 'be terse', cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.target.messages.length, 1);
+  assertEquals(result.target.messages[0].role, 'user');
+});
+
+test('translateResponsesToMessages keeps non-leading role:"system" inline', async () => {
+  const result = await translateResponsesToMessages(
+    {
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'user', content: 'q1' },
+        { type: 'message', role: 'system', content: 'be terse' },
+        { type: 'message', role: 'user', content: 'q2' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    },
+    { loadRemoteImage: stubRemoteImageLoader(null) },
+  );
+
+  assertEquals(result.target.messages.length, 3);
+  assertEquals(result.target.messages[0].role, 'user');
+  assertEquals(result.target.messages[1], { role: 'system', content: [{ type: 'text', text: 'be terse' }] });
+  assertEquals(result.target.messages[2].role, 'user');
+  assertFalse('system' in result.target);
+});
+
+test('translateResponsesToMessages hoists leading role:"developer" to top-level system field', async () => {
+  const result = await translateResponsesToMessages(
+    {
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'developer', content: 'dev rule' },
+        { type: 'message', role: 'user', content: 'hi' },
+      ],
+      instructions: null,
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    },
+    { loadRemoteImage: stubRemoteImageLoader(null) },
+  );
+
+  assertEquals(result.target.messages.length, 1);
+  assertEquals(result.target.messages[0].role, 'user');
+  assertEquals(result.target.system, [{ type: 'text', text: 'dev rule', cache_control: { type: 'ephemeral' } }]);
+});
+
+test('translateResponsesToMessages preserves payload.instructions and leading system as separate blocks; non-leading stays inline', async () => {
+  const result = await translateResponsesToMessages(
+    {
+      model: 'claude-test',
+      input: [
+        { type: 'message', role: 'system', content: 'leading note' },
+        { type: 'message', role: 'user', content: 'hi' },
+        { type: 'message', role: 'system', content: 'mid-array note' },
+        { type: 'message', role: 'user', content: 'bye' },
+      ],
+      instructions: 'canonical top-level instructions',
+      temperature: null,
+      top_p: null,
+      max_output_tokens: 256,
+      tools: null,
+      tool_choice: 'auto',
+      metadata: null,
+      stream: null,
+      store: false,
+      parallel_tool_calls: true,
+    },
+    { loadRemoteImage: stubRemoteImageLoader(null) },
+  );
+
+  assertEquals(result.target.system, [
+    { type: 'text', text: 'canonical top-level instructions' },
+    { type: 'text', text: 'leading note', cache_control: { type: 'ephemeral' } },
+  ]);
+  assertEquals(result.target.messages.length, 3);
+  assertEquals(result.target.messages[0].role, 'user');
+  assertEquals(result.target.messages[1], { role: 'system', content: [{ type: 'text', text: 'mid-array note' }] });
+  assertEquals(result.target.messages[2].role, 'user');
+});
+
+test('translateResponsesToMessages throws when a system input message contains an image part', async () => {
+  await assertRejects(
+    () =>
+      translateResponsesToMessages(
+        {
+          model: 'claude-test',
+          input: [
+            {
+              type: 'message',
+              role: 'system',
+              content: [
+                { type: 'input_text', text: 'You are helpful.' },
+                { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'auto' },
+              ],
+            },
+            { type: 'message', role: 'user', content: 'hi' },
+          ],
+          instructions: null,
+          temperature: null,
+          top_p: null,
+          max_output_tokens: 256,
+          tools: null,
+          tool_choice: 'auto',
+          metadata: null,
+          stream: null,
+          store: false,
+          parallel_tool_calls: true,
+        },
+        { loadRemoteImage: stubRemoteImageLoader(null) },
+      ),
+    Error,
+    "Invalid 'input_image' content part in system message",
+  );
+});
+
+test('translateResponsesToMessages throws when a non-leading developer input message contains an image part', async () => {
+  await assertRejects(
+    () =>
+      translateResponsesToMessages(
+        {
+          model: 'claude-test',
+          input: [
+            { type: 'message', role: 'user', content: 'hi' },
+            {
+              type: 'message',
+              role: 'developer',
+              content: [
+                { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'auto' },
+              ],
+            },
+            { type: 'message', role: 'user', content: 'bye' },
+          ],
+          instructions: null,
+          temperature: null,
+          top_p: null,
+          max_output_tokens: 256,
+          tools: null,
+          tool_choice: 'auto',
+          metadata: null,
+          stream: null,
+          store: false,
+          parallel_tool_calls: true,
+        },
+        { loadRemoteImage: stubRemoteImageLoader(null) },
+      ),
+    Error,
+    "Invalid 'input_image' content part in developer message",
+  );
+});
+
+// (Native native↔native only — Responses no longer carries thinking-mode
+// extension fields; alias overlays land on the Messages IR at the wire
+// call via `applyRulesToUpstreamMessages`.)

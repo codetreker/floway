@@ -33,6 +33,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string;
   emptyText?: string;
   disabled?: boolean;
+  highlight?: readonly string[];
 }>(), { emptyText: 'Type an id and press Enter to add' });
 
 const { contains } = useFilter({ sensitivity: 'base' });
@@ -43,6 +44,9 @@ const query = ref('');
 // item list — still render and stay removable.
 const itemByValue = computed(() => new Map(props.items.map(item => [item.value, item])));
 const labelFor = (id: string): string => itemByValue.value.get(id)?.label ?? id;
+
+const highlightSet = computed(() => new Set(props.highlight ?? []));
+const isHighlighted = (id: string): boolean => highlightSet.value.has(id);
 
 const filteredItems = computed(() => props.items.filter(item =>
   !value.value.includes(item.value)
@@ -64,7 +68,12 @@ watch(value, () => { query.value = ''; }, { deep: true });
           v-for="id in value"
           :key="id"
           :value="id"
-          class="flex items-center gap-1 rounded-md border border-white/10 bg-surface-600 py-0.5 pl-2 pr-1 text-xs text-gray-100 data-[state=active]:border-accent-cyan/50"
+          :class="[
+            'flex items-center gap-1 rounded-md border py-0.5 pl-2 pr-1 text-xs',
+            isHighlighted(id)
+              ? 'border-accent-cyan bg-surface-900 text-accent-cyan shadow-[0_0_8px_rgba(0,229,255,0.45)] data-[state=active]:border-accent-cyan'
+              : 'border-white/10 bg-surface-600 text-gray-100 data-[state=active]:border-accent-cyan/50',
+          ]"
         >
           <span class="font-mono">{{ labelFor(id) }}</span>
           <TagsInputItemDelete class="grid size-4 place-items-center rounded text-gray-400 hover:bg-white/10 hover:text-accent-rose">
@@ -100,7 +109,10 @@ watch(value, () => { query.value = ''; }, { deep: true });
               v-for="item in filteredItems"
               :key="item.value"
               :value="item.value"
-              class="relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-7 pr-2 text-sm text-white outline-none data-[highlighted]:bg-accent-cyan/10 data-[highlighted]:text-accent-cyan"
+              :class="[
+                'relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-7 pr-2 text-sm outline-none data-[highlighted]:bg-accent-cyan/10 data-[highlighted]:text-accent-cyan',
+                isHighlighted(item.value) ? 'text-accent-cyan' : 'text-white',
+              ]"
             >
               <span class="absolute left-2 flex size-3.5 items-center justify-center">
                 <ComboboxItemIndicator>

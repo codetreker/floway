@@ -10,8 +10,11 @@
 
 import type { Context } from 'hono';
 
+import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
+import { createGatewayCtxFromHono, finalizeGatewayResponse } from '../chat/shared/gateway-ctx.ts';
+import { readRequestBody } from '../chat/shared/request-body.ts';
 import { passthroughApiError, passthroughServe } from '../shared/passthrough-serve.ts';
-import { tokenUsageFromImagesResponse } from '../shared/telemetry/usage.ts';
+import { tokenUsageFromImagesBody } from '../shared/telemetry/usage.ts';
 
 interface ImagesGenerationsRequestBody {
   model?: unknown;
@@ -23,10 +26,10 @@ type PreparedRequest =
   | { type: 'ok'; body: Record<string, unknown>; model: string }
   | { type: 'invalid'; message: string };
 
-const prepareImagesGenerationsRequest = (body: string): PreparedRequest => {
+const prepareImagesGenerationsRequest = (bytes: Uint8Array): PreparedRequest => {
   let request: ImagesGenerationsRequestBody;
   try {
-    const parsed = JSON.parse(body) as unknown;
+    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { type: 'invalid', message: 'Images generations request body must be an object.' };
     }
@@ -41,58 +44,76 @@ const prepareImagesGenerationsRequest = (body: string): PreparedRequest => {
 };
 
 export const imagesGenerations = async (c: Context): Promise<Response> => {
-  const request = prepareImagesGenerationsRequest(await c.req.text());
-  if (request.type === 'invalid') return passthroughApiError(c, request.message, 400);
+  const requestBody = await readRequestBody(c);
+  const ctx = createGatewayCtxFromHono(c, { wantsStream: false, requestBody, backgroundScheduler: backgroundSchedulerFromContext(c) });
+  const request = prepareImagesGenerationsRequest(requestBody.bytes);
+  if (request.type === 'invalid') {
+    ctx.dump?.error('gateway');
+    return finalizeGatewayResponse(ctx, passthroughApiError(c, request.message, 400));
+  }
 
-  return await passthroughServe({
+  ctx.dump?.requestedModel(request.model);
+  const response = await passthroughServe({
     c,
-    sourceApi: 'images_generations',
+    ctx,
+    sourceApi: '/images/generations',
     model: request.model,
-    bindingServesEndpoint: binding => binding.upstreamModel.endpoints.imagesGenerations !== undefined,
-    call: (binding, opts) => {
+    kind: 'image',
+    modelServesEndpoint: model => model.endpoints.imagesGenerations !== undefined,
+    call: (provider, model, opts) => {
       const { model: _model, ...body } = request.body;
-      return binding.provider.callImagesGenerations(binding.upstreamModel, body, undefined, undefined, opts);
+      return provider.instance.callImagesGenerations(model, body, undefined, opts);
     },
-    extractUsage: tokenUsageFromImagesResponse,
-    noBindingMessage: modelId => `Model ${modelId} does not support the /images/generations endpoint.`,
+    response: { format: 'json', extractBilling: tokenUsageFromImagesBody },
   });
+  return finalizeGatewayResponse(ctx, response);
 };
 
 export const imagesEdits = async (c: Context): Promise<Response> => {
+  // Buffer the multipart body once. Hono's formData() helper would consume
+  // c.req.raw.body internally; re-parsing from the captured bytes via a fresh
+  // Response keeps the dump capture honest without a second read on the wire.
+  const requestBody = await readRequestBody(c);
+  const ctx = createGatewayCtxFromHono(c, { wantsStream: false, requestBody, backgroundScheduler: backgroundSchedulerFromContext(c) });
   let form: FormData;
   try {
-    form = await c.req.raw.formData();
+    form = await new Response(requestBody.bytes as BodyInit, { headers: { 'content-type': c.req.header('content-type') ?? '' } }).formData();
   } catch {
     // Match the embeddings serve stance: do not surface the underlying
     // parser's error text. The wording is enough for a client to know
     // they sent the wrong content type or a malformed body.
-    return passthroughApiError(c, 'Image edits request body must be a valid multipart/form-data payload.', 400);
+    ctx.dump?.error('gateway');
+    return finalizeGatewayResponse(ctx, passthroughApiError(c, 'Image edits request body must be a valid multipart/form-data payload.', 400));
   }
 
   const modelRaw = form.get('model');
   if (typeof modelRaw !== 'string' || modelRaw.length === 0) {
-    return passthroughApiError(c, 'Image edits request body must include a model field.', 400);
+    ctx.dump?.error('gateway');
+    return finalizeGatewayResponse(ctx, passthroughApiError(c, 'Image edits request body must include a model field.', 400));
   }
 
-  return await passthroughServe({
+  ctx.dump?.requestedModel(modelRaw);
+  const response = await passthroughServe({
     c,
-    sourceApi: 'images_edits',
+    ctx,
+    sourceApi: '/images/edits',
     model: modelRaw,
-    bindingServesEndpoint: binding => binding.upstreamModel.endpoints.imagesEdits !== undefined,
-    call: (binding, opts) => {
-      // ModelProvider.callImagesEdits takes ownership of the FormData and
+    kind: 'image',
+    modelServesEndpoint: model => model.endpoints.imagesEdits !== undefined,
+    call: (provider, model, opts) => {
+      // ProviderInstance.callImagesEdits takes ownership of the FormData and
       // appends the upstream-specific model/deployment id; allocate a fresh
-      // copy per binding so the contract holds even if cross-binding
-      // fallback is ever extended to try a second binding. File-blob entries
+      // copy per candidate so the contract holds even if cross-candidate
+      // fallback is ever extended to try a second match. File-blob entries
       // are passed by reference so no buffer copy happens.
       const passthrough = new FormData();
       for (const [name, value] of form.entries()) {
         if (name === 'model') continue;
         passthrough.append(name, value);
       }
-      return binding.provider.callImagesEdits(binding.upstreamModel, passthrough, undefined, undefined, opts);
+      return provider.instance.callImagesEdits(model, passthrough, undefined, opts);
     },
-    extractUsage: tokenUsageFromImagesResponse,
-    noBindingMessage: modelId => `Model ${modelId} does not support the /images/edits endpoint.`,
+    response: { format: 'json', extractBilling: tokenUsageFromImagesBody },
   });
+  return finalizeGatewayResponse(ctx, response);
 };

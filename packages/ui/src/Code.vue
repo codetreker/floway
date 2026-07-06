@@ -11,9 +11,12 @@ const props = withDefaults(defineProps<{
   code: string;
   language?: 'bash' | 'toml' | 'json' | 'text';
   copyable?: boolean;
+  // Drop the card chrome (border, bg, rounded-xl, copy-button pad) so the code sits edge-to-edge inside an ancestor that already frames it.
+  flush?: boolean;
 }>(), {
   copyable: true,
   language: 'text',
+  flush: false,
 });
 
 const copied = ref(false);
@@ -40,8 +43,8 @@ const highlighted = computed(() => {
 
 <template>
   <div class="code-block relative group">
-    <OverlayScrollbars class="rounded-xl border border-white/[0.04] bg-surface-900" no-tabindex>
-      <pre class="min-w-max p-4 pr-11 text-[11px] font-mono leading-[1.6] text-gray-200"><code :class="`language-${language}`" v-html="highlighted" /></pre>
+    <OverlayScrollbars :class="flush ? '' : 'rounded-xl border border-white/[0.04] bg-surface-900'" no-tabindex>
+      <pre :class="flush ? 'min-w-max px-4 py-3 pr-11 text-[11px] font-mono leading-[1.6] text-gray-200' : 'min-w-max p-4 pr-11 text-[11px] font-mono leading-[1.6] text-gray-200'"><code :class="`language-${language}`" v-html="highlighted" /></pre>
     </OverlayScrollbars>
     <button
       v-if="copyable"

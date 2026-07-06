@@ -3,10 +3,25 @@ import { test } from 'vitest';
 import { pricingForCopilotModelKey, pricingForCopilotPublicModelId } from './pricing.ts';
 import { assertEquals } from '@floway-dev/test-utils';
 
-test('pricingForCopilotPublicModelId resolves Claude family by regex', () => {
-  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-8'), { input: 5, input_cache_read: 0.5, input_cache_write: 6.25, output: 25 });
-  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-7'), { input: 5, input_cache_read: 0.5, input_cache_write: 6.25, output: 25 });
-  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-5'), { input: 5, input_cache_read: 0.5, input_cache_write: 6.25, output: 25 });
+const OPUS_BASE = { input: 5, input_cache_read: 0.5, input_cache_write: 6.25, output: 25 };
+const OPUS_FAST_TIER_6X = { input: 30, input_cache_read: 3, input_cache_write: 37.5, output: 150 };
+const OPUS_FAST_TIER_2X = { input: 10, input_cache_read: 1, input_cache_write: 12.5, output: 50 };
+
+test('pricingForCopilotPublicModelId resolves Opus 4.5 with no fast tier (no -fast variant in catalog)', () => {
+  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-5'), OPUS_BASE);
+});
+
+test('pricingForCopilotPublicModelId resolves Opus 4.6 / 4.7 with 6x Fast Mode tier', () => {
+  const opus = { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_6X } };
+  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-6'), opus);
+  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-7'), opus);
+});
+
+test('pricingForCopilotPublicModelId resolves Opus 4.8 with 2x Fast Mode tier', () => {
+  assertEquals(pricingForCopilotPublicModelId('claude-opus-4-8'), { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_2X } });
+});
+
+test('pricingForCopilotPublicModelId resolves Claude sonnet/haiku families', () => {
   assertEquals(pricingForCopilotPublicModelId('claude-sonnet-4-5'), { input: 3, input_cache_read: 0.3, input_cache_write: 3.75, output: 15 });
   assertEquals(pricingForCopilotPublicModelId('claude-haiku-4-5'), { input: 1, input_cache_read: 0.1, input_cache_write: 1.25, output: 5 });
 });
@@ -27,15 +42,24 @@ test('pricingForCopilotPublicModelId returns null for unknown ids', () => {
 });
 
 test('pricingForCopilotModelKey strips Claude variant suffix before lookup', () => {
-  const opus = { input: 5, input_cache_read: 0.5, input_cache_write: 6.25, output: 25 };
+  const opus = { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_6X } };
   assertEquals(pricingForCopilotModelKey('claude-opus-4-7-high'), opus);
   assertEquals(pricingForCopilotModelKey('claude-opus-4-7-xhigh'), opus);
   assertEquals(pricingForCopilotModelKey('claude-opus-4-7-1m'), opus);
   assertEquals(pricingForCopilotModelKey('claude-opus-4-7-1m-internal'), opus);
 });
 
+test('pricingForCopilotModelKey strips -fast suffix and resolves to the base-with-fast-tier entry', () => {
+  // The raw `-fast` variant is the wire id Copilot serves; pricing is keyed
+  // on the merged public id and the `tier='fast'` marker (set from
+  // `usage.speed='fast'`) selects the override at billing time.
+  assertEquals(pricingForCopilotModelKey('claude-opus-4-6-fast'), { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_6X } });
+  assertEquals(pricingForCopilotModelKey('claude-opus-4-7-fast'), { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_6X } });
+  assertEquals(pricingForCopilotModelKey('claude-opus-4-8-fast'), { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_2X } });
+});
+
 test('pricingForCopilotModelKey strips trailing date suffix on Claude variants', () => {
-  const opus = { input: 5, input_cache_read: 0.5, input_cache_write: 6.25, output: 25 };
+  const opus = { ...OPUS_BASE, tiers: { fast: OPUS_FAST_TIER_6X } };
   assertEquals(pricingForCopilotModelKey('claude-opus-4-7-20251101'), opus);
   assertEquals(pricingForCopilotModelKey('claude-opus-4-7-xhigh-20251101'), opus);
 });

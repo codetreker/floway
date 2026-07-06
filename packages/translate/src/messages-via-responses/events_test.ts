@@ -622,3 +622,53 @@ test('translateResponsesToMessagesResult projects whitespace-only reasoning summ
 
   assertEquals(result.content, [{ type: 'redacted_thinking', data: packReasoningSignature('rs_ws', '') }]);
 });
+
+test('translateResponsesToMessagesResult maps service_tier:fast to usage.speed:fast', () => {
+  const result = translateResponsesToMessagesResult({
+    id: 'resp_fast',
+    object: 'response',
+    model: 'gpt-test',
+    output: [],
+    output_text: '',
+    status: 'completed',
+    error: null,
+    incomplete_details: null,
+    service_tier: 'fast',
+    usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
+  });
+
+  assertEquals(result.usage.speed, 'fast');
+});
+
+test('translateResponsesToMessagesResult omits usage.speed when service_tier is not fast', () => {
+  const result = translateResponsesToMessagesResult({
+    id: 'resp_default',
+    object: 'response',
+    model: 'gpt-test',
+    output: [],
+    output_text: '',
+    status: 'completed',
+    error: null,
+    incomplete_details: null,
+    service_tier: 'default',
+    usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
+  });
+
+  assertEquals(result.usage.speed, undefined);
+});
+
+test('translateResponsesToMessagesResult omits usage.speed when service_tier is absent', () => {
+  const result = translateResponsesToMessagesResult({
+    id: 'resp_no_tier',
+    object: 'response',
+    model: 'gpt-test',
+    output: [],
+    output_text: '',
+    status: 'completed',
+    error: null,
+    incomplete_details: null,
+    usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 },
+  });
+
+  assertEquals(result.usage.speed, undefined);
+});

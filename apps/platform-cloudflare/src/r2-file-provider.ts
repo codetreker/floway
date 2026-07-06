@@ -28,6 +28,9 @@ export class R2FileProvider implements FileProvider {
   }
 
   async deletePrefix(prefix: string): Promise<void> {
+    // Refuse the entire bucket: a stray empty-string prefix would otherwise
+    // wipe every spilled payload across tenants. Matches FsFileProvider.
+    if (prefix === '') throw new Error('R2FileProvider.deletePrefix: refusing empty prefix');
     let cursor: string | undefined;
     do {
       const page = await this.bucket.list({ prefix, cursor, limit: R2_BATCH_LIMIT });

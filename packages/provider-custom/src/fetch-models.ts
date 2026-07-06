@@ -11,8 +11,8 @@
 
 import type { CustomUpstreamConfig } from './config.ts';
 import { customFetchModels } from './fetch.ts';
-import type { ModelKind, ModelPricing } from '@floway-dev/protocols/common';
-import { fetchUpstreamModels, type Fetcher } from '@floway-dev/provider';
+import { BILLING_DIMENSIONS, type ModelKind, type ModelPricing } from '@floway-dev/protocols/common';
+import { chatField, fetchUpstreamModels, type Fetcher, type UpstreamChatModelConfig } from '@floway-dev/provider';
 
 export interface CustomRawModel {
   id: string;
@@ -31,9 +31,12 @@ export interface CustomRawModel {
     max_prompt_tokens?: number;
   };
   cost?: ModelPricing;
-  // Optional ModelKind published by floway upstreams; absent on plain
+  // Optional ModelKind published by Floway upstreams; absent on plain
   // OpenAI-compat upstreams.
   kind?: ModelKind;
+  // Optional chat metadata from Floway-shaped upstreams; absent on plain
+  // OpenAI-compat upstreams.
+  chat?: UpstreamChatModelConfig;
 }
 
 export interface CustomModelsResponse {
@@ -58,14 +61,12 @@ const parseLimits = (value: unknown): CustomRawModel['limits'] => {
   return Object.keys(limits).length > 0 ? limits : undefined;
 };
 
-const PRICING_DIMENSIONS: readonly (keyof ModelPricing)[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
-
 const parseCost = (value: unknown): ModelPricing | undefined => {
   // Admit any subset of billing dimensions advertised on the upstream's
   // /v1/models cost block; drop the whole block when none are present.
   if (!isRecord(value)) return undefined;
   const cost: ModelPricing = {};
-  for (const dimension of PRICING_DIMENSIONS) {
+  for (const dimension of BILLING_DIMENSIONS) {
     const rate = optionalNumberField(value[dimension]);
     if (rate !== undefined) cost[dimension] = rate;
   }
@@ -97,6 +98,11 @@ const parseRawModel = (value: unknown): CustomRawModel | null => {
   if (cost !== undefined) model.cost = cost;
   const kind = parseKind(value.kind);
   if (kind !== undefined) model.kind = kind;
+  // Attempt to parse chat metadata; silently skip on malformed data.
+  try {
+    const chat = chatField(value.chat, `${value.id}.chat`);
+    if (chat !== undefined) model.chat = chat;
+  } catch { /* skip */ }
   return model;
 };
 

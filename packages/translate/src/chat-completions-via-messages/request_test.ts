@@ -2,7 +2,7 @@ import { test } from 'vitest';
 
 import { translateChatCompletionsToMessages } from './request.ts';
 import type { RemoteImageLoader } from '../shared/via-messages/remote-images.ts';
-import { assertEquals, assertExists, assertRejects } from '../test-assert.ts';
+import { assertEquals, assertExists, assertFalse, assertRejects } from '../test-assert.ts';
 import type { ChatCompletionsMessage, ChatCompletionsPayload } from '@floway-dev/protocols/chat-completions';
 import {
   MESSAGES_FALLBACK_MAX_TOKENS,
@@ -43,9 +43,56 @@ function stubRemoteImageLoader(result: Awaited<ReturnType<RemoteImageLoader>>): 
   return () => Promise.resolve(result);
 }
 
-// ── System / Developer messages ──
+// ── service_tier → speed mapping ──
 
-test('system message extracted to system field', async () => {
+test('translateChatCompletionsToMessages maps service_tier:fast to speed:fast (no service_tier on target)', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'hi' }],
+      service_tier: 'fast',
+    }),
+  );
+
+  assertEquals(result.speed, 'fast');
+  assertFalse('service_tier' in result);
+});
+
+test('translateChatCompletionsToMessages passes service_tier:priority through as service_tier (no speed override)', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'hi' }],
+      service_tier: 'priority',
+    }),
+  );
+
+  assertEquals(result.service_tier, 'priority');
+  assertFalse('speed' in result);
+});
+
+test('translateChatCompletionsToMessages passes service_tier:auto through as service_tier', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'hi' }],
+      service_tier: 'auto',
+    }),
+  );
+
+  assertEquals(result.service_tier, 'auto');
+  assertFalse('speed' in result);
+});
+
+test('translateChatCompletionsToMessages omits both speed and service_tier when service_tier is absent', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'hi' }],
+    }),
+  );
+
+  assertFalse('speed' in result);
+  assertFalse('service_tier' in result);
+});
+
+test('leading system message hoisted to top-level system field', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
       messages: [
@@ -59,7 +106,7 @@ test('system message extracted to system field', async () => {
   assertEquals(result.messages[0].role, 'user');
 });
 
-test('developer message treated same as system', async () => {
+test('leading developer message hoisted as system', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
       messages: [
@@ -69,22 +116,28 @@ test('developer message treated same as system', async () => {
     }),
   );
   assertEquals(result.system, [{ type: 'text', text: 'Dev instructions', cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.messages.length, 1);
 });
 
-test('multiple system messages joined with double newline', async () => {
+test('non-leading system stays inline, leading is hoisted', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
       messages: [
         { role: 'system', content: 'First' },
-        { role: 'developer', content: 'Second' },
         { role: 'user', content: 'Hi' },
+        { role: 'developer', content: 'Second' },
+        { role: 'user', content: 'Bye' },
       ],
     }),
   );
-  assertEquals(result.system, [{ type: 'text', text: 'First\n\nSecond', cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.system, [{ type: 'text', text: 'First', cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.messages.length, 3);
+  assertEquals(result.messages[0].role, 'user');
+  assertEquals(result.messages[1], { role: 'system', content: [{ type: 'text', text: 'Second' }] });
+  assertEquals(result.messages[2].role, 'user');
 });
 
-test('empty system content is skipped', async () => {
+test('empty leading system content is not hoisted', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
       messages: [
@@ -94,9 +147,25 @@ test('empty system content is skipped', async () => {
     }),
   );
   assertEquals(result.system, undefined);
+  assertEquals(result.messages.length, 1);
 });
 
-test('system with ContentPart array extracts text parts', async () => {
+test('leading empty system is skipped, leading non-empty is still hoisted', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'system', content: '' },
+        { role: 'developer', content: 'Be terse.' },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
+  assertEquals(result.system, [{ type: 'text', text: 'Be terse.', cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.messages.length, 1);
+  assertEquals(result.messages[0].role, 'user');
+});
+
+test('leading system with ContentPart array preserves text parts as separate blocks', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
       messages: [
@@ -111,7 +180,72 @@ test('system with ContentPart array extracts text parts', async () => {
       ],
     }),
   );
-  assertEquals(result.system, [{ type: 'text', text: 'AB', cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.system, [
+    { type: 'text', text: 'A' },
+    { type: 'text', text: 'B', cache_control: { type: 'ephemeral' } },
+  ]);
+  assertEquals(result.messages.length, 1);
+});
+
+test('multiple consecutive leading system messages accumulate as separate blocks', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [
+        { role: 'system', content: 'First' },
+        { role: 'developer', content: 'Second' },
+        { role: 'user', content: 'Hi' },
+      ],
+    }),
+  );
+  assertEquals(result.system, [
+    { type: 'text', text: 'First' },
+    { type: 'text', text: 'Second', cache_control: { type: 'ephemeral' } },
+  ]);
+  assertEquals(result.messages.length, 1);
+});
+
+test('image content part in leading system message throws', async () => {
+  await assertRejects(
+    () =>
+      translateChatCompletionsToMessages(
+        mkPayload({
+          messages: [
+            {
+              role: 'system',
+              content: [
+                { type: 'text', text: 'You are helpful.' },
+                { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
+              ],
+            },
+            { role: 'user', content: 'Hi' },
+          ],
+        }),
+      ),
+    Error,
+    "Invalid 'image_url' content part in system or developer message",
+  );
+});
+
+test('image content part in non-leading system message throws', async () => {
+  await assertRejects(
+    () =>
+      translateChatCompletionsToMessages(
+        mkPayload({
+          messages: [
+            { role: 'user', content: 'Hi' },
+            {
+              role: 'system',
+              content: [
+                { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
+              ],
+            },
+            { role: 'user', content: 'Bye' },
+          ],
+        }),
+      ),
+    Error,
+    "Invalid 'image_url' content part in system or developer message",
+  );
 });
 
 // ── Basic message mapping ──
@@ -988,7 +1122,7 @@ test('full tool use round-trip conversation', async () => {
 
 // ── Cache breakpoints ──
 
-test('attaches ephemeral cache breakpoints to system, last function tool, and last message block', async () => {
+test('attaches ephemeral cache breakpoints to last function tool and last message block', async () => {
   const result = await translateChatCompletionsToMessages(
     mkPayload({
       messages: [
@@ -1121,7 +1255,7 @@ test('translateChatCompletionsToMessages rejects an unknown message role', async
         messages: [{ role: 'function', content: 'hi' } as unknown as ChatCompletionsMessage],
       }),
     Error,
-    'does not accept function messages',
+    "Invalid role 'function'",
   );
 });
 
@@ -1133,6 +1267,31 @@ test('translateChatCompletionsToMessages rejects an unknown user content part ty
         messages: [{ role: 'user', content: [{ type: 'video_url' }] } as unknown as ChatCompletionsMessage],
       }),
     Error,
-    'does not accept video_url content parts',
+    "Invalid 'video_url' content part",
   );
+});
+
+// ── service_tier forwarding ──
+
+test('translateChatCompletionsToMessages forwards service_tier verbatim', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'hi' }],
+      service_tier: 'priority',
+    }),
+  );
+
+  assertEquals(result.service_tier, 'priority');
+});
+
+test('translateChatCompletionsToMessages does not emit thinking or fast-mode fields for a bare payload', async () => {
+  const result = await translateChatCompletionsToMessages(
+    mkPayload({
+      messages: [{ role: 'user', content: 'hi' }],
+    }),
+  );
+
+  assertEquals(result.thinking, undefined);
+  assertEquals(result.speed, undefined);
+  assertEquals(result.service_tier, undefined);
 });

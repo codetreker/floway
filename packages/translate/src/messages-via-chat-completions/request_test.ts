@@ -391,7 +391,7 @@ test('translateMessagesToChatCompletions rejects an unknown assistant content bl
         messages: [{ role: 'assistant', content: [{ type: 'audio' } as unknown as MessagesAssistantContentBlock] }],
       }),
     Error,
-    'does not accept audio assistant content blocks',
+    "messages.0.content.0.type: 'audio' assistant content blocks are not supported",
   );
 });
 
@@ -404,6 +404,190 @@ test('translateMessagesToChatCompletions rejects an unknown user content block t
         messages: [{ role: 'user', content: [{ type: 'audio' } as unknown as MessagesUserContentBlock] }],
       }),
     Error,
-    'does not accept audio content blocks',
+    "messages.0.content.0.type: 'audio' content blocks are not supported",
   );
+});
+
+test('translateMessagesToChatCompletions emits in-array role:"system" inline as a CC system message', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'system', content: 'be terse' },
+      { role: 'user', content: 'who are you' },
+    ],
+  });
+
+  assertEquals(result.messages.length, 3);
+  assertEquals(result.messages[0].role, 'user');
+  assertEquals(result.messages[1], { role: 'system', content: 'be terse' });
+  assertEquals(result.messages[2].role, 'user');
+});
+
+test('translateMessagesToChatCompletions preserves in-array system text blocks as separate content parts', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          { type: 'text', text: 'Para A' },
+          { type: 'text', text: 'Para B' },
+        ],
+      },
+      { role: 'user', content: 'hi' },
+    ],
+  });
+
+  assertEquals(result.messages[0], {
+    role: 'system',
+    content: [
+      { type: 'text', text: 'Para A' },
+      { type: 'text', text: 'Para B' },
+    ],
+  });
+});
+
+test('translateMessagesToChatCompletions preserves top-level system text blocks as separate content parts', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    system: [
+      { type: 'text', text: 'instructions' },
+      { type: 'text', text: 'extra context' },
+    ],
+    messages: [
+      { role: 'user', content: 'hi' },
+    ],
+  });
+
+  assertEquals(result.messages[0], {
+    role: 'system',
+    content: [
+      { type: 'text', text: 'instructions' },
+      { type: 'text', text: 'extra context' },
+    ],
+  });
+});
+
+test('translateMessagesToChatCompletions skips system message when top-level system is empty array', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    system: [],
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.messages.length, 1);
+  assertEquals(result.messages[0].role, 'user');
+});
+
+test('translateMessagesToChatCompletions preserves chronology of multiple in-array system messages', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    system: 'top-level prompt',
+    messages: [
+      { role: 'system', content: 'mid-array A' },
+      { role: 'user', content: 'q1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'system', content: 'mid-array B' },
+      { role: 'user', content: 'q2' },
+    ],
+  });
+
+  // The top-level system comes first (canonical placement), then the
+  // in-array sequence is preserved verbatim.
+  assertEquals(result.messages[0], { role: 'system', content: 'top-level prompt' });
+  assertEquals(result.messages[1], { role: 'system', content: 'mid-array A' });
+  assertEquals(result.messages[2].role, 'user');
+  assertEquals(result.messages[3].role, 'assistant');
+  assertEquals(result.messages[4], { role: 'system', content: 'mid-array B' });
+  assertEquals(result.messages[5].role, 'user');
+});
+
+test('translateMessagesToChatCompletions rejects an unknown message role', () => {
+  assertThrows(
+    () =>
+      translateMessagesToChatCompletions({
+        model: 'gpt-test',
+        max_tokens: 256,
+        messages: [{ role: 'tool', content: 'oops' } as unknown as { role: 'user'; content: string }],
+      }),
+    Error,
+    "messages.0.role: role 'tool' is not supported",
+  );
+});
+
+test('translateMessagesToChatCompletions drops Anthropic-only knobs that have no Chat-completions slot', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled', budget_tokens: 4096, display: 'summarized' },
+  });
+
+  // Only the OpenAI-canonical effort axis survives; budget_tokens and display
+  // have no Chat-completions equivalent and translate emits nothing for
+  // them. `speed` has its own bridge test below and is intentionally
+  // excluded here.
+  assertEquals(result.reasoning_effort, 'medium');
+});
+
+// ── speed ↔ service_tier bridge ──
+
+test('translateMessagesToChatCompletions maps speed:fast to service_tier:fast on the outbound Chat Completions payload', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    speed: 'fast',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.service_tier, 'fast');
+});
+
+test('translateMessagesToChatCompletions omits service_tier when speed is absent', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertFalse('service_tier' in result);
+});
+
+test('translateMessagesToChatCompletions drops speed values other than fast without emitting service_tier', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    speed: 'standard',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertFalse('service_tier' in result);
+});
+
+test('translateMessagesToChatCompletions forwards Anthropic service_tier to Chat Completions when speed is absent', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    service_tier: 'auto',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.service_tier, 'auto');
+});
+
+test('translateMessagesToChatCompletions forwards service_tier:standard_only to Chat Completions when speed is absent', () => {
+  const result = translateMessagesToChatCompletions({
+    model: 'gpt-test',
+    max_tokens: 256,
+    service_tier: 'standard_only',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  assertEquals(result.service_tier, 'standard_only');
 });

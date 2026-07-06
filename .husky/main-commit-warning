@@ -1,0 +1,26 @@
+#!/bin/sh
+# Warn the agent before a commit / merge-commit / cherry-pick / FF lands
+# from a checkout that is NOT a linked worktree under <repo_root>/.worktrees/.
+# Always exits 0; the warning goes to stderr and never blocks the calling
+# git command. Sourced by `.husky/post-commit` and `.husky/post-merge`.
+
+toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+case "$common_dir" in
+  /*) ;;
+  *) common_dir=$(cd "$common_dir" 2>/dev/null && pwd) || exit 0 ;;
+esac
+main_root=$(dirname "$common_dir")
+
+case "$toplevel" in
+  "$main_root"/.worktrees/*) exit 0 ;;
+esac
+
+cat >&2 <<'WARNING'
+WARNING! NOT in a worktree. Please double check: is the user really *explicitly* asking you to commit here?
+The keywords "fix", "deploy", or "push" do NOT mean committing. If you were asked to do those, do those ONLY — they do NOT mean commit.
+If this is genuinely an *explicit* user instruction telling you to commit, proceed.
+If the user did not ask you to *commit*, reset to the previous state, apologize to the user, and continue with what *should* be done — without stopping.
+WARNING
+
+exit 0

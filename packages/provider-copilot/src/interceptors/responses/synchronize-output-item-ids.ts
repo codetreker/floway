@@ -77,7 +77,9 @@ const fixResponsesStreamIds = (event: ResponsesStreamEvent, tracker: StreamIdTra
 
 export const withOutputItemIdsSynchronized: CopilotResponsesBoundaryInterceptor = async (_ctx, _request, run) => {
   const result = await run();
-  if (result.type !== 'events') return result;
+  // Only the streaming generate branch produces events worth inspecting.
+  // The compact branch is a single value envelope; pass it through unchanged.
+  if (result.action !== 'generate' || !result.ok) return result;
 
   const tracker: StreamIdTracker = { outputItemIds: new Map() };
 

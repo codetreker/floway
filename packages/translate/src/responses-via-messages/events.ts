@@ -80,11 +80,17 @@ interface MessagesToResponsesStreamState {
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
   stopReason?: MessagesMessageDeltaEvent['delta']['stop_reason'];
+  // Captured from message_delta usage for service_tier pass-through.
+  upstreamSpeed?: string;
+  upstreamServiceTier?: string;
   customToolNames: ReadonlySet<string>;
 }
 
 const buildResult = (state: MessagesToResponsesStreamState, status: ResponsesResult['status']): ResponsesResult => {
   const inputTokens = state.inputTokens + (state.cacheReadInputTokens ?? 0) + (state.cacheCreationInputTokens ?? 0);
+  // Anthropic's `speed: 'fast'` surfaces as OpenAI `service_tier: 'fast'`;
+  // all other Anthropic service_tier values pass through directly.
+  const serviceTier = state.upstreamSpeed === 'fast' ? 'fast' : state.upstreamServiceTier;
 
   return responses.result({
     id: state.responseId,
@@ -98,6 +104,7 @@ const buildResult = (state: MessagesToResponsesStreamState, status: ResponsesRes
     // don't map to incomplete.
     ...(status === 'incomplete' ? { incompleteDetails: { reason: 'max_output_tokens' as const } } : {}),
     usage: responses.usage(inputTokens, state.outputTokens, state.cacheReadInputTokens),
+    ...(serviceTier !== undefined ? { serviceTier } : {}),
   });
 };
 
@@ -352,6 +359,8 @@ export const translateMessagesEventToResponsesEvents = (event: MessagesStreamEve
     }
     if (event.usage) {
       state.outputTokens = event.usage.output_tokens;
+      if (event.usage.speed !== undefined) state.upstreamSpeed = event.usage.speed;
+      if (event.usage.service_tier !== undefined) state.upstreamServiceTier = event.usage.service_tier;
     }
     return [];
   }

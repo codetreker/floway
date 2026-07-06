@@ -12,7 +12,7 @@ test('/api/performance returns backend-aggregated base-model percentiles', async
     keyId: apiKey.id,
     upstream: 'copilot:1',
     stream: true,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
   };
 
   for (let i = 0; i < 90; i++) {
@@ -64,6 +64,7 @@ test('/api/performance scopes to actor\'s keys in self-by-key mode', async () =>
     createdAt: '2026-04-30T00:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   const sample = {
@@ -71,7 +72,7 @@ test('/api/performance scopes to actor\'s keys in self-by-key mode', async () =>
     metricScope: 'request_total' as const,
     upstream: null,
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
   };
 
   await repo.performance.recordLatency({ ...sample, keyId: apiKey.id, model: 'gpt-5', modelKey: 'gpt-5', durationMs: 50 });
@@ -96,7 +97,7 @@ test('/api/performance can include key metadata', async () => {
     upstream: null,
     modelKey: 'gpt-5',
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
     durationMs: 50,
   });
 
@@ -126,6 +127,7 @@ test('/api/performance all-by-user view aggregates over every key', async () => 
     createdAt: '2026-04-30T00:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   const sample = {
@@ -135,7 +137,7 @@ test('/api/performance all-by-user view aggregates over every key', async () => 
     modelKey: 'gpt-5',
     upstream: null,
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
     durationMs: 100,
   };
   await repo.performance.recordLatency({ ...sample, keyId: apiKey.id });
@@ -174,6 +176,7 @@ test('/api/performance all-by-user view supports group_by=userId', async () => {
     createdAt: '2026-04-30T00:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   const sample = {
@@ -183,7 +186,7 @@ test('/api/performance all-by-user view supports group_by=userId', async () => {
     modelKey: 'gpt-5',
     upstream: null,
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
     durationMs: 100,
   };
   await repo.performance.recordLatency({ ...sample, keyId: apiKey.id });
@@ -206,7 +209,7 @@ test('/api/performance rejects group_by=userId in self-by-key mode', async () =>
   assertEquals(body.error, 'group_by=userId is not allowed in self-by-key mode');
 });
 
-test('/api/performance/overview series pivots to per-user under all-by-user view', async () => {
+test('/api/performance/overview series stays per-model under all-by-user view', async () => {
   const { repo, adminSession, apiKey } = await setupAppTest();
   await repo.apiKeys.save({
     id: 'key_other',
@@ -216,6 +219,7 @@ test('/api/performance/overview series pivots to per-user under all-by-user view
     createdAt: '2026-04-30T00:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   const sample = {
@@ -225,7 +229,7 @@ test('/api/performance/overview series pivots to per-user under all-by-user view
     modelKey: 'gpt-5',
     upstream: null,
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
     durationMs: 100,
   };
   await repo.performance.recordLatency({ ...sample, keyId: apiKey.id });
@@ -235,9 +239,10 @@ test('/api/performance/overview series pivots to per-user under all-by-user view
 
   assertEquals(response.status, 200);
   const body = await response.json();
-  // Series is now grouped by user; both rows show up.
+  // Series stays per-model regardless of view — the page is a latency analysis,
+  // and per-user lines have no useful meaning there.
   const seriesGroups = body.series.map((r: { group: string; requests: number }) => [r.group, r.requests]).sort();
-  assertEquals(seriesGroups, [['1', 1], ['2', 1]]);
+  assertEquals(seriesGroups, [['gpt-5', 2]]);
   assertEquals(body.users.map((u: { id: number }) => u.id).sort(), [1, 2]);
 });
 
@@ -324,7 +329,7 @@ test('/api/performance all-by-user attributes soft-deleted keys to their origina
     modelKey: 'gpt-5',
     upstream: null,
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
     durationMs: 100,
   });
   await repo.apiKeys.softDelete(apiKey.id);
@@ -350,7 +355,7 @@ test('/api/performance self-by-key surfaces soft-deleted keys metadata to their 
     modelKey: 'gpt-5',
     upstream: null,
     stream: false,
-    runtimeLocation: 'unknown',
+    runtimeLocation: 'LOCAL',
     durationMs: 200,
   });
   await repo.apiKeys.softDelete(apiKey.id);
@@ -364,6 +369,7 @@ test('/api/performance self-by-key surfaces soft-deleted keys metadata to their 
     createdAt: '2026-04-30T11:00:00.000Z',
     upstreamIds: null,
     deletedAt: null,
+    dumpRetentionSeconds: null,
   });
 
   const response = await requestApp(

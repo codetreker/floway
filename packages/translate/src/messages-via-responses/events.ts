@@ -72,6 +72,10 @@ export const translateResponsesToMessagesResult = (response: ResponsesResult): M
   const inputTokens = response.usage?.input_tokens ?? 0;
   const cachedTokens = response.usage?.input_tokens_details?.cached_tokens;
 
+  // Responses `service_tier: 'fast'` surfaces as Messages `speed: 'fast'`;
+  // all other `service_tier` values have no Messages equivalent and are dropped.
+  const speed = response.service_tier === 'fast' ? 'fast' : undefined;
+
   return {
     id: response.id,
     type: 'message',
@@ -84,6 +88,7 @@ export const translateResponsesToMessagesResult = (response: ResponsesResult): M
       input_tokens: inputTokens - (cachedTokens ?? 0),
       output_tokens: response.usage?.output_tokens ?? 0,
       ...(cachedTokens !== undefined ? { cache_read_input_tokens: cachedTokens } : {}),
+      ...(speed !== undefined ? { speed } : {}),
     },
   };
 };

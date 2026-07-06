@@ -1,27 +1,69 @@
-import type { CodexAccessTokenCache } from '../access-token-cache.ts';
 import type { CodexUpstreamConfig } from '../config.ts';
 import type { CodexUpstreamState } from '../state.ts';
+import type { CodexIdTokenIdentity } from './jwt.ts';
 import { parseCodexIdTokenClaims } from './jwt.ts';
 import { exchangeCodexAuthorizationCode } from './oauth.ts';
+import type { Fetcher } from '@floway-dev/provider';
 
 export interface CodexImportResult {
   config: CodexUpstreamConfig;
   state: CodexUpstreamState;
-  accessToken: CodexAccessTokenCache;
 }
 
-// Path A — operator pasted ~/.codex/auth.json verbatim. The CLI's on-disk
-// format wraps tokens under `.tokens`. We don't trust the file's
-// account_id / email / plan fields; we re-derive identity from id_token so
-// import semantics are uniform with Path B (which has only the OAuth response
-// to work from).
-export const importCodexFromAuthJson = async (authJson: unknown): Promise<CodexImportResult> => {
+const buildCodexImportResult = (params: {
+  identity: CodexIdTokenIdentity;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  now: string;
+}): CodexImportResult => ({
+  config: {
+    accounts: [{
+      email: params.identity.email,
+      chatgptAccountId: params.identity.chatgptAccountId,
+      chatgptUserId: params.identity.chatgptUserId,
+      planType: params.identity.planType,
+    }],
+  },
+  state: {
+    accounts: [{
+      chatgptAccountId: params.identity.chatgptAccountId,
+      refresh_token: params.refreshToken,
+      state: 'active',
+      state_updated_at: params.now,
+      // Mint a fresh per-account installation id at import time. Codex CLI's
+      // `$CODEX_HOME/installation_id` is a UUIDv4 written once per device and
+      // reused forever; we mirror the shape and lifetime per Floway-managed
+      // account so each account looks like one persisted Codex install rather
+      // than a fingerprint that rotates per call.
+      openaiDeviceId: crypto.randomUUID(),
+      accessToken: {
+        token: params.accessToken,
+        expiresAt: params.expiresAt,
+        refreshedAt: params.now,
+      },
+      quotaSnapshot: null,
+    }],
+  },
+});
+
+// Imports a verbatim ~/.codex/auth.json. The CLI's on-disk format wraps tokens
+// under `.tokens`. We re-derive identity from id_token rather than trusting the
+// file's account_id / email / plan, so this path produces the same shape as
+// importCodexFromCallback (which only has the OAuth response to work from).
+export const importCodexFromAuthJson = async (rawJson: string): Promise<CodexImportResult> => {
   const pickNonEmptyString = (record: Record<string, unknown>, key: string, prefix: string): string => {
     const value = record[key];
     if (typeof value !== 'string' || value === '') throw new TypeError(`${prefix}.${key} must be a non-empty string`);
     return value;
   };
 
+  let authJson: unknown;
+  try {
+    authJson = JSON.parse(rawJson);
+  } catch (cause) {
+    throw new Error('auth.json is not valid JSON', { cause: cause as Error });
+  }
   if (typeof authJson !== 'object' || authJson === null) throw new TypeError('auth.json must be a JSON object');
   const obj = authJson as Record<string, unknown>;
   const tokens = obj.tokens;
@@ -32,91 +74,37 @@ export const importCodexFromAuthJson = async (authJson: unknown): Promise<CodexI
   const idToken = pickNonEmptyString(t, 'id_token', 'auth.json.tokens');
 
   const identity = parseCodexIdTokenClaims(idToken);
-  const now = new Date().toISOString();
-  const config: CodexUpstreamConfig = {
-    accounts: [{
-      email: identity.email,
-      chatgptAccountId: identity.chatgptAccountId,
-      chatgptUserId: identity.chatgptUserId,
-      planType: identity.planType,
-    }],
-  };
-
-  const state: CodexUpstreamState = {
-    accounts: [{
-      chatgptAccountId: identity.chatgptAccountId,
-      refresh_token: refreshToken,
-      state: 'active',
-      state_updated_at: now,
-    }],
-  };
-
-  // auth.json has no expires_in; conservative 7-day cache so the next request
-  // refreshes via /oauth/token within the 5-min freshness gate.
-  const sevenDaysSeconds = 7 * 24 * 60 * 60;
-  return {
-    config,
-    state,
-    accessToken: {
-      access_token: accessToken,
-      expires_at: Math.floor(Date.now() / 1000) + sevenDaysSeconds,
-      refreshed_at: new Date().toISOString(),
-    },
-  };
+  // auth.json carries the access_token + refresh_token but no `expires_in`
+  // for the access_token. Stamp a conservative 7-day fallback so the
+  // freshness gate in access-token-cache forces a /oauth/token refresh on
+  // the first data-plane call rather than handing out a token of unknown
+  // remaining lifetime. The refresh_token's own lifetime is set by
+  // auth.openai.com and is unaffected by this fallback.
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  return buildCodexImportResult({
+    identity,
+    accessToken,
+    refreshToken,
+    expiresAt: Date.now() + sevenDaysMs,
+    now: new Date().toISOString(),
+  });
 };
 
-// Accepts a full URL (`http://localhost:1455/auth/callback?...`) or a bare
-// query string (with or without leading `?`). Returns the `code` + `state`
-// query params or throws.
-export const extractCodexCallbackParams = (input: string): { code: string; state: string } => {
-  const trimmed = input.trim();
-  let query: string;
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    try {
-      query = new URL(trimmed).search;
-    } catch (cause) {
-      throw new Error('Callback URL is malformed', { cause: cause as Error });
-    }
-  } else {
-    query = trimmed.startsWith('?') ? trimmed : `?${trimmed}`;
-  }
-  const params = new URLSearchParams(query);
-  const code = params.get('code');
-  const state = params.get('state');
-  if (!code) throw new Error('Callback URL is missing `code`');
-  if (!state) throw new Error('Callback URL is missing `state`');
-  return { code, state };
-};
-
-// Path B — exchange the authorization code for tokens, then derive identity
-// from the returned id_token. The PKCE verifier was stored at PKCE-start time
-// and supplied here.
-export const importCodexFromCallback = async (opts: { code: string; codeVerifier: string }): Promise<CodexImportResult> => {
-  const tokens = await exchangeCodexAuthorizationCode({ code: opts.code, codeVerifier: opts.codeVerifier });
+// Exchange the authorization code for tokens, then derive identity from the
+// returned id_token. The PKCE verifier was generated and held by the
+// dashboard alongside the round-tripped state, but only the verifier is
+// passed to auth.openai.com (the endpoint rejects state with 400). The
+// token exchange is the only network hop on this path (identity parses
+// locally from the id_token), so `fetcher` is where the caller picks
+// egress for the whole import.
+export const importCodexFromCallback = async (opts: { code: string; codeVerifier: string; fetcher: Fetcher }): Promise<CodexImportResult> => {
+  const tokens = await exchangeCodexAuthorizationCode({ code: opts.code, codeVerifier: opts.codeVerifier, fetcher: opts.fetcher });
   const identity = parseCodexIdTokenClaims(tokens.id_token);
-  const now = new Date().toISOString();
-
-  return {
-    config: {
-      accounts: [{
-        email: identity.email,
-        chatgptAccountId: identity.chatgptAccountId,
-        chatgptUserId: identity.chatgptUserId,
-        planType: identity.planType,
-      }],
-    },
-    state: {
-      accounts: [{
-        chatgptAccountId: identity.chatgptAccountId,
-        refresh_token: tokens.refresh_token,
-        state: 'active',
-        state_updated_at: now,
-      }],
-    },
-    accessToken: {
-      access_token: tokens.access_token,
-      expires_at: Math.floor(Date.now() / 1000) + tokens.expires_in,
-      refreshed_at: new Date().toISOString(),
-    },
-  };
+  return buildCodexImportResult({
+    identity,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: Date.now() + tokens.expires_in * 1000,
+    now: new Date().toISOString(),
+  });
 };

@@ -338,7 +338,7 @@ test('buildTargetRequest rejects an unknown content role', () => {
         'gpt-test',
       ),
     Error,
-    'does not accept tool content roles',
+    '"tool" is not a supported content role.',
   );
 });
 
@@ -352,7 +352,7 @@ test('buildTargetRequest rejects a part with an unsupported kind in user content
         'gpt-test',
       ),
     Error,
-    'does not accept code_execution_result parts in user content',
+    '"code_execution_result" parts are not supported in user content.',
   );
 });
 
@@ -366,7 +366,7 @@ test('buildTargetRequest rejects a function_call part in user content', () => {
         'gpt-test',
       ),
     Error,
-    'does not accept function_call parts in user content',
+    '"function_call" parts are not supported in user content.',
   );
 });
 
@@ -380,7 +380,7 @@ test('buildTargetRequest rejects an inline_data part in model content', () => {
         'gpt-test',
       ),
     Error,
-    'does not accept inline_data parts in model content',
+    '"inline_data" parts are not supported in model content.',
   );
 });
 

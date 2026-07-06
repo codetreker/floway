@@ -1,6 +1,8 @@
 import { isKnownFlagId } from './flags.ts';
-import type { ModelEndpointKey, ModelEndpoints, ModelKind, ModelPricing } from '@floway-dev/protocols/common';
+import { BILLING_DIMENSIONS, type BillingDimension, type ChatModelInfo, type ModelEndpointKey, type ModelEndpoints, type ModelKind, type Modality, type ModelPricing } from '@floway-dev/protocols/common';
 import { kindForEndpoints } from '@floway-dev/protocols/common';
+
+export type { Modality } from '@floway-dev/protocols/common';
 
 export interface UpstreamModelLimits {
   max_context_window_tokens?: number;
@@ -13,18 +15,22 @@ export interface UpstreamModelFlagOverrides {
   values: Record<string, boolean>;
 }
 
+// The catalog-side name for the wire chat metadata. Shape lives in
+// @floway-dev/protocols/common so PublicModel.chat and the upstream catalog
+// share a single declaration.
+export type UpstreamChatModelConfig = ChatModelInfo;
+
 export interface UpstreamModelConfig {
-  upstreamModelId: string;
-  publicModelId?: string;
-  // Required metadata mirroring our public model definition. Routing is driven
-  // by `endpoints` (the structured capability map: a present key means the model
-  // is served by that endpoint); `kind` decides which fields the dashboard form
-  // surfaces and is derived from `endpoints` when an entry omits it.
+  // Mirrors of fields that flow through to PublicModel (snake_case for parity).
   kind: ModelKind;
   endpoints: ModelEndpoints;
   display_name?: string;
   limits?: UpstreamModelLimits;
   cost?: ModelPricing;
+  chat?: UpstreamChatModelConfig;
+  // Floway-internal (camelCase, not surfaced on PublicModel).
+  upstreamModelId: string;
+  publicModelId?: string;
   flagOverrides?: UpstreamModelFlagOverrides;
 }
 
@@ -50,7 +56,7 @@ export const optionalStringField = (value: unknown, label: string): string | und
 };
 
 const MODEL_ENDPOINT_KEYS: ReadonlySet<ModelEndpointKey> = new Set<ModelEndpointKey>([
-  'chatCompletions', 'responses', 'messages', 'embeddings', 'imagesGenerations', 'imagesEdits',
+  'completions', 'chatCompletions', 'responses', 'messages', 'embeddings', 'imagesGenerations', 'imagesEdits',
 ]);
 
 // The structured per-model capability map. A present key declares the model is
@@ -120,19 +126,132 @@ const nonNegativeNumberField = (value: unknown, label: string): number => {
   return value;
 };
 
-const PRICING_DIMENSIONS: readonly (keyof ModelPricing)[] = ['input', 'input_cache_read', 'input_cache_write', 'input_image', 'output', 'output_image'];
-
 export const pricingField = (value: unknown, label: string): ModelPricing | undefined => {
   const record = optionalMetadataRecord(value, label);
   if (!record) return undefined;
   const pricing: ModelPricing = {};
-  for (const dimension of PRICING_DIMENSIONS) {
+  for (const dimension of BILLING_DIMENSIONS) {
     if (record[dimension] !== undefined) pricing[dimension] = nonNegativeNumberField(record[dimension], `${label}.${dimension}`);
+  }
+  if (record.tiers !== undefined) {
+    if (!isRecord(record.tiers)) throw new Error(`Malformed ${label}.tiers: must be an object`);
+    const tiers: Record<string, Partial<Record<BillingDimension, number>>> = {};
+    for (const [tierName, overlay] of Object.entries(record.tiers)) {
+      if (tierName === '') throw new Error(`Malformed ${label}.tiers: tier name must be non-empty`);
+      if (!isRecord(overlay)) throw new Error(`Malformed ${label}.tiers.${tierName}: must be an object`);
+      const tierPricing: Partial<Record<BillingDimension, number>> = {};
+      for (const dimension of BILLING_DIMENSIONS) {
+        if (overlay[dimension] !== undefined) {
+          tierPricing[dimension] = nonNegativeNumberField(overlay[dimension], `${label}.tiers.${tierName}.${dimension}`);
+        }
+      }
+      // An empty overlay is a valid declaration: the tier exists but every
+      // dimension inherits base pricing. Preserve it verbatim.
+      tiers[tierName] = tierPricing;
+    }
+    if (Object.keys(tiers).length > 0) pricing.tiers = tiers;
   }
   return Object.keys(pricing).length > 0 ? pricing : undefined;
 };
 
 const MODEL_KINDS: ReadonlySet<ModelKind> = new Set<ModelKind>(['chat', 'embedding', 'image']);
+
+const MODALITY_VALUES: ReadonlySet<Modality> = new Set<Modality>(['text', 'image']);
+
+const modalityArrayField = (value: unknown, label: string): readonly Modality[] => {
+  if (!Array.isArray(value)) throw new Error(`Malformed ${label}: must be an array`);
+  const out: Modality[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !MODALITY_VALUES.has(entry as Modality)) {
+      throw new Error(`Malformed ${label}: unknown modality ${JSON.stringify(entry)}`);
+    }
+    if (!out.includes(entry as Modality)) out.push(entry as Modality);
+  }
+  if (out.length === 0) throw new Error(`Malformed ${label}: must have at least one modality`);
+  return out;
+};
+
+const inputModalitiesField = (value: unknown, label: string): readonly Modality[] => {
+  const modalities = modalityArrayField(value, label);
+  if (!modalities.includes('text')) throw new Error(`Malformed ${label}: must include 'text'`);
+  return modalities;
+};
+
+const optionalNonNegativeIntField = (value: unknown, label: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`Malformed ${label}: must be a non-negative integer`);
+  }
+  return value;
+};
+
+const reasoningField = (value: unknown, label: string): UpstreamChatModelConfig['reasoning'] => {
+  if (!isRecord(value)) throw new Error(`Malformed ${label}: must be an object`);
+
+  const result: NonNullable<UpstreamChatModelConfig['reasoning']> = {};
+
+  if (value.effort !== undefined) {
+    if (!isRecord(value.effort)) throw new Error(`Malformed ${label}.effort: must be an object`);
+    if (!Array.isArray(value.effort.supported)) throw new Error(`Malformed ${label}.effort.supported: must be an array`);
+    const supported: string[] = [];
+    for (const eff of value.effort.supported) {
+      if (typeof eff !== 'string' || eff.length === 0) throw new Error(`Malformed ${label}.effort.supported: every entry must be a non-empty string`);
+      if (!supported.includes(eff)) supported.push(eff);
+    }
+    if (supported.length === 0) throw new Error(`Malformed ${label}.effort.supported: must have at least one entry`);
+    if (typeof value.effort.default !== 'string' || value.effort.default.length === 0) {
+      throw new Error(`Malformed ${label}.effort.default: must be a non-empty string`);
+    }
+    if (!supported.includes(value.effort.default)) {
+      throw new Error(`Malformed ${label}.effort.default: ${JSON.stringify(value.effort.default)} not in effort.supported`);
+    }
+    result.effort = { supported, default: value.effort.default };
+  }
+
+  if (value.budget_tokens !== undefined) {
+    if (!isRecord(value.budget_tokens)) throw new Error(`Malformed ${label}.budget_tokens: must be an object`);
+    const min = optionalNonNegativeIntField(value.budget_tokens.min, `${label}.budget_tokens.min`);
+    const max = optionalNonNegativeIntField(value.budget_tokens.max, `${label}.budget_tokens.max`);
+    if (min !== undefined && max !== undefined && max < min) {
+      throw new Error(`Malformed ${label}.budget_tokens: max must be >= min`);
+    }
+    result.budget_tokens = { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
+  }
+
+  if (value.adaptive !== undefined) {
+    if (typeof value.adaptive !== 'boolean') throw new Error(`Malformed ${label}.adaptive: must be a boolean`);
+    // Strip false — semantically equivalent to absent.
+    if (value.adaptive) result.adaptive = true;
+  }
+
+  if (value.mandatory !== undefined) {
+    if (typeof value.mandatory !== 'boolean') throw new Error(`Malformed ${label}.mandatory: must be a boolean`);
+    // Strip false — semantically equivalent to absent.
+    if (value.mandatory) result.mandatory = true;
+  }
+
+  if (result.effort === undefined && result.budget_tokens === undefined && result.adaptive === undefined && result.mandatory === undefined) {
+    throw new Error(`Malformed ${label}: must have at least one of effort, budget_tokens, adaptive, mandatory`);
+  }
+
+  return result;
+};
+
+export const chatField = (value: unknown, label: string): UpstreamChatModelConfig | undefined => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(`Malformed ${label}: must be an object`);
+  const out: UpstreamChatModelConfig = {};
+  if (value.modalities !== undefined) {
+    if (!isRecord(value.modalities)) throw new Error(`Malformed ${label}.modalities: must be an object`);
+    out.modalities = {
+      input: inputModalitiesField(value.modalities.input, `${label}.modalities.input`),
+      output: modalityArrayField(value.modalities.output, `${label}.modalities.output`),
+    };
+  }
+  if (value.reasoning !== undefined) out.reasoning = reasoningField(value.reasoning, `${label}.reasoning`);
+  if (out.modalities === undefined && out.reasoning === undefined) return undefined;
+  return out;
+};
 
 // kind is a pure function of the routing endpoints, so an entry that omits it
 // (an import, or hand-edited JSON) derives one rather than failing. The editor
@@ -149,14 +268,20 @@ const modelField = (value: unknown, label: string): UpstreamModelConfig => {
   if (!isRecord(value)) throw new Error(`Malformed ${label}: must be an object`);
   const cost = pricingField(value.cost, `${label}.cost`);
   const endpoints = endpointsField(value.endpoints, `${label}.endpoints`);
+  const kind = kindField(value.kind, endpoints, `${label}.kind`);
+  const chat = chatField(value.chat, `${label}.chat`);
+  if (chat !== undefined && kind !== 'chat') {
+    throw new Error(`Malformed ${label}: chat field is only allowed when kind === 'chat'`);
+  }
   return {
-    upstreamModelId: nonEmptyStringField(value.upstreamModelId, `${label}.upstreamModelId`),
-    ...(value.publicModelId !== undefined ? { publicModelId: optionalStringField(value.publicModelId, `${label}.publicModelId`) } : {}),
-    kind: kindField(value.kind, endpoints, `${label}.kind`),
+    kind,
     endpoints,
     ...(value.display_name !== undefined ? { display_name: optionalStringField(value.display_name, `${label}.display_name`) } : {}),
     ...(value.limits !== undefined ? { limits: limitsField(value.limits, `${label}.limits`) } : {}),
     ...(cost ? { cost } : {}),
+    ...(chat ? { chat } : {}),
+    upstreamModelId: nonEmptyStringField(value.upstreamModelId, `${label}.upstreamModelId`),
+    ...(value.publicModelId !== undefined ? { publicModelId: optionalStringField(value.publicModelId, `${label}.publicModelId`) } : {}),
     ...(value.flagOverrides !== undefined ? { flagOverrides: flagOverridesField(value.flagOverrides, `${label}.flagOverrides`) } : {}),
   };
 };

@@ -327,7 +327,7 @@ test('buildTargetRequest rejects an unknown content role', () => {
         noOptions,
       ),
     Error,
-    'does not accept system content roles',
+    '"system" is not a supported content role.',
   );
 });
 
@@ -342,7 +342,7 @@ test('buildTargetRequest rejects a part with an unsupported kind in user content
         noOptions,
       ),
     Error,
-    'does not accept file_data parts in user content',
+    '"file_data" parts are not supported in user content.',
   );
 });
 
@@ -357,7 +357,7 @@ test('buildTargetRequest rejects a function_call part in user content', () => {
         noOptions,
       ),
     Error,
-    'does not accept function_call parts in user content',
+    '"function_call" parts are not supported in user content.',
   );
 });
 
@@ -372,7 +372,7 @@ test('buildTargetRequest rejects an inline_data part in model content', () => {
         noOptions,
       ),
     Error,
-    'does not accept inline_data parts in model content',
+    '"inline_data" parts are not supported in model content.',
   );
 });
 

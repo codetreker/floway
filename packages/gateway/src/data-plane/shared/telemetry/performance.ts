@@ -2,16 +2,9 @@ import { currentHour } from './hour.ts';
 import { getRepo } from '../../../repo/index.ts';
 import type { PerformanceDimensions, PerformanceMetricScope } from '../../../repo/types.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
-import { getEnv } from '@floway-dev/platform';
 import type { PerformanceTelemetryContext } from '@floway-dev/provider';
 
 export type { PerformanceTelemetryContext };
-
-export function runtimeLocationFromRequest(request: Request): string {
-  const cf = (request as Request & { cf?: { colo?: unknown } }).cf;
-  if (typeof cf?.colo === 'string' && cf.colo) return cf.colo;
-  return getEnv('RUNTIME_LOCATION') || 'unknown';
-}
 
 const performanceDimensions = (context: PerformanceTelemetryContext, metricScope: PerformanceMetricScope): PerformanceDimensions => ({
   hour: currentHour(),
@@ -53,14 +46,32 @@ export const recordRequestPerformance = (
   scheduler(failed ? recordPerformanceError(context, 'request_total') : recordPerformanceLatency(context, 'request_total', durationMs));
 };
 
-// Gateway-side counterpart to `UpstreamCallOptions.recordUpstreamLatency` (see
-// the contract docstring on that interface). Mints a fresh `record` for one
-// provider call and reads back the wrapped promise's duration after the call
-// returns; `durationMs()` throws when the provider returned without ever
-// wrapping. Kept separate from `UpstreamCallOptions` so future per-call hooks
-// added to the options bag don't expand the recorder's surface.
-export const createUpstreamLatencyRecorder = () => {
-  let last: number | undefined;
+export interface UpstreamLatencyRecorder {
+  record: <T>(promise: Promise<T>) => Promise<T>;
+  durationMs: () => number | null;
+}
+
+// Gateway-side counterpart to `UpstreamCallOptions.recordUpstreamLatency`
+// (see the contract docstring on that interface). Mints a fresh `record`
+// for one provider call and reports back whether the wrap happened and
+// what it measured. Kept separate from `UpstreamCallOptions` so future
+// per-call hooks added to the options bag don't expand the recorder's
+// surface.
+//
+// `durationMs()` returns `null` when the provider never wrapped a fetch.
+// Consumers decide what the absence means:
+//   - success-path consumers MUST treat null as a bug (a real upstream
+//     call must instrument its round-trip),
+//   - failure-path consumers may receive null because the provider
+//     short-circuited at the gateway before any upstream call (e.g. a
+//     request-side 400). When a failure path does have a duration, it is
+//     free to record it.
+//
+// Per-call-site asserts (instead of a recorder-side throw) keep the
+// "you forgot to wrap" error attached to the exact line that depends on
+// the value.
+export const createUpstreamLatencyRecorder = (): UpstreamLatencyRecorder => {
+  let last: number | null = null;
   return {
     record: <T>(promise: Promise<T>): Promise<T> => {
       const startedAt = performance.now();
@@ -68,11 +79,15 @@ export const createUpstreamLatencyRecorder = () => {
         last = performance.now() - startedAt;
       });
     },
-    durationMs: (): number => {
-      if (last === undefined) {
-        throw new Error('upstream call returned without wrapping its fetch promise in opts.recordUpstreamLatency');
-      }
-      return last;
-    },
+    durationMs: () => last,
   };
+};
+
+// Asserts a recorded duration; throws if the wrap never happened. Use at
+// any call site whose semantics require the value (every success-side
+// record, plus the count_tokens contract guard).
+export const requireRecordedDurationMs = (recorder: UpstreamLatencyRecorder, what: string): number => {
+  const value = recorder.durationMs();
+  if (value === null) throw new Error(`${what} returned without wrapping its fetch promise in opts.recordUpstreamLatency`);
+  return value;
 };

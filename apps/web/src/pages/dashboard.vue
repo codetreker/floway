@@ -21,6 +21,7 @@ const allTabs: TabDef[] = [
   { path: '/dashboard/users', label: 'Users', adminOnly: true },
   { path: '/dashboard/models', label: 'Models' },
   { path: '/dashboard/keys', label: 'API Keys' },
+  { path: '/dashboard/requests', label: 'Requests' },
   { path: '/dashboard/usage', label: 'Usage' },
   { path: '/dashboard/performance', label: 'Performance' },
 ];

@@ -1,25 +1,32 @@
 <script setup lang="ts">
-
 import CopilotDeviceFlow from './CopilotDeviceFlow.vue';
 import CopilotInfo from './CopilotInfo.vue';
-import type { CopilotQuotaSnapshot, CopilotUpstreamConfig, UpstreamRecord } from '../../api/types.ts';
+import type { UpstreamRecord } from '../../api/types.ts';
 
+type CopilotUpstreamRecord = Extract<UpstreamRecord, { kind: 'copilot' }>;
+
+// The draft's `githubToken` is the sole discriminator between "run device
+// flow" (blueprint / freshly created row) and "show account info" (post-
+// exchange). Once the device-flow completion emits a patch, the parent
+// merges it into draft.config.githubToken and this component re-renders
+// into the info view without any local state.
 defineProps<{
-  record: UpstreamRecord | null;
-  initialQuota?: CopilotQuotaSnapshot | null;
-  initialQuotaError?: string | null;
+  draft: CopilotUpstreamRecord;
+  saving: boolean;
 }>();
 
-defineEmits<{ completed: [upstream: UpstreamRecord | undefined] }>();
+defineEmits<{
+  patched: [patch: { config?: unknown; state?: unknown }];
+  'save-and-open-edit': [];
+}>();
 </script>
 
 <template>
   <CopilotInfo
-    v-if="record"
-    :upstream-id="record.id"
-    :config="record.config as CopilotUpstreamConfig"
-    :initial-quota="initialQuota"
-    :initial-quota-error="initialQuotaError"
+    v-if="draft.config.githubToken"
+    :draft="draft"
+    :saving="saving"
+    @save-and-open-edit="$emit('save-and-open-edit')"
   />
-  <CopilotDeviceFlow v-else @completed="u => $emit('completed', u)" />
+  <CopilotDeviceFlow v-else :draft="draft" @patched="p => $emit('patched', p)" />
 </template>

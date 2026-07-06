@@ -1,6 +1,6 @@
 import { useLocalStorage } from '@vueuse/core';
 import { defineStore } from 'pinia';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 export interface AuthUser {
   id: number;
@@ -10,56 +10,35 @@ export interface AuthUser {
   upstreamIds: string[] | null;
 }
 
-export interface AuthIdentity {
-  token: string;
-  user: AuthUser;
-}
-
-const STORAGE_KEY = 'floway-auth';
-
-const isAuthIdentity = (value: unknown): value is AuthIdentity => {
-  if (typeof value !== 'object' || value === null) return false;
-  const v = value as { token?: unknown; user?: unknown };
-  if (typeof v.token !== 'string') return false;
-  if (typeof v.user !== 'object' || v.user === null) return false;
-  const u = v.user as { id?: unknown; username?: unknown; isAdmin?: unknown; canViewGlobalTelemetry?: unknown; upstreamIds?: unknown };
-  if (typeof u.id !== 'number' || typeof u.username !== 'string') return false;
-  if (typeof u.isAdmin !== 'boolean' || typeof u.canViewGlobalTelemetry !== 'boolean') return false;
-  if (u.upstreamIds !== null && !(Array.isArray(u.upstreamIds) && u.upstreamIds.every(x => typeof x === 'string'))) return false;
-  return true;
-};
-
+// Only the session token is persisted. Everything else (admin flag, telemetry
+// visibility, upstream cap) is server-authoritative and must be re-fetched
+// from /auth/me on every app boot — caching it in localStorage lets stale
+// permissions linger after an admin promotes/demotes the actor or rotates
+// their upstream cap.
 export const useAuthStore = defineStore('auth', () => {
-  const identity = useLocalStorage<AuthIdentity | null>(STORAGE_KEY, null, {
-    serializer: {
-      read: raw => {
-        if (!raw) return null;
-        try {
-          const parsed: unknown = JSON.parse(raw);
-          return isAuthIdentity(parsed) ? parsed : null;
-        } catch {
-          return null;
-        }
-      },
-      write: value => value === null ? '' : JSON.stringify(value),
-    },
-  });
+  const token = useLocalStorage<string | null>('floway-token', null);
+  const user = ref<AuthUser | null>(null);
 
-  const isAuthenticated = computed(() => identity.value !== null);
-  const isAdmin = computed(() => identity.value?.user.isAdmin === true);
-  const authToken = computed(() => identity.value?.token ?? null);
-  const currentUser = computed(() => identity.value?.user ?? null);
-  const canViewGlobalTelemetry = computed(() => identity.value?.user.canViewGlobalTelemetry === true);
+  const isAuthenticated = computed(() => token.value !== null && user.value !== null);
+  const isAdmin = computed(() => user.value?.isAdmin === true);
+  const canViewGlobalTelemetry = computed(() => user.value?.canViewGlobalTelemetry === true);
+  const currentUser = computed(() => user.value);
+  const authToken = computed(() => token.value);
 
-  const setAuth = (next: AuthIdentity) => { identity.value = next; };
-  const setUser = (user: AuthUser) => {
-    if (!identity.value) throw new Error('setUser called without an authenticated identity');
-    identity.value = { token: identity.value.token, user };
+  const setAuth = (next: { token: string; user: AuthUser }) => {
+    token.value = next.token;
+    user.value = next.user;
   };
-  const clearAuth = () => { identity.value = null; };
+  const setUser = (next: AuthUser) => {
+    if (token.value === null) throw new Error('setUser called without an authenticated session');
+    user.value = next;
+  };
+  const clearAuth = () => {
+    token.value = null;
+    user.value = null;
+  };
 
   return {
-    identity,
     isAuthenticated,
     isAdmin,
     authToken,

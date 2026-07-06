@@ -14,7 +14,7 @@ defineProps<{
     v-model="checked"
     :disabled="disabled"
     :class="[
-      'relative inline-flex shrink-0 cursor-pointer rounded-full border border-transparent transition-colors',
+      'relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors',
       'data-[state=checked]:bg-accent-emerald/70 data-[state=unchecked]:bg-surface-600',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-cyan/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-900',
       'disabled:opacity-50 disabled:cursor-not-allowed',

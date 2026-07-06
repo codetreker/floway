@@ -1,5 +1,7 @@
 import { test } from 'vitest';
 
+import { initDumpBroker, initDumpStore } from '../../dump/registry.ts';
+import { installDumpStubs } from '../../dump/test-fixtures.ts';
 import { buildCustomUpstreamRecord, requestApp, setupAppTest } from '../../test-helpers.ts';
 import { assertEquals, assertExists } from '@floway-dev/test-utils';
 
@@ -136,4 +138,104 @@ test('POST /api/keys creates a key under the actor with optional upstream_ids', 
   const stored = await repo.apiKeys.getById(body.id);
   assertExists(stored);
   assertEquals(stored.userId, apiKey.userId);
+});
+
+test('PATCH /api/keys/:id sets dump_retention_seconds on the column', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  const response = await ownerPatch(apiKey.id, { dump_retention_seconds: 3600 }, apiKey.key);
+  assertEquals(response.status, 200);
+  const body = (await response.json()) as { dump_retention_seconds: number | null };
+  assertEquals(body.dump_retention_seconds, 3600);
+
+  const stored = await repo.apiKeys.getById(apiKey.id);
+  assertExists(stored);
+  assertEquals(stored.dumpRetentionSeconds, 3600);
+});
+
+test('PATCH /api/keys/:id clears dump_retention_seconds back to null', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await repo.apiKeys.save({ ...apiKey, dumpRetentionSeconds: 3600 });
+
+  const response = await ownerPatch(apiKey.id, { dump_retention_seconds: null }, apiKey.key);
+  assertEquals(response.status, 200);
+
+  const stored = await repo.apiKeys.getById(apiKey.id);
+  assertExists(stored);
+  assertEquals(stored.dumpRetentionSeconds, null);
+});
+
+test('PATCH /api/keys/:id rejects zero and negative dump_retention_seconds', async () => {
+  const { apiKey } = await setupAppTest();
+  assertEquals((await ownerPatch(apiKey.id, { dump_retention_seconds: 0 }, apiKey.key)).status, 400);
+  assertEquals((await ownerPatch(apiKey.id, { dump_retention_seconds: -1 }, apiKey.key)).status, 400);
+});
+
+test('DELETE /api/keys/:id soft-deletes the key', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  const response = await requestApp(`/api/keys/${apiKey.id}`, {
+    method: 'DELETE',
+    headers: { 'x-api-key': apiKey.key },
+  });
+  assertEquals(response.status, 200);
+
+  const stored = await repo.apiKeys.getById(apiKey.id);
+  // getById hides soft-deleted rows; falling back to listIncludingDeleted
+  // confirms the row was tombstoned rather than dropped.
+  assertEquals(stored, null);
+  const allKeys = await repo.apiKeys.listIncludingDeleted();
+  const deleted = allKeys.find(k => k.id === apiKey.id);
+  assertExists(deleted);
+  assertEquals(typeof deleted.deletedAt, 'string');
+});
+
+test('DELETE /api/keys/:id succeeds when the broker close hook throws — broker outage must not block soft-delete', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await repo.apiKeys.save({ ...apiKey, dumpRetentionSeconds: 3600 });
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+  stubs.failOn('closeChannel', new Error('broker down'));
+
+  const response = await requestApp(`/api/keys/${apiKey.id}`, {
+    method: 'DELETE',
+    headers: { 'x-api-key': apiKey.key },
+  });
+  assertEquals(response.status, 200);
+  // The store purge still ran.
+  assertEquals(stubs.purgedAll.includes(apiKey.id), true);
+  // The soft-delete still landed.
+  assertEquals(await repo.apiKeys.getById(apiKey.id), null);
+});
+
+test('PATCH /api/keys/:id positive→null retention purges + closes the channel', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await repo.apiKeys.save({ ...apiKey, dumpRetentionSeconds: 3600 });
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+
+  const response = await ownerPatch(apiKey.id, { dump_retention_seconds: null }, apiKey.key);
+  assertEquals(response.status, 200);
+  assertEquals(stubs.purgedAll.includes(apiKey.id), true);
+  assertEquals(stubs.closedChannels.some(c => c.keyId === apiKey.id), true);
+});
+
+test('PATCH /api/keys/:id positive→null succeeds when the broker close hook throws', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await repo.apiKeys.save({ ...apiKey, dumpRetentionSeconds: 3600 });
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+  stubs.failOn('closeChannel', new Error('broker down'));
+
+  const response = await ownerPatch(apiKey.id, { dump_retention_seconds: null }, apiKey.key);
+  assertEquals(response.status, 200);
+  assertEquals(stubs.purgedAll.includes(apiKey.id), true);
+});
+
+test('PATCH /api/keys/:id positive→smaller positive purges expired with the new window', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  await repo.apiKeys.save({ ...apiKey, dumpRetentionSeconds: 7200 });
+  const stubs = installDumpStubs(initDumpStore, initDumpBroker);
+
+  const response = await ownerPatch(apiKey.id, { dump_retention_seconds: 1800 }, apiKey.key);
+  assertEquals(response.status, 200);
+  const call = stubs.purgedExpired.find(c => c.keyId === apiKey.id);
+  assertExists(call);
+  assertEquals(call.retentionSeconds, 1800);
+  assertEquals(stubs.closedChannels.some(c => c.keyId === apiKey.id), false);
 });

@@ -1,70 +1,68 @@
 export type {
   ChatCompletionsInvocation,
   GeminiInvocation,
-  LlmTargetApi,
+  ChatTargetApi,
   MessagesInvocation,
-  ProviderCandidate,
+  ModelCandidate,
   ResponsesInvocation,
 } from './invocation.ts';
+export { providerModelOf } from './invocation.ts';
 
-export type {
-  InternalDebugError,
-  DebugSourceApi,
-} from './error.ts';
+export type { InternalDebugError } from './error.ts';
 export { toInternalDebugError } from './error.ts';
 
 export type {
+  ApiErrorResult,
   EventResult,
   EventResultMetadata,
   ExecuteResult,
   InternalErrorResult,
   PlainResult,
-  UpstreamErrorResult,
 } from './result.ts';
 export {
-  decodeUpstreamErrorBody,
+  apiErrorToResponse,
+  decodeApiErrorBody,
   eventResult,
   internalErrorResult,
   plainResult,
-  readUpstreamError,
-  upstreamErrorToResponse,
+  readUpstreamApiError,
 } from './result.ts';
 
 export type {
+  InternalAliasedFrom,
   InternalModel,
   PerformanceTelemetryContext,
+  ProviderModel,
+  ProxyFallbackEntry,
   TelemetryModelIdentity,
-  UpstreamModel,
   UpstreamProviderKind,
   UpstreamRecord,
 } from './model.ts';
+export { ALL_PROVIDER_KINDS } from './model.ts';
+
+export type { AddressableForm, ModelPrefixConfig } from './model-prefix.ts';
+export { MODEL_PREFIX_MAX_LENGTH, MODEL_PREFIX_REGEX, normalizeModelPrefix } from './model-prefix.ts';
 
 export type {
-  ModelProvider,
-  ModelProviderInstance,
+  Provider,
+  ProviderInstance,
   ProviderCallResult,
-  ProviderCompactionResult,
-  ProviderModelRecord,
+  ProviderResponsesResult,
   ProviderStreamResult,
-  ResolvedModel,
+  ResponsesAction,
   UpstreamCallOptions,
 } from './provider.ts';
-export { streamingProviderCall, type ProviderStreamParser } from './streaming.ts';
+export type { ProviderStreamParser } from './streaming.ts';
+export { streamingProviderCall } from './streaming.ts';
 
-export type { CacheRepo, ProviderRepo, UpstreamsRepoSlim } from './repo.ts';
+export type { ProviderRepo, UpstreamsRepoSlim } from './repo.ts';
 export { getProviderRepo, initProviderRepo } from './repo.ts';
 
 export {
   ProviderModelsUnavailableError,
-  clearModelsStore,
   fetchUpstreamModels,
   httpResponseToResponse,
-  inProcessMemo,
-  invalidateModelsStore,
-  isProviderModelsHttpStatus,
-  readModelsStore,
-  writeModelsStore,
-} from './models-store.ts';
+} from './models-fetch.ts';
 
 export type { Flag, FlagOverrides, OptionalFlagId } from './flags.ts';
 export {
@@ -80,8 +78,11 @@ export type {
   UpstreamModelConfig,
   UpstreamModelFlagOverrides,
   UpstreamModelLimits,
+  Modality,
+  UpstreamChatModelConfig,
 } from './model-config.ts';
 export {
+  chatField,
   endpointsField,
   flagOverridesField,
   isRecord,
@@ -96,17 +97,16 @@ export {
 export type { ValidatePathErr, ValidatePathOk } from './join.ts';
 export { joinBaseAndPath, validateUpstreamPath } from './join.ts';
 
-export { mergeAnthropicBetaHeader } from './anthropic-beta.ts';
-
 export type { Fetcher, UpstreamFetchOptions } from './options.ts';
 export { directFetcher } from './options.ts';
 
 export { isAbortError } from './abort.ts';
 
 export {
-  compressBase64ImageToWebp,
-  compressImageDataUrlToWebp,
   isBase64ImageDataUrl,
+  memoizedBase64Compressor,
+  memoizedDataUrlCompressor,
 } from './image-helpers.ts';
 
 export { COMPACTION_TRIGGER, compactionResponse } from './compaction.ts';
+export { uuidV7 } from './ids.ts';
