@@ -2,18 +2,17 @@ import { Hono, type Next } from 'hono';
 
 import { createKey, deleteKey, listKeys, rotateKey, updateKey } from './api-keys/routes.ts';
 import { authLogin, authLogout, authMe } from './auth/routes.ts';
-import { copilotQuota } from './copilot-quota/routes.ts';
 import { exportData, importData } from './data-transfer/routes.ts';
 import { dumpRoutes } from './dump.ts';
 import { createAlias, deleteAlias, listAliases, updateAlias } from './model-aliases/routes.ts';
 import { controlPlaneModels } from './models/routes.ts';
 import { performanceOverview, performanceTelemetry } from './performance/routes.ts';
 import { createProxy, deleteProxy, listAllBackoffs, listProxies, listProxyBackoffs, resetProxyBackoffs, testProxy, updateProxy } from './proxies/routes.ts';
-import { authLoginBody, changeOwnPasswordBody, claudeCodeAuthorizeUrlBody, claudeCodeImportBody, claudeCodeProbeQuotaBody, claudeCodeRefreshNowBody, claudeCodeReimportBody, claudeCodeSetupTokenImportBody, claudeCodeSetupTokenReimportBody, codexAuthorizeUrlBody, codexImportBody, codexRefreshNowBody, codexReimportBody, copilotAuthPollBody, createAliasBody, createKeyBody, createProxyBody, createUpstreamBody, createUserBody, exportQuery, fetchModelsBody, importBody, modelsQuery, performanceQuery, resetBackoffBody, searchConfigSchema, searchUsageQuery, testProxyBody, tokenUsageQuery, updateAliasBody, updateKeyBody, updateProxyBody, updateUpstreamBody, updateUserBody } from './schemas.ts';
+import { authLoginBody, changeOwnPasswordBody, claudeCodeOauthAuthorizeUrlBody, claudeCodeOauthExchangeBody, claudeCodeOauthRefreshBody, claudeCodeProbeBody, claudeCodeSetupTokenAuthorizeUrlBody, claudeCodeSetupTokenExchangeBody, codexOauthAuthorizeUrlBody, codexOauthExchangeBody, codexOauthRefreshBody, copilotOauthDeviceLoginPollBody, copilotQuotaBody, createAliasBody, createKeyBody, createProxyBody, createUpstreamBody, createUserBody, exportQuery, importBody, listModelsBody, modelsQuery, performanceQuery, resetBackoffBody, searchConfigSchema, searchUsageQuery, testProxyBody, tokenUsageQuery, updateAliasBody, updateKeyBody, updateProxyBody, updateUpstreamBody, updateUserBody } from './schemas.ts';
 import { getSearchConfigRoute, putSearchConfigRoute, testSearchConfigRoute } from './search-config/routes.ts';
 import { searchUsage } from './search-usage/routes.ts';
 import { tokenUsage } from './token-usage/routes.ts';
-import { claudeCodeAuthorizeUrl, claudeCodeImport, claudeCodeProbeQuota, claudeCodeRefreshNow, claudeCodeReimport, claudeCodeSetupTokenImport, claudeCodeSetupTokenReimport, codexAuthorizeUrl, codexImport, codexRefreshNow, codexReimport, copilotAuthPoll, copilotAuthStart, createUpstream, deleteUpstream, fetchModels, listOptionalFlags, listUpstreamModels, listUpstreamOptions, listUpstreams, updateUpstream } from './upstreams/routes.ts';
+import { claudeCodeOauthAuthorizeUrl, claudeCodeOauthExchange, claudeCodeOauthRefresh, claudeCodeProbe, claudeCodeSetupTokenAuthorizeUrl, claudeCodeSetupTokenExchange, codexOauthAuthorizeUrl, codexOauthExchange, codexOauthRefresh, copilotOauthDeviceLoginPoll, copilotOauthDeviceLoginStart, copilotQuota, createUpstream, deleteUpstream, getUpstream, getUpstreamBlueprint, listModels, listOptionalFlags, listUpstreamOptions, listUpstreams, updateUpstream } from './upstreams/routes.ts';
 import { changeOwnPassword, createUser, deleteUser, listUsers, updateUser } from './users/routes.ts';
 import { type AuthedContext, type AuthVars, userFromContext } from '../middleware/auth.ts';
 import { zValidator } from '../middleware/zod-validator.ts';
@@ -68,24 +67,23 @@ export const controlPlaneRoutes = new Hono<{ Variables: AuthVars }>()
     .patch('/users/:id', zValidator('json', updateUserBody), updateUser)
     .delete('/users/:id', deleteUser)
     .get('/upstreams', listUpstreams)
-    .get('/upstream-flags', listOptionalFlags)
-    .post('/upstreams/copilot/auth/start', copilotAuthStart)
-    .post('/upstreams/copilot/auth/poll', zValidator('json', copilotAuthPollBody), copilotAuthPoll)
-    .post('/upstreams/codex-authorize-url', zValidator('json', codexAuthorizeUrlBody), codexAuthorizeUrl)
-    .post('/upstreams/codex-import', zValidator('json', codexImportBody), codexImport)
-    .post('/upstreams/:id/codex-reimport', zValidator('json', codexReimportBody), codexReimport)
-    .post('/upstreams/:id/codex-refresh-now', zValidator('json', codexRefreshNowBody), codexRefreshNow)
-    .post('/upstreams/claude-code-authorize-url', zValidator('json', claudeCodeAuthorizeUrlBody), claudeCodeAuthorizeUrl)
-    .post('/upstreams/claude-code-import', zValidator('json', claudeCodeImportBody), claudeCodeImport)
-    .post('/upstreams/:id/claude-code-reimport', zValidator('json', claudeCodeReimportBody), claudeCodeReimport)
-    .post('/upstreams/:id/claude-code-refresh-now', zValidator('json', claudeCodeRefreshNowBody), claudeCodeRefreshNow)
-    .post('/upstreams/:id/claude-code-probe-quota', zValidator('json', claudeCodeProbeQuotaBody), claudeCodeProbeQuota)
-    .post('/upstreams/claude-code-setup-token-import', zValidator('json', claudeCodeSetupTokenImportBody), claudeCodeSetupTokenImport)
-    .post('/upstreams/:id/claude-code-setup-token-reimport', zValidator('json', claudeCodeSetupTokenReimportBody), claudeCodeSetupTokenReimport)
-    .post('/upstreams/fetch-models', zValidator('json', fetchModelsBody), fetchModels)
+    .get('/upstreams/blueprint', getUpstreamBlueprint)
+    .get('/upstreams/flags', listOptionalFlags)
+    .post('/upstreams/copilot/oauth/device-login/start', copilotOauthDeviceLoginStart)
+    .post('/upstreams/copilot/oauth/device-login/poll', zValidator('json', copilotOauthDeviceLoginPollBody), copilotOauthDeviceLoginPoll)
+    .post('/upstreams/copilot/quota', zValidator('json', copilotQuotaBody), copilotQuota)
+    .post('/upstreams/codex/oauth/authorize-url', zValidator('json', codexOauthAuthorizeUrlBody), codexOauthAuthorizeUrl)
+    .post('/upstreams/codex/oauth/exchange', zValidator('json', codexOauthExchangeBody), codexOauthExchange)
+    .post('/upstreams/codex/oauth/refresh', zValidator('json', codexOauthRefreshBody), codexOauthRefresh)
+    .post('/upstreams/claude-code/oauth/authorize-url', zValidator('json', claudeCodeOauthAuthorizeUrlBody), claudeCodeOauthAuthorizeUrl)
+    .post('/upstreams/claude-code/oauth/exchange', zValidator('json', claudeCodeOauthExchangeBody), claudeCodeOauthExchange)
+    .post('/upstreams/claude-code/oauth/refresh', zValidator('json', claudeCodeOauthRefreshBody), claudeCodeOauthRefresh)
+    .post('/upstreams/claude-code/setup-token/authorize-url', zValidator('json', claudeCodeSetupTokenAuthorizeUrlBody), claudeCodeSetupTokenAuthorizeUrl)
+    .post('/upstreams/claude-code/setup-token/exchange', zValidator('json', claudeCodeSetupTokenExchangeBody), claudeCodeSetupTokenExchange)
+    .post('/upstreams/claude-code/probe', zValidator('json', claudeCodeProbeBody), claudeCodeProbe)
+    .post('/upstreams/list-models', zValidator('json', listModelsBody), listModels)
     .post('/upstreams', zValidator('json', createUpstreamBody), createUpstream)
-    .get('/upstreams/:id/copilot/quota', copilotQuota)
-    .get('/upstreams/:id/models', listUpstreamModels)
+    .get('/upstreams/:id', getUpstream)
     .patch('/upstreams/:id', zValidator('json', updateUpstreamBody), updateUpstream)
     .delete('/upstreams/:id', deleteUpstream)
     // Proxies. Literal `/proxies/backoffs` is registered before any `/:id`

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // Owns the entire draft state (provider, name, enabled, flag overrides,
-// disabled model ids, plus the provider-specific custom/azure drafts) and
-// the live /models fetch for custom upstreams.
+// disabled model ids, plus the provider-specific custom/azure/ollama
+// drafts) and the live /models fetch for custom upstreams. Create and
+// edit share this component — the sole differentiator is
+// `draft.id === ''`, which selects POST vs PATCH at save time.
 
-import type { InferRequestType } from 'hono/client';
 import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
@@ -19,42 +20,20 @@ import {
 } from './customConfig.ts';
 import ModelsPanel from './ModelsPanel.vue';
 import UpstreamConfigPanel from './UpstreamConfigPanel.vue';
-import { authFetch, callApi, useApi } from '../../api/client.ts';
-import type { CopilotQuotaSnapshot, CustomRawModel, FlagDef, ModelEndpoints, ModelPrefixConfig, OllamaUpstreamConfig, ProxyFallbackEntry, UpstreamModelConfig, UpstreamProviderKind, UpstreamRecord } from '../../api/types.ts';
+import { callApi, useApi } from '../../api/client.ts';
+import type { AzureUpstreamConfig, CustomRawModel, CustomUpstreamConfig, FlagDef, ModelEndpoints, OllamaUpstreamConfig, UpstreamModelConfig, UpstreamRecord } from '../../api/types.ts';
+import { toRecordEnvelope } from '../../api/types.ts';
 import { useRuntimeInfo } from '../../composables/useRuntimeInfo.ts';
 import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
-import { providerMeta } from '../upstreams/provider-meta.ts';
 import { Button } from '@floway-dev/ui';
 
-type CommonPageProps = {
-  nextSortOrder: number;
+const props = defineProps<{
+  initialRecord: UpstreamRecord;
   flags: FlagDef[];
-  // Resolved model list pre-fetched by the route loader from
-  // /upstreams/:id/models for non-Azure providers (copilot, codex, and
-  // custom in edit mode). Empty array means "no record yet, Azure, or the
-  // fetch failed" — the matching error field carries the reason.
-  initialUpstreamModels?: UpstreamModelConfig[];
-  initialUpstreamModelsError?: string | null;
-  initialCopilotQuota?: CopilotQuotaSnapshot | null;
-  initialCopilotQuotaError?: string | null;
-};
-
-const props = defineProps<
-  | (CommonPageProps & {
-    mode: 'create';
-    record: null;
-    // Default provider for create mode; ignored in edit mode (taken from record).
-    initialKind: UpstreamProviderKind;
-  })
-  | (CommonPageProps & {
-    mode: 'edit';
-    record: UpstreamRecord;
-    initialKind?: undefined;
-  })
->();
+}>();
 
 const emit = defineEmits<{
-  saved: [record: UpstreamRecord | null];
+  saved: [record: UpstreamRecord];
 }>();
 
 const router = useRouter();
@@ -64,64 +43,26 @@ const { info: runtimeInfo } = useRuntimeInfo();
 const coloAware = computed(() => runtimeInfo.value?.kind === 'cloudflare');
 const currentColo = computed(() => runtimeInfo.value?.colo ?? null);
 
-type CreateBody = InferRequestType<typeof api.api.upstreams.$post>['json'];
-type PatchBody = InferRequestType<(typeof api.api.upstreams)[':id']['$patch']>['json'];
+// The single source of truth: draft is a mutable structuredClone of the
+// initial record. Every field in the form binds through this ref (either
+// via computed get/set or via the per-provider *Draft mirrors below).
+const draft = ref<UpstreamRecord>(structuredClone(props.initialRecord));
 
-// Edit mode: provider follows the record. Create mode: locked in by the
-// route param at mount time.
-const activeKind = computed<UpstreamProviderKind>(() => props.mode === 'edit' ? props.record.kind : props.initialKind);
+const isCreate = computed(() => draft.value.id === '');
 
-// Discriminated (mode, record) pair forwarded to UpstreamConfigPanel. The
-// page's own union already guarantees this shape; the explicit pairing
-// re-narrows for the template binding so Vue's prop-type check accepts it
-// alongside the live `liveRecord` ref (which is typed as `UpstreamRecord | null`
-// since it must survive a brief null window during `upstreamsStore.load()`).
-const modeRecord = computed<{ mode: 'create'; record: null } | { mode: 'edit'; record: UpstreamRecord }>(
-  () => liveRecord.value && props.mode === 'edit'
-    ? { mode: 'edit', record: liveRecord.value }
-    : { mode: 'create', record: null },
-);
-const name = ref('');
-const enabled = ref(true);
-const sortOrder = ref<number>(props.nextSortOrder);
-const flagOverrides = ref<Record<string, boolean>>({});
-const disabledPublicModelIds = ref<string[]>([]);
-const proxyFallbackList = ref<ProxyFallbackEntry[]>([]);
-const modelPrefix = ref<ModelPrefixConfig | null>(null);
-const modelPrefixInvalid = ref(false);
+// Provider-specific form-UX drafts. These mirror the record's config but
+// hold form-only state — most importantly, `apiKey` starts as '' on
+// mount even when the record carries a real value, so the "type to
+// overwrite; empty means keep-existing" behavior stays consistent
+// everywhere. They project back into draft.config via
+// buildCustomConfig / … at save.
 const customDraft = ref<CustomDraft>(blankCustomDraft());
 const azureDraft = ref<AzureDraft>(blankAzureDraft());
 const ollamaDraft = ref<OllamaDraft>(blankOllamaDraft());
 
-const upstreamModels = ref<UpstreamModelConfig[]>(props.initialUpstreamModels ?? []);
-const upstreamModelsError = ref<string | null>(props.initialUpstreamModelsError ?? null);
-
-// `props.record` is a snapshot the loader resolved against the store's array
-// at route-resolution time; once `upstreamsStore.load()` rebuilds that array
-// with brand-new objects (e.g. after a forced cache refresh), the snapshot's
-// `modelsCache` summary goes stale. Mirror it locally and re-seed from the
-// store after every reload so `ModelsCacheStatus` reflects the row the
-// gateway just rewrote.
-const liveRecord = ref<UpstreamRecord | null>(props.record);
-watch(() => props.record, r => { liveRecord.value = r; });
-
-const seedFromRecord = (r: UpstreamRecord) => {
-  name.value = r.name;
-  enabled.value = r.enabled;
-  sortOrder.value = r.sort_order;
-  flagOverrides.value = { ...r.flag_overrides };
-  disabledPublicModelIds.value = [...r.disabled_public_model_ids];
-  proxyFallbackList.value = r.proxy_fallback_list.map(e => ({ id: e.id, ...(e.colos ? { colos: [...e.colos] } : {}) }));
-  modelPrefix.value = r.model_prefix === null
-    ? null
-    : {
-        prefix: r.model_prefix.prefix,
-        addressable: [...r.model_prefix.addressable],
-        listed: [...r.model_prefix.listed],
-      };
-
-  if (r.kind === 'custom') {
-    const cfg = r.config;
+const seedProviderDrafts = () => {
+  if (draft.value.kind === 'custom') {
+    const cfg: CustomUpstreamConfig = draft.value.config;
     customDraft.value = {
       baseUrl: cfg.baseUrl,
       authStyle: cfg.authStyle,
@@ -131,62 +72,65 @@ const seedFromRecord = (r: UpstreamRecord) => {
       modelsFetch: cfg.modelsFetch
         ? { enabled: cfg.modelsFetch.enabled, endpoint: cfg.modelsFetch.endpoint ?? '' }
         : { enabled: true, endpoint: '' },
-      // r.config is reactive (props passthrough); structuredClone refuses Vue
-      // Proxies in Chromium and toRaw only unwraps the top layer. The models
-      // tree is plain data, so a JSON round-trip is the cheapest way to land a
-      // deep, proxy-free copy that the field can mutate freely.
-      models: cfg.models ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[]) : [],
+      // JSON round-trip clones the models array: `structuredClone` refuses
+      // Vue's reactive Proxy over `ref().value`, and `toRaw` only unwraps the
+      // top layer. The top-level `draft` ref seeded with `structuredClone`
+      // works because props aren't proxied — different call sites, different
+      // constraints.
+      models: JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[],
     };
-  } else if (r.kind === 'azure') {
-    const cfg = r.config;
+  } else if (draft.value.kind === 'azure') {
+    const cfg: AzureUpstreamConfig = draft.value.config;
     azureDraft.value = {
       endpoint: cfg.endpoint,
       apiKey: '',
-      models: cfg.models ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[]) : [],
+      // Azure requires a non-empty models array on save; when the blueprint
+      // seeds an empty list, keep the blankAzureDraft's default row.
+      models: cfg.models.length > 0
+        ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[])
+        : blankAzureDraft().models,
     };
-  } else if (r.kind === 'ollama') {
-    const cfg = r.config;
+  } else if (draft.value.kind === 'ollama') {
+    const cfg: OllamaUpstreamConfig = draft.value.config;
     ollamaDraft.value = {
       baseUrl: cfg.baseUrl,
       apiKey: '',
-      models: cfg.models ? (JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[]) : [],
+      models: JSON.parse(JSON.stringify(cfg.models)) as UpstreamModelConfig[],
     };
   }
 };
+seedProviderDrafts();
 
-const seedFresh = () => {
-  name.value = providerMeta(activeKind.value).defaultName;
-  enabled.value = true;
-  sortOrder.value = props.nextSortOrder;
-  flagOverrides.value = {};
-  disabledPublicModelIds.value = [];
-  proxyFallbackList.value = [];
-  modelPrefix.value = null;
-  customDraft.value = blankCustomDraft();
-  azureDraft.value = blankAzureDraft();
-  ollamaDraft.value = blankOllamaDraft();
-};
+// Every top-level user-owned field surfaces through a computed pair so the
+// template's v-models bind straight to `draft` without a separate ref
+// mirror per field. Setting the computed mutates the draft in place;
+// getting it observes any patch merged in by a wizard.
+const name = computed<string>({ get: () => draft.value.name, set: v => { draft.value = { ...draft.value, name: v }; } });
+const enabled = computed<boolean>({ get: () => draft.value.enabled, set: v => { draft.value = { ...draft.value, enabled: v }; } });
+const flagOverrides = computed<Record<string, boolean>>({
+  get: () => draft.value.flag_overrides,
+  set: v => { draft.value = { ...draft.value, flag_overrides: v }; },
+});
+const disabledPublicModelIds = computed<string[]>({
+  get: () => draft.value.disabled_public_model_ids,
+  set: v => { draft.value = { ...draft.value, disabled_public_model_ids: v }; },
+});
+const proxyFallbackList = computed({
+  get: () => draft.value.proxy_fallback_list,
+  set: v => { draft.value = { ...draft.value, proxy_fallback_list: v }; },
+});
+const modelPrefix = computed({
+  get: () => draft.value.model_prefix,
+  set: v => { draft.value = { ...draft.value, model_prefix: v }; },
+});
+const modelPrefixInvalid = ref(false);
 
-if (props.mode === 'edit') seedFromRecord(props.record);
-else seedFresh();
-
-const customApiKeySet = computed(() => {
-  if (props.record?.kind !== 'custom') return false;
-  return props.record.config.apiKeySet === true;
-});
-const azureApiKeySet = computed(() => {
-  if (props.record?.kind !== 'azure') return false;
-  return props.record.config.apiKeySet === true;
-});
-const ollamaApiKeySet = computed(() => {
-  const cfg = props.record?.config as OllamaUpstreamConfig | undefined;
-  return cfg?.apiKeySet === true;
-});
+const upstreamModels = ref<UpstreamModelConfig[]>([]);
+const upstreamModelsError = ref<string | null>(null);
 
 // Create-mode draft preview state for the inline "Fetch" button on the
-// Custom and Ollama panels: POST /upstreams/fetch-models renders the unsaved
-// config's catalog so the operator can pick rows before saving. Saved
-// upstreams flow through the unified GET path and `upstreamModels` instead.
+// Custom and Ollama panels: `POST /api/upstreams/list-models` returns the
+// unsaved config's catalog so rows can be picked before saving.
 // `fetchedRaw` carries the Custom raw rows (translated through the draft's
 // endpoints by `customAutoModelsFromDraft`); `fetchedOllamaModels` carries
 // the Ollama rows the backend already projected — no further translation
@@ -223,41 +167,38 @@ const customAutoModelsFromDraft = computed<UpstreamModelConfig[]>(() => fetchedR
   };
 }));
 
-const fetchDraftModels = async () => {
-  if (props.mode !== 'create') return;
+// The unified list-models endpoint: custom returns raw rows the dashboard
+// translates through the draft's endpoints; every other kind returns
+// already-projected `UpstreamModelConfig`.
+type ListModelsResult = { data: UpstreamModelConfig[] } | { data: CustomRawModel[] };
+
+const listDraftModels = async () => {
+  if (draft.value.kind !== 'custom' && draft.value.kind !== 'ollama') return;
   fetchLoading.value = true;
   fetchError.value = null;
   try {
-    if (activeKind.value === 'custom') {
-      const { data, error } = await callApi<{ data: CustomRawModel[] }>(
-        () => api.api.upstreams['fetch-models'].$post({
-          json: { kind: 'custom', config: { ...buildCustomConfigCore(customDraft.value), models: customDraft.value.models } },
-        }),
-      );
-      // The toggle may have been turned off while this request was in flight;
-      // with fetch disabled the auto block is hidden and dropped on save, so
-      // discard the late result rather than repopulating stale auto rows.
-      if (!customDraft.value.modelsFetch.enabled) return;
-      if (error) { fetchError.value = error.message; return; }
-      fetchedRaw.value = data.data;
-      fetchedCount.value = data.data.length;
-      fetchedAtMs.value = Date.now();
-    } else if (activeKind.value === 'ollama') {
-      type FetchModelsBody = InferRequestType<typeof api.api.upstreams['fetch-models']['$post']>['json'];
-      type OllamaFetchConfig = Extract<FetchModelsBody, { kind: 'ollama' }>['config'];
-      const config: OllamaFetchConfig = {
-        baseUrl: ollamaDraft.value.baseUrl.trim(),
-        models: ollamaDraft.value.models,
-      };
-      if (ollamaDraft.value.apiKey.trim()) config.apiKey = ollamaDraft.value.apiKey.trim();
-      const { data, error } = await callApi<{ data: UpstreamModelConfig[] }>(
-        () => api.api.upstreams['fetch-models'].$post({ json: { kind: 'ollama', config } }),
-      );
-      if (error) { fetchError.value = error.message; return; }
-      fetchedOllamaModels.value = data.data;
-      fetchedCount.value = data.data.length;
-      fetchedAtMs.value = Date.now();
+    // Merge the current form drafts into the payload so the preview
+    // reflects the in-flight edits (baseUrl, apiKey, models)
+    // rather than the record's persisted config.
+    const config = draft.value.kind === 'custom'
+      ? { ...buildCustomConfigCore(customDraft.value), models: customDraft.value.models }
+      : buildOllamaConfig();
+    const previewRecord = { ...toRecordEnvelope(draft.value), config };
+    const { data, error } = await callApi<ListModelsResult>(
+      () => api.api.upstreams['list-models'].$post({ json: { record: previewRecord } }),
+    );
+    // The toggle may have been turned off while this request was in flight;
+    // with fetch disabled the auto block is hidden and dropped on save, so
+    // discard the late result rather than repopulating stale auto rows.
+    if (draft.value.kind === 'custom' && !customDraft.value.modelsFetch.enabled) return;
+    if (error) { fetchError.value = error.message; return; }
+    if (draft.value.kind === 'custom') {
+      fetchedRaw.value = data.data as CustomRawModel[];
+    } else {
+      fetchedOllamaModels.value = data.data as UpstreamModelConfig[];
     }
+    fetchedCount.value = data.data.length;
+    fetchedAtMs.value = Date.now();
   } finally {
     fetchLoading.value = false;
   }
@@ -281,42 +222,73 @@ const fetchStatus = computed<string | null>(() => {
   return `${fetchedCount.value} returned · ${label}`;
 });
 
+// True when the current draft config carries enough credentials for the
+// list-models call to succeed. Guards mount-time prime and the refresh
+// button so a blueprint (empty config) never fires an unauthenticated
+// upstream hit. Wizard-emitted patches do NOT auto-fetch here — the
+// per-provider "Save and load models" CTA is the create-state path
+// (see the note on applyPatch below for why).
+const hasCredentialForFetch = computed<boolean>(() => {
+  const d = draft.value;
+  if (d.kind === 'copilot') return d.config.githubToken !== '';
+  if (d.kind === 'codex' || d.kind === 'claude-code') return d.config.accounts.length > 0;
+  if (d.kind === 'custom') return d.config.baseUrl !== '' && d.config.apiKey !== '';
+  if (d.kind === 'ollama') return d.config.baseUrl !== '';
+  return false;
+});
+
+// Fetch the live model catalog for the current draft. Skipped for Azure
+// (operator-edited catalog, no upstream `/models` endpoint) and when the
+// draft has no credential yet (blueprint state). For custom the server
+// returns raw rows the dashboard translates through the draft's endpoints,
+// so route them into `fetchedRaw` — the same slot the unsaved draft
+// preview uses; every other kind receives already-projected
+// UpstreamModelConfig rows and lands in `upstreamModels`. Surfaces the
+// error on `upstreamModelsError` otherwise. Returns nothing — callers
+// wrap this with their own bookkeeping (mount-time prime, operator-driven
+// refresh).
+const fetchUpstreamModels = async () => {
+  if (draft.value.kind === 'azure') return;
+  if (!hasCredentialForFetch.value) return;
+  upstreamModelsError.value = null;
+  const { data, error } = await callApi<ListModelsResult>(
+    () => api.api.upstreams['list-models'].$post({ json: { record: toRecordEnvelope(draft.value) } }),
+  );
+  if (error) { upstreamModelsError.value = error.message; return; }
+  if (draft.value.kind === 'custom') {
+    fetchedRaw.value = data.data as CustomRawModel[];
+  } else {
+    upstreamModels.value = data.data as UpstreamModelConfig[];
+  }
+};
+
 const refreshing = ref(false);
 const refreshCachedModels = async () => {
-  if (!props.record || props.record.kind === 'azure') return;
   refreshing.value = true;
-  upstreamModelsError.value = null;
   try {
-    // The route's query is unvalidated server-side, so the typed client
-    // does not surface a `query` arg. Resolve the path with `$path` (the
-    // sibling `$url` returns a `URL` that the relative `/` base of `hc('/')`
-    // cannot construct), then append the toggle.
-    const path = api.api.upstreams[':id'].models.$path({ param: { id: props.record.id } });
-    const { data, error } = await callApi<{ data: UpstreamModelConfig[] }>(() => authFetch(`${path}?refresh=true`));
-    if (error) {
-      upstreamModelsError.value = error.message;
-      return;
-    }
-    upstreamModels.value = data.data;
-  } finally {
-    // Reload the upstream list so `modelsCache.fetchedAt` and `lastError`
-    // reflect the row the gateway just rewrote, regardless of outcome. The
-    // store rebuilds `upstreams` with fresh objects, so re-read the row
-    // from it and push the new snapshot into `liveRecord` — the loader's
-    // original `props.record` reference would otherwise stay stale.
+    await fetchUpstreamModels();
+    if (upstreamModelsError.value) return;
+    // The server-side list-models refreshed the SWR cache too; reload the
+    // store so the header's `modelsCache` summary reflects the freshest
+    // fetchedAt / lastError the gateway just wrote.
     await upstreamsStore.load();
-    const refreshed = upstreamsStore.upstreams.value?.find(u => u.id === props.record!.id) ?? null;
-    if (refreshed) liveRecord.value = refreshed;
+    const refreshed = upstreamsStore.upstreams.value?.find(u => u.id === draft.value.id);
+    if (refreshed) draft.value = { ...draft.value, modelsCache: refreshed.modelsCache };
+  } finally {
     refreshing.value = false;
   }
 };
+
+// Prime on mount so ModelsPanel renders populated; refresh button reruns
+// the same call plus the store reload above.
+void fetchUpstreamModels();
 
 const saving = ref(false);
 const saveError = ref<string | null>(null);
 const modelsPanelInvalid = ref(false);
 
-const buildCustomConfig = (): Extract<CreateBody, { kind: 'custom' }>['config'] => {
-  const config: Extract<CreateBody, { kind: 'custom' }>['config'] = {
+const buildCustomConfig = () => {
+  const config: Record<string, unknown> = {
     ...buildCustomConfigCore(customDraft.value),
     models: customDraft.value.models,
   };
@@ -326,12 +298,12 @@ const buildCustomConfig = (): Extract<CreateBody, { kind: 'custom' }>['config'] 
     if (trimmed) overrides[k] = trimmed;
   }
   if (Object.keys(overrides).length > 0) config.pathOverrides = overrides;
-  else if (props.mode === 'edit') config.pathOverrides = null;
+  else if (!isCreate.value) config.pathOverrides = null;
   return config;
 };
 
-const buildAzureConfig = (): Extract<CreateBody, { kind: 'azure' }>['config'] => {
-  const config: Extract<CreateBody, { kind: 'azure' }>['config'] = {
+const buildAzureConfig = () => {
+  const config: Record<string, unknown> = {
     endpoint: azureDraft.value.endpoint.trim(),
     models: azureDraft.value.models,
   };
@@ -339,8 +311,8 @@ const buildAzureConfig = (): Extract<CreateBody, { kind: 'azure' }>['config'] =>
   return config;
 };
 
-const buildOllamaConfig = (): Extract<CreateBody, { kind: 'ollama' }>['config'] => {
-  const config: Extract<CreateBody, { kind: 'ollama' }>['config'] = {
+const buildOllamaConfig = () => {
+  const config: Record<string, unknown> = {
     baseUrl: ollamaDraft.value.baseUrl.trim(),
     models: ollamaDraft.value.models,
   };
@@ -348,53 +320,100 @@ const buildOllamaConfig = (): Extract<CreateBody, { kind: 'ollama' }>['config'] 
   return config;
 };
 
-const baseFields = () => ({
-  name: name.value.trim(),
-  enabled: enabled.value,
-  sort_order: sortOrder.value,
-  flag_overrides: flagOverrides.value,
-  disabled_public_model_ids: disabledPublicModelIds.value,
-  proxy_fallback_list: proxyFallbackList.value,
-  model_prefix: modelPrefix.value,
-});
+// Editable providers (custom/azure/ollama) rebuild the config from the
+// per-provider form draft; OAuth providers hand back the credential slice
+// their wizards populated in draft.config / draft.state. In edit state the
+// PATCH endpoint only replaces user-owned fields, so the OAuth slice we
+// pass here is ignored server-side — it's still safe to include.
+const buildConfigForSave = (): unknown => {
+  if (draft.value.kind === 'custom') return buildCustomConfig();
+  if (draft.value.kind === 'azure') return buildAzureConfig();
+  if (draft.value.kind === 'ollama') return buildOllamaConfig();
+  return draft.value.config;
+};
 
-const save = async () => {
+const save = async ({ openEdit = false }: { openEdit?: boolean } = {}) => {
   saveError.value = null;
-  const trimmedName = name.value.trim();
+  const trimmedName = draft.value.name.trim();
   if (!trimmedName) { saveError.value = 'Name is required'; return; }
   if (modelPrefixInvalid.value) { saveError.value = 'Model name prefix is invalid'; return; }
   if (modelsPanelInvalid.value) { saveError.value = 'One or more models have invalid configuration — check model reasoning settings'; return; }
+  // OAuth providers can only persist an initial record once the wizard has
+  // populated the credential slice; without it the backend's per-kind
+  // asserter rejects the POST with an opaque error. Fail early so the
+  // dashboard surfaces the user-friendly variant.
+  if (isCreate.value) {
+    if (draft.value.kind === 'copilot' && !draft.value.config.githubToken) {
+      saveError.value = 'Complete the GitHub device flow before saving.';
+      return;
+    }
+    if ((draft.value.kind === 'codex' || draft.value.kind === 'claude-code') && draft.value.config.accounts.length === 0) {
+      saveError.value = 'Import a credential before saving.';
+      return;
+    }
+  }
 
   saving.value = true;
   try {
-    if (props.mode === 'create') {
-      let body: CreateBody;
-      if (activeKind.value === 'custom') {
-        body = { kind: 'custom', ...baseFields(), config: buildCustomConfig() };
-      } else if (activeKind.value === 'azure') {
-        body = { kind: 'azure', ...baseFields(), config: buildAzureConfig() };
-      } else if (activeKind.value === 'ollama') {
-        body = { kind: 'ollama', ...baseFields(), config: buildOllamaConfig() };
-      } else {
-        // Unreachable: see showSaveButton.
-        saveError.value = `${activeKind.value} upstreams are created through their dedicated panel.`;
-        return;
-      }
-      const { data, error } = await callApi<UpstreamRecord>(() => api.api.upstreams.$post({ json: body }));
+    const config = buildConfigForSave();
+    // sort_order arrives as `0` from the blueprint (a placeholder); resolve
+    // to the true next slot at save time so we don't rank the new row at
+    // the top of the list.
+    const sortOrder = isCreate.value
+      ? (upstreamsStore.upstreams.value ?? []).reduce((acc, u) => Math.max(acc, u.sort_order), -1) + 1
+      : draft.value.sort_order;
+    const baseBody = {
+      name: trimmedName,
+      enabled: draft.value.enabled,
+      sort_order: sortOrder,
+      flag_overrides: draft.value.flag_overrides,
+      disabled_public_model_ids: draft.value.disabled_public_model_ids,
+      proxy_fallback_list: draft.value.proxy_fallback_list,
+      model_prefix: draft.value.model_prefix,
+    };
+
+    if (isCreate.value) {
+      // Create carries the full initial record — including the OAuth-
+      // populated `state` for copilot / codex / claude-code. The kind
+      // discriminator lets the schema route to the per-kind branch.
+      const createBody = {
+        ...baseBody,
+        kind: draft.value.kind,
+        config,
+        ...(draft.value.kind === 'copilot' || draft.value.kind === 'codex' || draft.value.kind === 'claude-code'
+          ? { state: draft.value.state }
+          : {}),
+      };
+      // The kind discriminator collapses to a valid createBody variant at
+      // runtime; the RPC client's generic $post accepts unknown JSON.
+      const { data, error } = await callApi<UpstreamRecord>(() => api.api.upstreams.$post({ json: createBody as never }));
       if (error) { saveError.value = error.message; return; }
       emit('saved', data);
+      // The main Save button bounces back to the list — the operator opened
+      // this page to bring a row into existence, not to keep tweaking it. The
+      // per-provider "Save and load models" CTA sets openEdit so the newly-
+      // saved row's edit page renders next, letting its mount-time list-models
+      // populate the catalog for a review pass before the operator leaves.
+      await router.replace(openEdit ? `/dashboard/upstreams/${data.id}` : '/dashboard/upstreams');
     } else {
-      const patch: PatchBody = baseFields();
-      if (activeKind.value === 'custom') patch.config = buildCustomConfig();
-      else if (activeKind.value === 'azure') patch.config = buildAzureConfig();
-      else if (activeKind.value === 'ollama') patch.config = buildOllamaConfig();
-      const { error } = await callApi(
-        () => api.api.upstreams[':id'].$patch({ param: { id: props.record.id }, json: patch }),
-      );
+      // PATCH only user-owned fields. For OAuth providers the backend
+      // rejects a `config` patch, so we skip config for them — their
+      // credential slice is server-owned and rotates through the action
+      // endpoints, not through the save button.
+      const patchBody: Record<string, unknown> = { ...baseBody };
+      if (draft.value.kind === 'custom' || draft.value.kind === 'azure' || draft.value.kind === 'ollama') {
+        patchBody.config = config;
+      }
+      const { data, error } = await callApi<UpstreamRecord>(() => api.api.upstreams[':id'].$patch({ param: { id: draft.value.id }, json: patchBody as never }));
       if (error) { saveError.value = error.message; return; }
-      emit('saved', props.record);
+      emit('saved', data);
+      // Re-seed the draft from the fresh server response so the editor
+      // reflects whatever the server merged (e.g. modelsCache, normalized
+      // proxy list) and the api-key form slot clears back to "leave blank
+      // to keep".
+      draft.value = structuredClone(data);
+      seedProviderDrafts();
     }
-    await router.push('/dashboard/settings');
   } finally {
     saving.value = false;
   }
@@ -404,67 +423,62 @@ const cancel = async () => {
   await router.push('/dashboard/settings');
 };
 
-const onImported = async (newRecord: UpstreamRecord) => {
-  emit('saved', newRecord);
-  await router.replace(`/dashboard/upstreams/${newRecord.id}`);
+// Wizards emit patches into the draft. `state` is the OAuth-owned slice
+// (accounts + credentials); `config` is the identity slice. Shallow-merge
+// per key so a patch that only carries `state` doesn't blow away `config`.
+// Auto-fetching upstream models on a create-state patch is not viable:
+// provider factories read row state from DB by upstream id, and the
+// synthetic 'draft' id used for list-models has no DB row. The
+// per-provider "Save and load models" CTA is the create-state path — it
+// saves first, then the edit page's mount-time prime populates the
+// catalog.
+const applyPatch = (patch: { config?: unknown; state?: unknown }) => {
+  const next: UpstreamRecord = { ...draft.value };
+  if (patch.config !== undefined) (next as { config: unknown }).config = patch.config;
+  if (patch.state !== undefined) (next as { state: unknown }).state = patch.state;
+  draft.value = next;
 };
 
-// Quota refresh is data-only: the gateway persisted the new
-// `usageProbeSnapshot` slot and the panel handed us a locally-merged record.
-// Land it on `liveRecord` so AccountCard re-renders, but do not emit `saved`
-// or navigate — neither the route nor the store list view changes.
-const onClaudeCodeQuotaRefreshed = (newRecord: UpstreamRecord) => {
-  liveRecord.value = newRecord;
-};
-
-const onImportError = (message: string) => {
+const onError = (message: string) => {
   saveError.value = message;
 };
 
 // Read-only providers never invoke the v-model setter; the getter returns [] to satisfy the type contract.
 const modelsManualForActive = computed<UpstreamModelConfig[]>({
   get: () => {
-    if (activeKind.value === 'custom') return customDraft.value.models;
-    if (activeKind.value === 'azure') return azureDraft.value.models;
-    if (activeKind.value === 'ollama') return ollamaDraft.value.models;
+    if (draft.value.kind === 'custom') return customDraft.value.models;
+    if (draft.value.kind === 'azure') return azureDraft.value.models;
+    if (draft.value.kind === 'ollama') return ollamaDraft.value.models;
     return [];
   },
   set: next => {
-    if (activeKind.value === 'custom') customDraft.value = { ...customDraft.value, models: next };
-    else if (activeKind.value === 'azure') azureDraft.value = { ...azureDraft.value, models: next };
-    else if (activeKind.value === 'ollama') ollamaDraft.value = { ...ollamaDraft.value, models: next };
+    if (draft.value.kind === 'custom') customDraft.value = { ...customDraft.value, models: next };
+    else if (draft.value.kind === 'azure') azureDraft.value = { ...azureDraft.value, models: next };
+    else if (draft.value.kind === 'ollama') ollamaDraft.value = { ...ollamaDraft.value, models: next };
   },
 });
 
-// Auto rows are the live catalog the upstream itself decides. For copilot,
-// codex, claude-code, and saved custom/ollama upstreams that comes from the
-// SWR cache via `upstreamModels`. Create-mode custom and ollama drafts fall
-// back to the inline POST /fetch-models preview — custom rows are translated
-// through the draft's endpoints; ollama rows arrive already projected. Azure
-// has no auto rows (the loader does not fetch for it), so `upstreamModels`
-// is empty and the same fall-through is correct.
+// Auto rows are the live catalog the upstream itself decides. Saved rows
+// resolve through the SWR cache via `upstreamModels`; unsaved custom /
+// ollama drafts fall back to the inline list-models preview.
 const autoForActive = computed<UpstreamModelConfig[]>(() => {
-  if (activeKind.value === 'custom') {
+  if (draft.value.kind === 'custom') {
     if (!customDraft.value.modelsFetch.enabled) return [];
-    if (props.mode === 'edit') return upstreamModels.value;
+    // Both saved and unsaved custom rows read the raw catalog from
+    // `fetchedRaw` and translate through the draft's endpoints — the
+    // server returns raw upstream rows uniformly for both call paths.
     return customAutoModelsFromDraft.value;
   }
-  if (activeKind.value === 'ollama') {
-    if (props.mode === 'edit') return upstreamModels.value;
+  if (draft.value.kind === 'ollama') {
+    if (!isCreate.value) return upstreamModels.value;
     return fetchedOllamaModels.value;
   }
   return upstreamModels.value;
 });
 
-const upstreamIdLabelForActive = computed(() => activeKind.value === 'azure' ? 'Deployment' : 'Upstream Model ID');
-// Provider import panels (copilot/codex/claude-code) land the row themselves on create, so the page-level Save button stays hidden until they emit.
-const showSaveButton = computed(() => props.mode === 'edit' || (activeKind.value !== 'copilot' && activeKind.value !== 'codex' && activeKind.value !== 'claude-code'));
+const upstreamIdLabelForActive = computed(() => draft.value.kind === 'azure' ? 'Deployment' : 'Upstream Model ID');
 
-// The cache-status panel reads the row's `modelsCache` summary and offers a
-// force-refresh shortcut. Azure is the one provider whose catalog is pure
-// form data — there is nothing the gateway can fetch — so the panel is
-// suppressed for it.
-const showCacheStatus = computed(() => props.mode === 'edit' && props.record !== null && props.record.kind !== 'azure');
+const showCacheStatus = computed(() => !isCreate.value && draft.value.kind !== 'azure');
 
 // Public-id catalogue feeding the disabled-models combobox: every model
 // currently surfaced for this provider, deduped by public id. A model's
@@ -526,12 +540,12 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         <span class="text-white/15">/</span>
         <RouterLink to="/dashboard/settings" class="hover:text-gray-300">Upstreams</RouterLink>
         <span class="text-white/15">/</span>
-        <span v-if="record" class="font-semibold text-white">{{ record.name }}</span>
-        <span v-else class="font-semibold text-white">New upstream</span>
+        <span v-if="isCreate" class="font-semibold text-white">New upstream</span>
+        <span v-else class="font-semibold text-white">{{ draft.name || 'Upstream' }}</span>
       </nav>
       <div class="ml-auto flex items-center gap-2">
         <Button variant="secondary" :disabled="saving" @click="cancel">Cancel</Button>
-        <Button v-if="showSaveButton" :loading="saving" @click="save">Save changes</Button>
+        <Button :loading="saving" @click="() => save()">Save changes</Button>
       </div>
     </header>
 
@@ -549,8 +563,7 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
          clips or scrolls; the page does. -->
     <div :style="workbenchStyle" class="grid grid-cols-1 gap-5 lg:grid-cols-[400px_minmax(0,1fr)]">
       <UpstreamConfigPanel
-        v-bind="modeRecord"
-        :kind="activeKind"
+        :draft="draft"
         v-model:name="name"
         v-model:enabled="enabled"
         v-model:flag-overrides="flagOverrides"
@@ -564,22 +577,21 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :flags="flags"
         :colo-aware="coloAware"
         :current-colo="currentColo"
-        :custom-api-key-set="customApiKeySet"
-        :azure-api-key-set="azureApiKeySet"
-        :ollama-api-key-set="ollamaApiKeySet"
+        :custom-api-key-set="!!(draft.kind === 'custom' && draft.config.apiKey)"
+        :azure-api-key-set="!!(draft.kind === 'azure' && draft.config.apiKey)"
+        :ollama-api-key-set="!!(draft.kind === 'ollama' && draft.config.apiKey)"
         :fetch-loading="fetchLoading"
         :fetch-error="fetchError"
         :fetch-status="fetchStatus"
         :available-model-items="availableModelItems"
-        :initial-copilot-quota="initialCopilotQuota"
-        :initial-copilot-quota-error="initialCopilotQuotaError"
-        :models-cache="showCacheStatus ? liveRecord!.modelsCache : null"
+        :models-cache="showCacheStatus ? draft.modelsCache : null"
         :refreshing="refreshing"
-        @fetch-models="fetchDraftModels"
+        :saving="saving"
+        @fetch-models="listDraftModels"
         @refresh-cache="refreshCachedModels"
-        @imported="onImported"
-        @error="onImportError"
-        @claude-code-quota-refreshed="onClaudeCodeQuotaRefreshed"
+        @patched="applyPatch"
+        @save-and-open-edit="save({ openEdit: true })"
+        @error="onError"
       />
       <ModelsPanel
         ref="modelsPanelRef"
@@ -588,10 +600,10 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :auto-models="autoForActive"
         :flags="flags"
         :upstream-flag-overrides="flagOverrides"
-        :flag-provider-kind="activeKind"
+        :flag-provider-kind="draft.kind"
         :upstream-id-label="upstreamIdLabelForActive"
-        :read-only="activeKind === 'copilot' || activeKind === 'codex' || activeKind === 'claude-code'"
-        :all-manual="activeKind === 'azure'"
+        :read-only="draft.kind === 'copilot' || draft.kind === 'codex' || draft.kind === 'claude-code'"
+        :all-manual="draft.kind === 'azure'"
         @update:invalid="v => modelsPanelInvalid = v"
       />
     </div>

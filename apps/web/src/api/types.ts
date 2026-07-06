@@ -62,8 +62,8 @@ export interface CustomModelsFetch {
   endpoint?: string;
 }
 
-// Raw model entries returned by POST /api/upstreams/fetch-models; permissive
-// superset over the shapes the backend accepts.
+// Raw model entries returned by POST /api/upstreams/list-models for custom
+// upstreams; permissive superset over the shapes the backend accepts.
 export interface CustomRawModel {
   id: string;
   display_name?: string;
@@ -75,6 +75,16 @@ export interface CustomRawModel {
   kind?: ModelKind;
 }
 
+// Each provider's config is served in two shapes over the same wire slot:
+//   * Redacted — list endpoint (`GET /api/upstreams`). Secrets stripped to
+//     boolean flags (`apiKeySet`, `githubTokenSet`, `refreshTokenSet`).
+//   * Full — single-record endpoint (`GET /api/upstreams/:id`) and the
+//     blueprint endpoint (`GET /api/upstreams/blueprint?kind=…`). Actual
+//     credential fields present. The edit page loads through the full path
+//     so every action endpoint can post the record straight back with the
+//     credentials the server needs.
+// The types below carry both surfaces (secrets optional + presence flag
+// optional) so a single `UpstreamRecord` value can flow through both paths.
 export interface CustomUpstreamConfig {
   baseUrl: string;
   authStyle: 'bearer' | 'anthropic' | 'none';
@@ -82,11 +92,13 @@ export interface CustomUpstreamConfig {
   pathOverrides?: Record<string, string>;
   modelsFetch: CustomModelsFetch;
   models: UpstreamModelConfig[];
+  apiKey?: string;
   apiKeySet?: boolean;
 }
 
 export interface AzureUpstreamConfig {
   endpoint: string;
+  apiKey?: string;
   apiKeySet?: boolean;
   models: UpstreamModelConfig[];
 }
@@ -100,6 +112,7 @@ export interface CopilotUser {
 
 export interface CopilotUpstreamConfig {
   user: CopilotUser;
+  githubToken?: string;
   githubTokenSet?: boolean;
 }
 
@@ -113,11 +126,10 @@ export interface CopilotUpstreamState {
   copilotToken: { baseUrl: string } | null;
 }
 
-// Account-pool identities derived from the id_token at codex import. v1
-// always carries exactly one account; the array shape lets a future fan-out
-// land without a wire-format change. refresh_token lives in state and is
-// exposed only as a `refresh_token_set` boolean per account (see
-// CodexUpstreamState below).
+// Account-pool identity derived from the id_token at codex import. Today's
+// contract always operates on a single account, but the array shape lives
+// on to keep the wire format stable if we later fan out. `accounts` is an
+// empty array on a fresh blueprint (before OAuth exchange populates it).
 export interface CodexAccountIdentity {
   email: string;
   chatgptAccountId: string;
@@ -126,14 +138,15 @@ export interface CodexAccountIdentity {
 }
 
 export interface CodexUpstreamConfig {
-  accounts: [CodexAccountIdentity];
+  accounts: CodexAccountIdentity[];
 }
 
 export interface OllamaUpstreamConfig {
   baseUrl: string;
+  apiKey?: string | null;
   // apiKeySet mirrors customConfig.apiKeySet — the wire never carries the
-  // real secret, only a flag the dashboard uses to render the "leave blank to
-  // keep" hint and the "••••••••" placeholder.
+  // real secret in the redacted projection, only a flag the dashboard uses
+  // to render the "leave blank to keep" hint and the "••••••••" placeholder.
   apiKeySet?: boolean;
   models: UpstreamModelConfig[];
 }
@@ -143,7 +156,9 @@ export interface CodexAccountCredentialState {
   state: 'active' | 'session_terminated' | 'refresh_failed';
   state_message?: string;
   state_updated_at: string;
-  refresh_token_set: boolean;
+  refresh_token?: string;
+  refresh_token_set?: boolean;
+  accessToken?: { token: string; expiresAt: number; refreshedAt: string } | null;
 }
 
 export interface CodexUpstreamState {
@@ -167,11 +182,6 @@ export interface CodexQuotaSnapshot {
 
 export type CodexQuotaSnapshotMap = Record<string, CodexQuotaSnapshot>;
 
-// Claude Code identity + state shapes. Mirror the redacted projections in
-// packages/gateway/src/control-plane/upstreams/serialize.ts: refreshToken
-// lives in state and surfaces only as the boolean `refreshTokenSet`, and
-// accessToken.token is dropped while expiresAt / refreshedAt remain so the
-// dashboard can display a relative-time badge.
 export interface ClaudeCodeAccountIdentity {
   // null when the access token lacks the `user:profile` scope (personal
   // accounts whose CLI flow did not request it). Dashboard substitutes the
@@ -190,10 +200,11 @@ export interface ClaudeCodeAccountIdentity {
 }
 
 export interface ClaudeCodeUpstreamConfig {
-  accounts: [ClaudeCodeAccountIdentity];
+  accounts: ClaudeCodeAccountIdentity[];
 }
 
 export interface ClaudeCodeAccessTokenSummary {
+  token?: string;
   expiresAt: number;
   refreshedAt: string;
 }
@@ -252,7 +263,8 @@ export interface ClaudeCodeAccountCredentialSummary {
   state: 'active' | 'session_terminated' | 'refresh_failed';
   stateMessage?: string;
   stateUpdatedAt: string;
-  refreshTokenSet: boolean;
+  refreshToken?: string;
+  refreshTokenSet?: boolean;
   accessToken: ClaudeCodeAccessTokenSummary | null;
   quotaSnapshot: ClaudeCodeQuotaSnapshotEntry | null;
   usageProbeSnapshot: ClaudeCodeUsageProbeSnapshotEntry | null;
@@ -307,6 +319,23 @@ export type UpstreamRecord =
   | (UpstreamRecordBase & { kind: 'codex'; config: CodexUpstreamConfig; state: CodexUpstreamState | null; codex_quota?: CodexQuotaSnapshotMap | null })
   | (UpstreamRecordBase & { kind: 'claude-code'; config: ClaudeCodeUpstreamConfig; state: ClaudeCodeUpstreamState | null })
   | (UpstreamRecordBase & { kind: 'ollama'; config: OllamaUpstreamConfig; state: null });
+
+// The action-endpoint wire envelope (matches `upstreamRecordEnvelope` in
+// packages/gateway/src/control-plane/schemas.ts): zod's `.passthrough()`
+// widens the inferred request type with a string index signature, which
+// our discriminated `UpstreamRecord` lacks. Every `{ record: draft, ... }`
+// call site funnels its draft through `toRecordEnvelope` to satisfy the
+// RPC client without an unsafe cast on the payload as a whole.
+export type UpstreamRecordEnvelope = {
+  id: string;
+  kind: string;
+  config: unknown;
+  state: unknown;
+  proxy_fallback_list?: ProxyFallbackEntry[];
+  [key: string]: unknown;
+};
+
+export const toRecordEnvelope = (record: UpstreamRecord): UpstreamRecordEnvelope => ({ ...record });
 
 export interface FlagDef {
   id: string;
@@ -365,9 +394,19 @@ export interface DeviceFlowStart {
   interval: number;
 }
 
-export interface DeviceFlowPoll {
-  status: 'pending' | 'complete' | 'slow_down' | 'error';
-  upstream?: UpstreamRecord;
-  error?: string;
-  interval?: number;
-}
+// Return shape of POST /api/upstreams/copilot/oauth/device-login/poll.
+// `complete` carries a `patch` the caller merges into its draft record;
+// the same patch is targeted-persisted server-side when the caller's
+// record has an id.
+export type DeviceFlowPoll =
+  | { status: 'pending' }
+  | { status: 'slow_down'; interval: number }
+  | { status: 'error'; error: string }
+  | {
+    status: 'complete';
+    user: CopilotUser;
+    patch: {
+      config: CopilotUpstreamConfig;
+      state: CopilotUpstreamState;
+    };
+  };

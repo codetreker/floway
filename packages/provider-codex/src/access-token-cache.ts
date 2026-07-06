@@ -93,24 +93,54 @@ export const invalidateCodexAccessToken = async (
 // other terminal codes (`app_session_terminated`, `invalid_refresh_token`,
 // `invalid_client`, `unauthorized_client`, `access_denied`) signal
 // credential death under any race scenario and skip recovery.
+// Process-local coalescing of concurrent ensure calls. On a cold start N
+// requests on the same isolate would all see `accessToken === null` and
+// each POST /oauth/token; the upstream rotates on every call so only one
+// survives and the rest fall into `recoverFromRefreshRace`, burning N
+// round-trips for one usable token. Coalescing here collapses the
+// within-isolate herd to a single mint. Key includes `force` so a
+// dashboard `force: true` click never rides on a concurrent lazy call's
+// cache-hit result (and vice versa); concurrent forces still collapse.
+//
+// Scope: per-isolate only. Cross-isolate siblings still race and are
+// caught by `recoverFromRefreshRace` — same trade-off as claude-code.
+const inFlightEnsures = new Map<string, Promise<CodexAccessTokenEntry>>();
+
 export const ensureCodexAccessToken = async (
   upstreamId: string,
   accountId: string,
   mint: (refreshToken: string) => Promise<CodexAccessTokenEntry>,
-): Promise<CodexAccessTokenEntry> => await ensureCodexAccessTokenInner(upstreamId, accountId, mint, true);
+  // When true, skip the "cached access_token is still fresh" fast-path and
+  // always mint a fresh one. Dashboard's Refresh button sets this so the
+  // operator sees the row's tokens actually rotate; the data plane leaves
+  // it false so a live request served from cache stays cheap.
+  force = false,
+): Promise<CodexAccessTokenEntry> => {
+  const key = `${upstreamId}:${accountId}:${force ? 'force' : 'lazy'}`;
+  const existing = inFlightEnsures.get(key);
+  if (existing) return await existing;
+  const promise = ensureCodexAccessTokenInner(upstreamId, accountId, mint, true, force);
+  inFlightEnsures.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightEnsures.delete(key);
+  }
+};
 
 const ensureCodexAccessTokenInner = async (
   upstreamId: string,
   accountId: string,
   mint: (refreshToken: string) => Promise<CodexAccessTokenEntry>,
   recoveryAllowed: boolean,
+  force: boolean,
 ): Promise<CodexAccessTokenEntry> => {
   const fresh = await getProviderRepo().upstreams.getById(upstreamId);
   if (!fresh) throw new Error(`Codex upstream ${upstreamId} not found`);
   const state = readCodexUpstreamState(fresh.state);
   const account = state.accounts.find(a => a.chatgptAccountId === accountId);
   if (!account) throw new Error(`Codex account ${accountId} not found in upstream ${upstreamId}`);
-  if (account.accessToken && isAccessTokenFresh(account.accessToken)) {
+  if (account.accessToken && isAccessTokenFresh(account.accessToken) && !force) {
     return account.accessToken;
   }
 
@@ -162,7 +192,7 @@ const recoverFromRefreshRace = async (
   // through the standard mint path. The depth guard suppresses a second
   // recovery attempt — if `invalid_grant` strikes again the refresh token
   // really is dead and we want the terminal flip.
-  return await ensureCodexAccessTokenInner(upstreamId, accountId, mint, false);
+  return await ensureCodexAccessTokenInner(upstreamId, accountId, mint, false, false);
 };
 
 // Mints a fresh access token via /oauth/token and routes the rotated

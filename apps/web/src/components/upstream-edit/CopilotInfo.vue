@@ -2,30 +2,36 @@
 import { computed, ref } from 'vue';
 
 import { callApi, useApi } from '../../api/client.ts';
-import type { CopilotQuotaSnapshot, CopilotUpstreamConfig, CopilotUpstreamState } from '../../api/types.ts';
+import type { CopilotQuotaSnapshot, UpstreamRecord } from '../../api/types.ts';
+import { toRecordEnvelope } from '../../api/types.ts';
 import { copilotAccountTypeDisplay } from '../../utils/copilot.ts';
-import { Card } from '@floway-dev/ui';
+import { Button, Card } from '@floway-dev/ui';
+
+type CopilotUpstreamRecord = Extract<UpstreamRecord, { kind: 'copilot' }>;
 
 const props = defineProps<{
-  upstreamId: string;
-  config: CopilotUpstreamConfig;
-  state: CopilotUpstreamState | null;
-  initialQuota?: CopilotQuotaSnapshot | null;
-  initialQuotaError?: string | null;
+  draft: CopilotUpstreamRecord;
+  saving: boolean;
 }>();
 
-const accountTypeDisplay = computed(() => copilotAccountTypeDisplay(props.state));
+const emit = defineEmits<{
+  'save-and-open-edit': [];
+}>();
+
+const isCreate = computed(() => props.draft.id === '');
+const accountTypeDisplay = computed(() => copilotAccountTypeDisplay(props.draft.state));
 
 const api = useApi();
-const quota = ref<CopilotQuotaSnapshot | null>(props.initialQuota ?? null);
-const quotaError = ref<string | null>(props.initialQuotaError ?? null);
+// Quota is a pure query — no draft mutation and no persistence.
+const quota = ref<CopilotQuotaSnapshot | null>(null);
+const quotaError = ref<string | null>(null);
 const loadingQuota = ref(false);
 
 const loadQuota = async () => {
   loadingQuota.value = true;
   quotaError.value = null;
   const { data, error } = await callApi<CopilotQuotaSnapshot>(
-    () => api.api.upstreams[':id'].copilot.quota.$get({ param: { id: props.upstreamId } }),
+    () => api.api.upstreams.copilot.quota.$post({ json: { record: toRecordEnvelope(props.draft) } }),
   );
   loadingQuota.value = false;
   if (error) {
@@ -50,14 +56,14 @@ const usedPercent = computed(() => {
     <Card :padded="false" class="space-y-3 p-4">
       <div class="flex items-center gap-3">
         <img
-          v-if="config.user.avatar_url"
-          :src="config.user.avatar_url"
-          :alt="config.user.login"
+          v-if="draft.config.user.avatar_url"
+          :src="draft.config.user.avatar_url"
+          :alt="draft.config.user.login"
           class="size-10 rounded-full"
         >
         <div>
-          <p class="text-sm font-medium text-white">{{ config.user.name ?? config.user.login }}</p>
-          <p class="text-xs text-gray-400">@{{ config.user.login }} · {{ accountTypeDisplay }}</p>
+          <p class="text-sm font-medium text-white">{{ draft.config.user.name ?? draft.config.user.login }}</p>
+          <p class="text-xs text-gray-400">@{{ draft.config.user.login }} · {{ accountTypeDisplay }}</p>
         </div>
       </div>
     </Card>
@@ -71,7 +77,7 @@ const usedPercent = computed(() => {
           :disabled="loadingQuota"
           @click="loadQuota"
         >
-          {{ loadingQuota ? 'Loading…' : 'Refresh' }}
+          {{ loadingQuota ? 'Loading…' : (quota ? 'Refresh' : 'Load') }}
         </button>
       </header>
       <div v-if="quotaError" class="text-xs text-accent-rose">{{ quotaError }}</div>
@@ -92,7 +98,26 @@ const usedPercent = computed(() => {
           </p>
         </div>
       </template>
-      <p v-else-if="!loadingQuota" class="text-xs text-gray-500">No premium quota reported.</p>
+      <p v-else-if="!loadingQuota" class="text-xs text-gray-500">Click Load to fetch the current premium quota.</p>
     </Card>
+
+    <!-- Create-state prompt: the operator has completed the device flow but
+         hasn't persisted the row yet, so the list-models endpoint has no DB
+         id to key off. Offer an explicit save-and-open path that lands them
+         on the edit page whose mount-time prime populates the catalog. The
+         main Save button in the page footer instead returns to the list. -->
+    <div
+      v-if="isCreate"
+      class="flex items-center justify-between gap-4 rounded-xl border border-[rgba(0,229,255,0.18)] bg-gradient-to-br from-[rgba(0,229,255,0.08)] to-[rgba(0,229,255,0.02)] px-4 py-3.5"
+    >
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium text-white">Ready to save</p>
+        <p class="text-xs text-gray-400">Save this Copilot upstream to load its model catalog for review.</p>
+      </div>
+      <Button :loading="saving" class="shrink-0" @click="emit('save-and-open-edit')">
+        <i v-if="!saving" class="i-lucide-save size-3.5" />
+        Save and load models
+      </Button>
+    </div>
   </div>
 </template>

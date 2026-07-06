@@ -163,7 +163,7 @@ const redactedState = (upstream: UpstreamRecord): unknown => {
     // Expose only the per-tier baseUrl the dashboard renders an account-type
     // badge from. Bearer token + expiry stay server-side: short-lived auth
     // material has no presentation use.
-    const token = isRecord(state.copilotToken) ? state.copilotToken : null;
+    const token = serializeOpaqueRecord(upstream, 'copilotToken', state.copilotToken);
     const baseUrl = typeof token?.baseUrl === 'string' ? token.baseUrl : null;
     return { copilotToken: baseUrl !== null ? { baseUrl } : null };
   }
@@ -203,3 +203,43 @@ export const upstreamRecordToJson = (upstream: UpstreamRecord): SerializedUpstre
 
 export const upstreamRecordToFullJson = (upstream: UpstreamRecord): SerializedUpstreamRecord =>
   serializeBase(upstream, { config: clone(upstream.config), state: clone(upstream.state) });
+
+// Shape-complete UpstreamRecord blank for `kind`, never persisted. Serves the
+// GET /api/upstreams/blueprint endpoint so the create page consumes the same
+// SerializedUpstreamRecord shape edit does — the front-end draft variable is
+// uniform across create and edit, and no write-path invariants have to be
+// satisfied. Field values are true blanks (empty strings, empty arrays),
+// matching what an editor sees before typing anything or completing any
+// OAuth flow.
+export const blueprintUpstreamRecord = (kind: UpstreamProviderKind): UpstreamRecord => {
+  const base = {
+    id: '',
+    name: '',
+    enabled: false,
+    sortOrder: 0,
+    createdAt: '',
+    updatedAt: '',
+    flagOverrides: {} as Record<string, boolean>,
+    disabledPublicModelIds: [] as string[],
+    proxyFallbackList: [] as ProxyFallbackEntry[],
+    modelPrefix: null,
+  };
+  switch (kind) {
+  case 'copilot':
+    return { ...base, kind, config: { githubToken: '', user: { login: '', avatar_url: '', name: null, id: 0 } }, state: null };
+  case 'custom':
+    return { ...base, kind, config: { baseUrl: '', authStyle: 'bearer', apiKey: '', endpoints: {}, modelsFetch: { enabled: false }, models: [] }, state: null };
+  case 'azure':
+    return { ...base, kind, config: { endpoint: '', apiKey: '', models: [] }, state: null };
+  case 'codex':
+    return { ...base, kind, config: { accounts: [] }, state: { accounts: [] } };
+  case 'claude-code':
+    return { ...base, kind, config: { accounts: [] }, state: { accounts: [] } };
+  case 'ollama':
+    return { ...base, kind, config: { baseUrl: '', apiKey: '', models: [] }, state: null };
+  default: {
+    const exhaustive: never = kind;
+    throw new Error(`Unknown upstream provider kind: ${String(exhaustive)}`);
+  }
+  }
+};

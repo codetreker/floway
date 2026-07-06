@@ -42,6 +42,14 @@ export interface EnsureClaudeCodeAccessTokenArgs {
   upstreamId: string;
   repo: UpstreamsRepoSlim;
   fetcher: Fetcher;
+  // When true, skip the "cached access_token is still fresh" fast-path and
+  // always call the OAuth refresh endpoint. The dashboard's Refresh button
+  // sets this so the operator sees the row's tokens actually rotate; the
+  // data plane leaves it false so a live request served from cache stays
+  // cheap. Coalescing keys on `(upstreamId, force)` so a force call never
+  // returns a lazy call's cache-hit result and vice versa; concurrent
+  // dashboard clicks still collapse to one refresh.
+  force?: boolean;
 }
 
 // Process-local coalescing of concurrent ensure calls. On a cold start N
@@ -65,14 +73,15 @@ const inFlightEnsures = new Map<string, Promise<EnsuredAccessToken>>();
 export const ensureClaudeCodeAccessToken = async (
   args: EnsureClaudeCodeAccessTokenArgs,
 ): Promise<EnsuredAccessToken> => {
-  const existing = inFlightEnsures.get(args.upstreamId);
+  const key = `${args.upstreamId}:${args.force ? 'force' : 'lazy'}`;
+  const existing = inFlightEnsures.get(key);
   if (existing) return await existing;
   const promise = ensureClaudeCodeAccessTokenInner(args, true);
-  inFlightEnsures.set(args.upstreamId, promise);
+  inFlightEnsures.set(key, promise);
   try {
     return await promise;
   } finally {
-    inFlightEnsures.delete(args.upstreamId);
+    inFlightEnsures.delete(key);
   }
 };
 
@@ -132,7 +141,7 @@ const ensureClaudeCodeAccessTokenInner = async (
     throw new ClaudeCodeOAuthSessionTerminatedError({ code: 'setup_token_expired', message });
   }
 
-  if (account.accessToken && isAccessTokenFresh(account.accessToken)) {
+  if (account.accessToken && isAccessTokenFresh(account.accessToken) && !args.force) {
     return { entry: account.accessToken, freshlyMinted: false };
   }
 
