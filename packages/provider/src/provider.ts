@@ -1,5 +1,6 @@
+import type { FlagDefaults } from './flags.ts';
 import type { ModelPrefixConfig } from './model-prefix.ts';
-import type { ProviderModel, UpstreamProviderKind } from './model.ts';
+import type { ProviderModel, UpstreamProviderKind, UpstreamRecord } from './model.ts';
 import type { Fetcher } from './options.ts';
 import type { ChatCompletionsPayload, ChatCompletionsStreamEvent } from '@floway-dev/protocols/chat-completions';
 import type { ModelPricing, ProtocolFrame } from '@floway-dev/protocols/common';
@@ -138,4 +139,20 @@ export interface ProviderInstance {
   // the upstream-specific model/deployment id). Callers must allocate a
   // fresh FormData per call.
   callImagesEdits(model: ProviderModel, body: FormData, signal: AbortSignal | undefined, opts: UpstreamCallOptions): Promise<ProviderCallResult>;
+}
+
+// Static, module-shaped surface each provider package exports. The gateway
+// registry keeps a Record<UpstreamProviderKind, ProviderModule> so every
+// kind→X dispatch (instance construction, flag defaults) reads its answer
+// off the same object. Adding a new dispatch slot means a field here, not
+// a parallel per-kind map.
+export interface ProviderModule {
+  // Instance factory: capture the record and return closures. Sync — any
+  // I/O the provider needs (token refresh, state persistence, catalog
+  // fetch) happens on demand inside the per-request methods on the
+  // returned ProviderInstance.
+  create: (record: UpstreamRecord) => Provider;
+  // Exhaustive default map over every catalog flag id for a fresh
+  // upstream of this kind; see each provider package's `defaults.ts`.
+  defaultFlags: FlagDefaults;
 }

@@ -3,17 +3,18 @@ import { computed, ref, watch } from 'vue';
 
 import EndpointsField from './EndpointsField.vue';
 import FlagOverridesEditor from './FlagOverridesEditor.vue';
-import { configOf, defaultEndpointsForKind, publicIdOf, titleFor, type Row } from './modelRows.ts';
-import type { AnnouncedMetadata, BillingDimension, FlagDef, ModelKind, ModelPricing, UpstreamChatConfig, UpstreamModelConfig, UpstreamProviderKind } from '../../api/types.ts';
+import { defaultEndpointsForKind, publicIdOf, titleFor, type Row } from './modelRows.ts';
+import type { AnnouncedMetadata, BillingDimension, ModelKind, ModelPricing, UpstreamChatConfig, UpstreamModelConfig } from '../../api/types.ts';
 import { parseOptionalNumber } from '../../utils/parse-optional-number.ts';
 import ChatMetadataEditor from '../shared/ChatMetadataEditor.vue';
+import type { Flag, FlagDefaults, FlagOverrides } from '@floway-dev/provider/flags';
 import { Button, Input, Select, Switch, Tooltip } from '@floway-dev/ui';
 
 const props = defineProps<{
   row: Row | null;
-  flags: FlagDef[];
-  upstreamFlagOverrides: Record<string, boolean>;
-  flagProviderKind: UpstreamProviderKind;
+  flags: Flag[];
+  upstreamFlagOverrides: FlagOverrides;
+  providerFlagDefaults: FlagDefaults;
   // "Upstream Model ID" for custom/copilot, "Deployment" for azure.
   upstreamIdLabel: string;
   // True when this manual row's upstream id is fixed (seeded from an auto
@@ -53,7 +54,7 @@ const PRICING_BY_KIND: Record<ModelKind, BillingDimension[]> = {
   image: ['input', 'input_image', 'output', 'output_image'],
 };
 
-const config = computed<UpstreamModelConfig | null>(() => props.row ? configOf(props.row) : null);
+const config = computed<UpstreamModelConfig | null>(() => props.row?.config ?? null);
 const editable = computed(() => props.row?.kind === 'manual');
 const rowKind = computed<ModelKind>(() => config.value?.kind ?? 'chat');
 
@@ -115,12 +116,19 @@ const tierDrafts = ref<TierDraft[]>(tierDraftsFor(config.value?.cost));
 // without an extra click. An Add Tier click also auto-expands.
 const tierSectionExpanded = ref(tierDrafts.value.length > 0);
 
+// Preserve the operator's per-flag choices when they toggle the whole
+// override off then back on for the same row — otherwise a stray click
+// would clear the map they had built up. Reset on row change so a fresh
+// row starts empty.
+const lastFlagOverrides = ref<FlagOverrides>({});
+
 // Resync the local drafts whenever the active row changes (a different model's
 // cost replaces the working set). Edits within the same row leave the drafts
 // alone — `writeTierDrafts` writes both local state and stored cost in lockstep.
 watch(() => props.row?.uiId, () => {
   tierDrafts.value = tierDraftsFor(config.value?.cost);
   tierSectionExpanded.value = tierDrafts.value.length > 0;
+  lastFlagOverrides.value = {};
 });
 
 const writeTierDrafts = (drafts: readonly TierDraft[]) => {
@@ -223,15 +231,12 @@ const moveTierDown = (index: number) => {
 
 const toggleFlagOverridesEnabled = () => {
   if (!editable.value || !config.value) return;
-  if (config.value.flagOverrides?.enabled) {
+  if (config.value.flagOverrides !== undefined) {
+    lastFlagOverrides.value = { ...config.value.flagOverrides };
     patch({ flagOverrides: undefined });
   } else {
-    patch({ flagOverrides: { enabled: true, values: { ...(config.value.flagOverrides?.values ?? {}) } } });
+    patch({ flagOverrides: { ...lastFlagOverrides.value } });
   }
-};
-
-const updateFlagOverrides = (values: Record<string, boolean>) => {
-  patch({ flagOverrides: { enabled: true, values } });
 };
 
 // ── Chat metadata ──────────────────────────────────────────────────────────
@@ -528,31 +533,28 @@ watch(isReasoningValid, valid => { emit('validity-change', valid); }, { immediat
 
         <section>
           <div class="mb-3 flex items-baseline gap-3">
-            <h3 class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Override Feature Flags</h3>
-            <span class="text-[11px] text-gray-500">applied on top of upstream-level flags; <code class="font-mono">Inherit</code> reflects the upstream-resolved value</span>
+            <h3 class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Feature Flags</h3>
+            <span v-if="editable" class="text-[11px] text-gray-500">applied on top of upstream-level flags; <code class="font-mono">Inherit</code> reflects the upstream-resolved value</span>
             <Switch
               v-if="editable"
-              :model-value="config.flagOverrides?.enabled === true"
+              :model-value="config.flagOverrides !== undefined"
               class="ml-auto"
               @update:model-value="toggleFlagOverridesEnabled"
             />
-            <Switch v-else :model-value="false" disabled class="ml-auto" />
           </div>
           <FlagOverridesEditor
-            v-if="editable && config.flagOverrides?.enabled"
-            :model-value="config.flagOverrides?.values ?? {}"
+            v-if="!editable || config.flagOverrides !== undefined"
+            :model-value="config.flagOverrides ?? {}"
             :flags="flags"
-            :kind="flagProviderKind"
+            :provider-defaults="providerFlagDefaults"
             :inherited-overrides="upstreamFlagOverrides"
             :name-prefix="`${row.uiId}-flag`"
+            :read-only="!editable"
             class="max-h-72"
-            @update:model-value="updateFlagOverrides"
+            @update:model-value="v => patch({ flagOverrides: v })"
           />
-          <p v-else-if="editable" class="text-[11px] text-gray-600">
-            Toggle on to override individual flags for this model only.
-          </p>
           <p v-else class="text-[11px] text-gray-600">
-            Auto models inherit upstream flags. Switch to Manual to override per model.
+            Toggle on to override individual flags for this model only.
           </p>
         </section>
 

@@ -1,4 +1,5 @@
-import type { ModelPrefixConfig, ProxyFallbackEntry, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import { flagDefaultsForKind } from '../../data-plane/providers/registry.ts';
+import type { FlagDefaults, FlagOverrides, ModelPrefixConfig, ProxyFallbackEntry, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import type { CodexQuotaSnapshotMap } from '@floway-dev/provider-codex';
 
 export interface ModelsCacheStatus {
@@ -14,7 +15,11 @@ export interface SerializedUpstreamRecord {
   sort_order: number;
   created_at: string;
   updated_at: string;
-  flag_overrides: Record<string, boolean>;
+  flag_overrides: FlagOverrides;
+  // Sent per record (rather than a separate per-kind lookup) so the
+  // dashboard's "Inherit → on/off" pill renders each row without a
+  // second round trip.
+  flag_defaults: FlagDefaults;
   disabled_public_model_ids: string[];
   proxy_fallback_list: ProxyFallbackEntry[];
   model_prefix: ModelPrefixConfig | null;
@@ -181,7 +186,8 @@ const redactedState = (upstream: UpstreamRecord): unknown => {
 
 const serializeBase = (
   upstream: UpstreamRecord,
-  payload: { config: unknown; state: unknown },
+  config: unknown,
+  state: unknown,
 ): SerializedUpstreamRecord => ({
   id: upstream.id,
   kind: upstream.kind,
@@ -191,18 +197,19 @@ const serializeBase = (
   created_at: upstream.createdAt,
   updated_at: upstream.updatedAt,
   flag_overrides: { ...upstream.flagOverrides },
+  flag_defaults: flagDefaultsForKind(upstream.kind),
   disabled_public_model_ids: [...upstream.disabledPublicModelIds],
   proxy_fallback_list: upstream.proxyFallbackList.map(entry => entry.colos === undefined ? { id: entry.id } : { id: entry.id, colos: [...entry.colos] }),
   model_prefix: upstream.modelPrefix === null ? null : clone(upstream.modelPrefix),
-  config: payload.config,
-  state: payload.state,
+  config,
+  state,
 });
 
 export const upstreamRecordToJson = (upstream: UpstreamRecord): SerializedUpstreamRecord =>
-  serializeBase(upstream, { config: redactedConfig(upstream), state: redactedState(upstream) });
+  serializeBase(upstream, redactedConfig(upstream), redactedState(upstream));
 
 export const upstreamRecordToFullJson = (upstream: UpstreamRecord): SerializedUpstreamRecord =>
-  serializeBase(upstream, { config: clone(upstream.config), state: clone(upstream.state) });
+  serializeBase(upstream, clone(upstream.config), clone(upstream.state));
 
 // Shape-complete UpstreamRecord blank for `kind`, never persisted. Serves the
 // GET /api/upstreams/blueprint endpoint so the create page consumes the same
@@ -219,7 +226,7 @@ export const blueprintUpstreamRecord = (kind: UpstreamProviderKind): UpstreamRec
     sortOrder: 0,
     createdAt: '',
     updatedAt: '',
-    flagOverrides: {} as Record<string, boolean>,
+    flagOverrides: {} as FlagOverrides,
     disabledPublicModelIds: [] as string[],
     proxyFallbackList: [] as ProxyFallbackEntry[],
     modelPrefix: null,

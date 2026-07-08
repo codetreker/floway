@@ -1,5 +1,6 @@
 import { chatFromCopilotRaw } from './chat-from-raw.ts';
 import { assertCopilotUpstreamRecord } from './config.ts';
+import { COPILOT_DEFAULT_FLAGS, defaultFlagsForCopilotModel } from './defaults.ts';
 import { fetchCopilotModels } from './fetch-models.ts';
 import { copilotFetchChatCompletions, copilotFetchEmbeddings, copilotFetchMessages, copilotFetchMessagesCountTokens, copilotFetchResponses } from './fetch.ts';
 import { COPILOT_CHATCOMPLETIONS_BOUNDARY } from './interceptors/chat-completions/index.ts';
@@ -20,22 +21,23 @@ import { parseChatCompletionsStream, type ChatCompletionsPayload, type ChatCompl
 import { type ModelEndpointKey, type ModelEndpoints, type ProtocolFrame, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseAnthropicBetaHeader, parseMessagesStream, type MessagesPayload, type MessagesStreamEvent } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesInputItem, type ResponsesPayload, type ResponsesResult } from '@floway-dev/protocols/responses';
-import { COMPACTION_TRIGGER, compactionResponse, eventResult, getProviderRepo, readUpstreamApiError, streamingProviderCall, apiErrorToResponse, defaultsForProvider, resolveEffectiveFlags, type ExecuteResult, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderModel, type ProviderResponsesResult, type ProviderStreamResult, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamRecord } from '@floway-dev/provider';
+import { COMPACTION_TRIGGER, compactionResponse, eventResult, getProviderRepo, readUpstreamApiError, streamingProviderCall, apiErrorToResponse, resolveEffectiveFlags, type ExecuteResult, type FlagOverrides, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderModel, type ProviderResponsesResult, type ProviderStreamResult, type TelemetryModelIdentity, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamRecord } from '@floway-dev/provider';
 
 interface CopilotProviderData {
   rawModels: CopilotRawModel[];
 }
 
 // Project Copilot's raw `/models` shape into the slim provider-neutral fields.
-// kind/endpoints/providerData/enabledFlags are added by the caller because they
-// depend on Copilot's endpoint knowledge and the upstream-level flag layer.
-const copilotRawToProviderModel = (model: CopilotRawModel): Omit<ProviderModel, 'kind' | 'endpoints' | 'providerData' | 'enabledFlags'> => {
+// kind/endpoints/providerData/enabledFlags/flagOverrides are set by the caller
+// because they depend on Copilot's endpoint knowledge and the multi-layer
+// flag resolution.
+const copilotRawToProviderModel = (model: CopilotRawModel): Omit<ProviderModel, 'kind' | 'endpoints' | 'providerData' | 'enabledFlags' | 'flagOverrides'> => {
   const limits: ProviderModel['limits'] = {};
   if (model.capabilities?.limits?.max_output_tokens !== undefined) limits.max_output_tokens = model.capabilities.limits.max_output_tokens;
   if (model.capabilities?.limits?.max_context_window_tokens !== undefined) limits.max_context_window_tokens = model.capabilities.limits.max_context_window_tokens;
   if (model.capabilities?.limits?.max_prompt_tokens !== undefined) limits.max_prompt_tokens = model.capabilities.limits.max_prompt_tokens;
 
-  const partial: Omit<ProviderModel, 'kind' | 'endpoints' | 'providerData' | 'enabledFlags'> = {
+  const partial: Omit<ProviderModel, 'kind' | 'endpoints' | 'providerData' | 'enabledFlags' | 'flagOverrides'> = {
     id: model.id,
     limits,
   };
@@ -138,7 +140,10 @@ const copilotEmbeddingsBody = (body: Record<string, unknown>): Record<string, un
   return { ...body, input: [body.input] };
 };
 
-const finalizeCopilotModels = (rawModels: CopilotRawModel[], enabledFlags: ReadonlySet<string>): ProviderModel[] => {
+const finalizeCopilotModels = (
+  rawModels: CopilotRawModel[],
+  upstreamOverrides: FlagOverrides,
+): ProviderModel[] => {
   const merged = mergeClaudeVariants({ object: 'list', data: rawModels });
   const groups = new Map<string, CopilotRawModel[]>();
   for (const rawModel of rawModels) {
@@ -151,24 +156,35 @@ const finalizeCopilotModels = (rawModels: CopilotRawModel[], enabledFlags: Reado
     const variants = groups.get(mergedModel.id) ?? [mergedModel];
     const endpoints = copilotModelEndpoints(variants);
     const cost = pricingForCopilotPublicModelId(mergedModel.id);
-    models.push({
+    const draft: Omit<ProviderModel, 'enabledFlags'> = {
       ...copilotRawToProviderModel(mergedModel),
       kind: kindForEndpoints(endpoints),
       endpoints,
       providerData: { rawModels: variants } satisfies CopilotProviderData,
       ...(cost ? { cost } : {}),
+    };
+    // Layer order: provider upstream default → operator upstream override
+    // → per-model provider default. Placing the per-model layer last
+    // keeps a technical necessity the provider knows about (Vertex
+    // rejects inline `role:'system'` for Claude < 4.8; see
+    // `defaultFlagsForCopilotModel`) from being silently undone by the
+    // operator's upstream toggle. The same per-model overlay is surfaced
+    // on `flagOverrides` so the dashboard can show which flags the
+    // provider forces on this specific model.
+    const flagOverrides = defaultFlagsForCopilotModel(draft);
+    const enabledFlags = resolveEffectiveFlags([COPILOT_DEFAULT_FLAGS, upstreamOverrides, flagOverrides]);
+    models.push({
+      ...draft,
       enabledFlags,
+      ...(Object.keys(flagOverrides).length > 0 ? { flagOverrides } : {}),
     });
   }
   return models;
 };
 
-export const createCopilotProvider = async (record: UpstreamRecord): Promise<Provider> => {
+export const createCopilotProvider = (record: UpstreamRecord): Provider => {
   const copilot = assertCopilotUpstreamRecord(record);
   const upstreamConfig = { id: copilot.id, githubToken: copilot.config.githubToken };
-  // Computed once: only the upstream layer applies for this provider kind
-  // (no per-model override layer).
-  const upstreamFlags = resolveEffectiveFlags(defaultsForProvider('copilot'), [copilot.flagOverrides]);
 
   const call = async (
     transport: (config: typeof upstreamConfig, init: RequestInit, options: UpstreamFetchOptions) => Promise<Response>,
@@ -294,7 +310,7 @@ export const createCopilotProvider = async (record: UpstreamRecord): Promise<Pro
           console.warn(`Failed to persist Copilot known-models for ${copilot.id}:`, err);
         }
       }
-      return finalizeCopilotModels(projectKnownModels(merged, now), upstreamFlags);
+      return finalizeCopilotModels(projectKnownModels(merged, now), copilot.flagOverrides);
     },
     getPricingForModelKey: pricingForCopilotModelKey,
     // Copilot's catalog never declares endpoints.completions, so this

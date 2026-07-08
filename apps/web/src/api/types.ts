@@ -16,6 +16,7 @@ import type {
   PublicModel,
   PublicModelLimits,
 } from '@floway-dev/protocols/common';
+import type { FlagDefaults, FlagOverrides } from '@floway-dev/provider/flags';
 import type { AddressableForm, ModelPrefixConfig } from '@floway-dev/provider/model-prefix';
 
 export type { BillingDimension, ModelEndpointKey, ModelEndpoints, ModelKind, ModelPricing };
@@ -53,8 +54,17 @@ export interface UpstreamModelConfig {
   display_name?: string;
   limits?: PublicModelLimits;
   cost?: ModelPricing;
-  flagOverrides?: { enabled: boolean; values: Record<string, boolean> };
   chat?: UpstreamChatConfig;
+  // Layer 3 per-model flag map. On a manual row (from
+  // `upstreams.config.models[]`) this is the operator-declared
+  // override that PATCH writes back to the DB; on an auto row (from
+  // `POST /api/upstreams/list-models`, reshaped from `ProviderModel`
+  // by the backend) it is the provider's per-model rule as a live
+  // read-only projection. The shape is the same in both cases; the
+  // source (and whether the row persists) is not carried on the wire —
+  // the consuming UI knows it from which list it is iterating (the
+  // config models[] array vs. the list-models response).
+  flagOverrides?: FlagOverrides;
 }
 
 export interface CustomModelsFetch {
@@ -281,7 +291,10 @@ interface UpstreamRecordBase {
   sort_order: number;
   created_at: string;
   updated_at: string;
-  flag_overrides: Record<string, boolean>;
+  flag_overrides: FlagOverrides;
+  // Provider-declared upstream-level default for every flag on this
+  // record. Fed into the flag editor's "Inherit → on/off" hint.
+  flag_defaults: FlagDefaults;
   // Public model ids switched off for this upstream. Hidden from the catalog and
   // unroutable, but their per-model metadata stays editable. May include ids no
   // longer present in the live model list.
@@ -336,13 +349,6 @@ export type UpstreamRecordEnvelope = {
 };
 
 export const toRecordEnvelope = (record: UpstreamRecord): UpstreamRecordEnvelope => ({ ...record });
-
-export interface FlagDef {
-  id: string;
-  label: string;
-  description: string;
-  defaultFor: UpstreamProviderKind[];
-}
 
 // Importing the gateway's source-of-truth type as the actual definition (rather
 // than redeclaring the shape) makes any future field rename a compile error

@@ -1,4 +1,5 @@
 import { assertCustomUpstreamRecord, type CustomUpstreamConfig } from './config.ts';
+import { CUSTOM_DEFAULT_FLAGS } from './defaults.ts';
 import { fetchCustomModels, type CustomModelsResponse, type CustomRawModel } from './fetch-models.ts';
 import { customFetchChatCompletions, customFetchCompletions, customFetchEmbeddings, customFetchImagesEdits, customFetchImagesGenerations, customFetchMessages, customFetchMessagesCountTokens, customFetchResponses, customFetchResponsesCompact } from './fetch.ts';
 import { inferEndpointsFromModelId } from './infer-endpoints.ts';
@@ -6,7 +7,7 @@ import { parseChatCompletionsStream } from '@floway-dev/protocols/chat-completio
 import { type ModelEndpoints, type ModelPricing, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseMessagesStream } from '@floway-dev/protocols/messages';
 import { parseResponsesStream, type ResponsesResult, toCompactPayloadShape } from '@floway-dev/protocols/responses';
-import { publicModelId, resolveEffectiveFlags, defaultsForProvider, streamingProviderCall, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderModel, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamRecord } from '@floway-dev/provider';
+import { publicModelId, resolveEffectiveFlags, streamingProviderCall, type FlagId, type ProviderInstance, type Provider, type ProviderCallResult, type ProviderModel, type ProviderStreamParser, type UpstreamCallOptions, type UpstreamFetchOptions, type UpstreamRecord } from '@floway-dev/provider';
 
 const rawModelIdOf = (model: ProviderModel): string => model.providerData as string;
 
@@ -50,7 +51,7 @@ const autoModelEndpoints = (model: CustomRawModel, configured: ModelEndpoints): 
 const finalizeCustomModels = (
   response: CustomModelsResponse,
   configuredEndpoints: ModelEndpoints,
-  enabledFlags: ReadonlySet<string>,
+  enabledFlags: ReadonlySet<FlagId>,
 ): ProviderModel[] => {
   const models: ProviderModel[] = [];
   for (const rawModel of response.data) {
@@ -73,13 +74,12 @@ export const createCustomProvider = (record: UpstreamRecord): Provider => {
   // Computed once for the auto-fetch layer: only the upstream layer applies to
   // auto models (no per-model override layer). Manual models layer their own
   // flag overrides on top, resolved per-model below.
-  const upstreamFlags = resolveEffectiveFlags(defaultsForProvider('custom'), [record.flagOverrides]);
+  const upstreamFlags = resolveEffectiveFlags([CUSTOM_DEFAULT_FLAGS, record.flagOverrides]);
 
   // Manual models always emit.
   const overriddenIds = new Set(config.models.map(m => m.upstreamModelId));
   const manualModels: ProviderModel[] = config.models.map(model => {
-    const modelLayer = model.flagOverrides?.enabled ? model.flagOverrides.values : undefined;
-    const enabledFlags = resolveEffectiveFlags(defaultsForProvider('custom'), [record.flagOverrides, modelLayer]);
+    const enabledFlags = resolveEffectiveFlags([CUSTOM_DEFAULT_FLAGS, record.flagOverrides, model.flagOverrides]);
     const endpoints = model.endpoints;
     const internal: ProviderModel = {
       id: publicModelId(model),
@@ -112,24 +112,9 @@ export const createCustomProvider = (record: UpstreamRecord): Provider => {
   //      for auto-fetched models on every isolate that started cold against
   //      a SOFT-fresh cache row.
   const pricingByRawId = new Map<string, ModelPricing>();
-  const rememberPricingFromResponse = (response: CustomModelsResponse): void => {
-    pricingByRawId.clear();
-    for (const raw of response.data) {
-      if (raw.id && raw.cost) pricingByRawId.set(raw.id, raw.cost);
-    }
-  };
   const rememberPricingForModel = (model: ProviderModel): void => {
     if (model.cost) pricingByRawId.set(rawModelIdOf(model), model.cost);
   };
-
-  // Drop any auto-fetched model whose id is pinned by a manual override so the
-  // manual copy is the only one emitted for that id.
-  const autoFromResponse = (response: CustomModelsResponse): ProviderModel[] => {
-    const filtered: CustomModelsResponse = { data: response.data.filter(raw => !overriddenIds.has(raw.id)) };
-    return finalizeCustomModels(filtered, configuredEndpoints, upstreamFlags);
-  };
-
-  const withManual = (auto: ProviderModel[]): ProviderModel[] => [...manualModels, ...auto];
 
   const call = (
     transport: (config: CustomUpstreamConfig, init: RequestInit, options: UpstreamFetchOptions) => Promise<Response>,
@@ -175,8 +160,14 @@ export const createCustomProvider = (record: UpstreamRecord): Provider => {
     getProvidedModels: async fetcher => {
       if (!config.modelsFetch.enabled) return manualModels;
       const response = await fetchCustomModels(config, fetcher);
-      rememberPricingFromResponse(response);
-      return withManual(autoFromResponse(response));
+      pricingByRawId.clear();
+      for (const raw of response.data) {
+        if (raw.id && raw.cost) pricingByRawId.set(raw.id, raw.cost);
+      }
+      // Drop any auto-fetched model whose id is pinned by a manual
+      // override so the manual copy is the only one emitted for that id.
+      const filtered: CustomModelsResponse = { data: response.data.filter(raw => !overriddenIds.has(raw.id)) };
+      return [...manualModels, ...finalizeCustomModels(filtered, configuredEndpoints, upstreamFlags)];
     },
     getPricingForModelKey: modelKey => manualPricingByUpstreamId.get(modelKey) ?? pricingByRawId.get(modelKey) ?? null,
     callCompletions: (model, body, signal, opts) => call(customFetchCompletions, model, body, signal, opts.headers, opts),

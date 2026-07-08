@@ -1,3 +1,4 @@
+import type { FlagId, FlagOverrides } from './flags.ts';
 import type { UpstreamChatModelConfig } from './model-config.ts';
 import type { ModelPrefixConfig } from './model-prefix.ts';
 import type { AliasSelection, AliasTarget, ModelKind, ModelEndpoints, ModelPricing } from '@floway-dev/protocols/common';
@@ -31,7 +32,7 @@ export interface UpstreamRecord {
   // Runtime state managed by the gateway autonomous flows; null when a
   // provider has no autonomous state.
   state: unknown;
-  flagOverrides: Record<string, boolean>;
+  flagOverrides: FlagOverrides;
   // Public model ids the operator switched off for this upstream. Orthogonal to
   // every per-model metadata field and uniform across provider kinds: a disabled
   // id is hidden from the catalog and unroutable, but its row metadata stays
@@ -133,10 +134,30 @@ export interface InternalAliasedFrom {
 // the shape every provider's `callXxx(model, ...)` takes at dispatch time.
 // Carries the same metadata as `InternalModel` plus `providerData` (the opaque
 // per-provider wire carrier — Copilot's raw variant list, Claude Code's dated
-// upstream id, ...) and `enabledFlags` (the effective flag set for the model
-// on the emitting upstream). Providers only ever see their own emission —
+// upstream id, ...), `enabledFlags` (the effective flag set for the model
+// on the emitting upstream, already resolved through every layer), and
+// `flagOverrides` (optional dashboard-only view of the per-model layer
+// that fed into `enabledFlags`). Providers only ever see their own emission —
 // the surrounding `InternalModel` map is assembled by the registry.
 export interface ProviderModel extends ModelMetadata {
   providerData?: unknown;
-  enabledFlags: ReadonlySet<string>;
+  enabledFlags: ReadonlySet<FlagId>;
+  // Provider's per-model flag call as a sparse override — each entry
+  // states the provider's opinion for that flag on this specific
+  // model. Absent when the provider has no per-model call on this
+  // model; when present, the map is non-empty (producers elide empty
+  // overlays before emission). Populated only for providers with a
+  // per-model rule (Copilot's Claude < 4.8 demote clause is the current
+  // example); other providers leave it undefined.
+  //
+  // The data plane consumes the already-resolved `enabledFlags` and
+  // never re-layers this. The field exists so the dashboard's
+  // auto-row flag view can render a per-flag pill showing which flags
+  // the provider itself calls on this specific model —
+  // reshapeModelForDashboard projects it onto the wire as the auto-row
+  // counterpart to the operator-authored
+  // `UpstreamModelConfig.flagOverrides` on manual rows. The two
+  // occupy the same layer-3 slot; the source is carried by the
+  // enclosing row type (auto vs manual), not by the field name.
+  flagOverrides?: FlagOverrides;
 }

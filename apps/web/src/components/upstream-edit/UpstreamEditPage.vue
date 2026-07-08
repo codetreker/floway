@@ -21,15 +21,16 @@ import {
 import ModelsPanel from './ModelsPanel.vue';
 import UpstreamConfigPanel from './UpstreamConfigPanel.vue';
 import { callApi, useApi } from '../../api/client.ts';
-import type { AzureUpstreamConfig, CustomRawModel, CustomUpstreamConfig, FlagDef, ModelEndpoints, OllamaUpstreamConfig, UpstreamModelConfig, UpstreamRecord } from '../../api/types.ts';
+import type { AzureUpstreamConfig, CustomRawModel, CustomUpstreamConfig, ModelEndpoints, OllamaUpstreamConfig, UpstreamModelConfig, UpstreamRecord } from '../../api/types.ts';
 import { toRecordEnvelope } from '../../api/types.ts';
 import { useRuntimeInfo } from '../../composables/useRuntimeInfo.ts';
 import { useUpstreamsStore } from '../../composables/useUpstreams.ts';
+import type { Flag, FlagOverrides } from '@floway-dev/provider/flags';
 import { Button } from '@floway-dev/ui';
 
 const props = defineProps<{
   initialRecord: UpstreamRecord;
-  flags: FlagDef[];
+  flags: Flag[];
 }>();
 
 const emit = defineEmits<{
@@ -107,7 +108,7 @@ seedProviderDrafts();
 // getting it observes any patch merged in by a wizard.
 const name = computed<string>({ get: () => draft.value.name, set: v => { draft.value = { ...draft.value, name: v }; } });
 const enabled = computed<boolean>({ get: () => draft.value.enabled, set: v => { draft.value = { ...draft.value, enabled: v }; } });
-const flagOverrides = computed<Record<string, boolean>>({
+const flagOverrides = computed<FlagOverrides>({
   get: () => draft.value.flag_overrides,
   set: v => { draft.value = { ...draft.value, flag_overrides: v }; },
 });
@@ -487,7 +488,7 @@ const showCacheStatus = computed(() => !isCreate.value && draft.value.kind !== '
 const availableModelItems = computed<{ value: string; label: string }[]>(() => {
   const seen = new Set<string>();
   const items: { value: string; label: string }[] = [];
-  const collect = (list: UpstreamModelConfig[]) => {
+  const collect = (list: readonly UpstreamModelConfig[]) => {
     for (const m of list) {
       // `||` (not `??`) is intentional: a whitespace-only override should
       // not shadow the upstream id.
@@ -600,7 +601,7 @@ const workbenchStyle = computed(() => ({ '--right-pane-h': `${Math.ceil(rightCon
         :auto-models="autoForActive"
         :flags="flags"
         :upstream-flag-overrides="flagOverrides"
-        :flag-provider-kind="draft.kind"
+        :provider-flag-defaults="draft.flag_defaults"
         :upstream-id-label="upstreamIdLabelForActive"
         :read-only="draft.kind === 'copilot' || draft.kind === 'codex' || draft.kind === 'claude-code'"
         :all-manual="draft.kind === 'azure'"

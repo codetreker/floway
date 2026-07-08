@@ -122,7 +122,7 @@ const copilotModels = (models: CopilotModelFixture[]) => ({
 
 test('Copilot provider exposes the highest-priority non-Claude endpoint', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
 
   assertEquals(instance.supportsResponsesItemReference, false);
@@ -169,7 +169,7 @@ test('Copilot provider exposes the highest-priority non-Claude endpoint', async 
 
 test('Copilot provider exposes only Responses for Claude when available', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
 
   await withMockedFetch(
@@ -218,7 +218,7 @@ test('Copilot provider exposes only Responses for Claude when available', async 
 
 test('Copilot provider owns the claude-* Messages capability workaround', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   let upstreamBody: Record<string, unknown> | undefined;
 
@@ -272,7 +272,7 @@ test('Copilot provider owns the claude-* Messages capability workaround', async 
 
 test('Copilot provider selects raw variants that support the target endpoint', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   let responsesBody: Record<string, unknown> | undefined;
 
@@ -335,7 +335,7 @@ test('Copilot provider runs the Responses boundary chain on the compact path', a
   // derivers reach the wire request headers, and the compact-shaped envelope
   // still comes back through `compactionResponse`.
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   let responsesBody: Record<string, unknown> | undefined;
   let visionHeader: string | null = null;
@@ -408,7 +408,7 @@ test('Copilot provider exposes its default flag set via ProviderModel.enabledFla
     flagOverrides: { 'messages-web-search-shim': true },
     disabledPublicModelIds: [],
   });
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
 
   assertEquals(instance.upstream, 'up_copilot');
   assertEquals(instance.name, copilotUpstream.name);
@@ -442,9 +442,63 @@ test('Copilot provider exposes its default flag set via ProviderModel.enabledFla
   );
 });
 
+test('per-model provider default beats operator upstream override — Claude < 4.8 stays demoted even when the upstream flag is off', async () => {
+  const { copilotUpstream } = await setupCopilotTest({
+    // Operator flipped the upstream-wide flag off. Provider says
+    // Claude < 4.8 must stay demoted (its Vertex backend rejects
+    // inline `role:'system'`), and the per-model layer sits after the
+    // upstream override in the resolve chain, so the provider judgment
+    // wins for the affected model while every other model honors the
+    // operator setting.
+    flagOverrides: { 'demote-interleaved-system-to-user': false },
+  });
+  const instance = createCopilotProvider(copilotUpstream);
+
+  await withMockedFetch(
+    request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') {
+        return jsonResponse(['1.110.1']);
+      }
+      if (url.pathname === '/copilot_internal/v2/token') {
+        return jsonResponse({
+          token: 'copilot-access-token',
+          expires_at: 4102444800,
+          refresh_in: 3600,
+          endpoints: { api: 'https://api.individual.githubcopilot.com' },
+        });
+      }
+      if (url.pathname === '/models') {
+        return jsonResponse(copilotModels([
+          { id: 'claude-opus-4.6', supported_endpoints: ['/chat/completions'] },
+          { id: 'claude-opus-4.8', supported_endpoints: ['/chat/completions'] },
+          { id: 'gpt-test', supported_endpoints: ['/chat/completions'] },
+        ]));
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const models = await instance.instance.getProvidedModels(directFetcher);
+      const claude46 = models.find(m => m.id === 'claude-opus-4-6');
+      const claude48 = models.find(m => m.id === 'claude-opus-4-8');
+      const gpt = models.find(m => m.id === 'gpt-test');
+      if (!claude46 || !claude48 || !gpt) throw new Error('expected all three models in the emitted catalog');
+      // Per-model layer forces demote on for Claude < 4.8, even though
+      // the operator upstream override said off.
+      assertEquals(claude46.enabledFlags.has('demote-interleaved-system-to-user'), true);
+      // No per-model rule for Claude >= 4.8; the operator upstream
+      // override wins on this row.
+      assertEquals(claude48.enabledFlags.has('demote-interleaved-system-to-user'), false);
+      // Non-Claude ids never get a per-model rule; operator setting
+      // stands.
+      assertEquals(gpt.enabledFlags.has('demote-interleaved-system-to-user'), false);
+    },
+  );
+});
+
 test('Copilot provider forces stream=true for streaming endpoints and leaves count-tokens/embeddings alone', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   const bodies: Record<string, Record<string, unknown>> = {};
 
@@ -511,7 +565,7 @@ test('Copilot provider forces stream=true for streaming endpoints and leaves cou
 
 test('Copilot provider sets copilot-vision-request when an image is nested inside tool_result.content', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   const visionHeaders: (string | null)[] = [];
 
@@ -600,7 +654,7 @@ test('Copilot Messages boundary chain does NOT fire on the Chat Completions wire
   // chat-completions wire — that path runs `COPILOT_CHATCOMPLETIONS_BOUNDARY`,
   // which has no Messages-source headers in it.
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   const observedInteractionType: (string | null)[] = [];
 
@@ -664,7 +718,7 @@ test('Copilot provider persists merged known-models view via saveState CAS keyed
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const instance = await createCopilotProvider(copilotUpstream);
+      const instance = createCopilotProvider(copilotUpstream);
       const result = await instance.instance.getProvidedModels(directFetcher);
       assertEquals(result.map(m => m.id), ['m1']);
     },
@@ -708,7 +762,7 @@ test('Copilot provider persists known-models even when the token-mint write adva
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const instance = await createCopilotProvider(copilotUpstream);
+      const instance = createCopilotProvider(copilotUpstream);
       await instance.instance.getProvidedModels(directFetcher);
     },
   );
@@ -741,7 +795,7 @@ test('Copilot provider accumulates known-models across calls so a model dropped 
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const instance = await createCopilotProvider(copilotUpstream);
+      const instance = createCopilotProvider(copilotUpstream);
       const first = await instance.instance.getProvidedModels(directFetcher);
       assertEquals(first.map(m => m.id), ['m1']);
       const second = await instance.instance.getProvidedModels(directFetcher);
@@ -771,7 +825,7 @@ test('Copilot provider throws when the upstream fetch fails — no in-provider f
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const instance = await createCopilotProvider(harness.copilotUpstream);
+      const instance = createCopilotProvider(harness.copilotUpstream);
       await assertRejects(() => instance.instance.getProvidedModels(directFetcher));
     },
   );
@@ -779,7 +833,7 @@ test('Copilot provider throws when the upstream fetch fails — no in-provider f
 
 test('Copilot provider throws "disappeared mid-request" when the upstream row vanishes between construction and call', async () => {
   const harness = await setupCopilotTest();
-  const instance = await createCopilotProvider(harness.copilotUpstream);
+  const instance = createCopilotProvider(harness.copilotUpstream);
   harness.overrideGetById(async () => null);
 
   await assertRejects(
@@ -804,7 +858,7 @@ test('Copilot provider accepts a losing CAS write and still returns the freshly 
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const instance = await createCopilotProvider(harness.copilotUpstream);
+      const instance = createCopilotProvider(harness.copilotUpstream);
       const result = await instance.instance.getProvidedModels(directFetcher);
       assertEquals(result.map(m => m.id), ['m1']);
     },
@@ -829,7 +883,7 @@ test('Copilot provider swallows a saveState throw so a transient persistence hic
       throw new Error(`Unhandled fetch ${request.url}`);
     },
     async () => {
-      const instance = await createCopilotProvider(harness.copilotUpstream);
+      const instance = createCopilotProvider(harness.copilotUpstream);
       const result = await instance.instance.getProvidedModels(directFetcher);
       assertEquals(result.map(m => m.id), ['m1']);
     },
@@ -901,7 +955,7 @@ const fastModelCatalog = () =>
 
 test('Copilot provider routes speed=fast to the -fast raw variant and stamps usage.speed on the way out', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   let upstreamBody: Record<string, unknown> | undefined;
 
@@ -958,7 +1012,7 @@ test('Copilot provider routes speed=fast to the -fast raw variant and stamps usa
 
 test('Copilot provider returns HTTP 400 invalid_request_error when speed=fast hits a model without a -fast variant', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   let messagesHit = false;
 
@@ -1006,7 +1060,7 @@ test('Copilot provider returns HTTP 400 invalid_request_error when speed=fast hi
 
 test('Copilot provider passes unknown speed values to the upstream verbatim so the upstream owns rejecting them', async () => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   const provider = instance.instance;
   let upstreamBody: Record<string, unknown> | undefined;
 
@@ -1075,7 +1129,7 @@ const copilotModelsWithCapabilities = (models: CopilotModelCapabilityFixture[]) 
 
 const getModelsWithCapabilities = async (fixtures: CopilotModelCapabilityFixture[]) => {
   const { copilotUpstream } = await setupCopilotTest();
-  const instance = await createCopilotProvider(copilotUpstream);
+  const instance = createCopilotProvider(copilotUpstream);
   let models: Awaited<ReturnType<typeof instance.instance.getProvidedModels>> = [];
 
   await withMockedFetch(

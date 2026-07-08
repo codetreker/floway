@@ -47,6 +47,7 @@ export type {
   Provider,
   ProviderInstance,
   ProviderCallResult,
+  ProviderModule,
   ProviderResponsesResult,
   ProviderStreamResult,
   ResponsesAction,
@@ -64,11 +65,9 @@ export {
   httpResponseToResponse,
 } from './models-fetch.ts';
 
-export type { Flag, FlagOverrides, OptionalFlagId } from './flags.ts';
+export type { Flag, FlagDefaults, FlagId, FlagOverrides } from './flags.ts';
 export {
   OPTIONAL_FLAGS,
-  defaultsForProvider,
-  getFlagCatalog,
   isKnownFlagId,
   parseFlagOverridesWire,
   resolveEffectiveFlags,
@@ -76,7 +75,6 @@ export {
 
 export type {
   UpstreamModelConfig,
-  UpstreamModelFlagOverrides,
   UpstreamModelLimits,
   Modality,
   UpstreamChatModelConfig,

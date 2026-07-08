@@ -7,13 +7,13 @@ import { getRepo } from '../../repo/index.ts';
 import type { ModelAliasRecord } from '../../repo/types.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
 import { type ModelKind, kindForEndpoints } from '@floway-dev/protocols/common';
-import { isAbortError, type Fetcher, type InternalModel, type ModelCandidate, type Provider, type ProviderModel, type UpstreamProviderKind, type UpstreamRecord } from '@floway-dev/provider';
-import { createAzureProvider } from '@floway-dev/provider-azure';
-import { createClaudeCodeProvider } from '@floway-dev/provider-claude-code';
-import { createCodexProvider } from '@floway-dev/provider-codex';
-import { createCopilotProvider } from '@floway-dev/provider-copilot';
-import { createCustomProvider } from '@floway-dev/provider-custom';
-import { createOllamaProvider } from '@floway-dev/provider-ollama';
+import { isAbortError, type Fetcher, type FlagDefaults, type InternalModel, type ModelCandidate, type Provider, type ProviderModel, type ProviderModule, type UpstreamProviderKind, type UpstreamRecord } from '@floway-dev/provider';
+import { azureProvider } from '@floway-dev/provider-azure';
+import { claudeCodeProvider } from '@floway-dev/provider-claude-code';
+import { codexProvider } from '@floway-dev/provider-codex';
+import { copilotProvider } from '@floway-dev/provider-copilot';
+import { customProvider } from '@floway-dev/provider-custom';
+import { ollamaProvider } from '@floway-dev/provider-ollama';
 
 interface ProviderModelsResult {
   models: InternalModel[];
@@ -30,21 +30,20 @@ interface ProviderModelsResult {
   failedUpstreams: string[];
 }
 
-const NO_UPSTREAM_CONFIGURED_MESSAGE = 'No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard';
-
-type ProviderFactory = (record: UpstreamRecord) => Provider | Promise<Provider>;
-
-const providerFactories: Record<UpstreamProviderKind, ProviderFactory> = {
-  copilot: createCopilotProvider,
-  custom: createCustomProvider,
-  azure: createAzureProvider,
-  codex: createCodexProvider,
-  'claude-code': createClaudeCodeProvider,
-  ollama: createOllamaProvider,
+const providersByKind: Record<UpstreamProviderKind, ProviderModule> = {
+  copilot: copilotProvider,
+  custom: customProvider,
+  azure: azureProvider,
+  codex: codexProvider,
+  'claude-code': claudeCodeProvider,
+  ollama: ollamaProvider,
 };
 
-export const createProviderInstance = (record: UpstreamRecord): Provider | Promise<Provider> =>
-  providerFactories[record.kind](record);
+export const createProviderInstance = (record: UpstreamRecord): Provider =>
+  providersByKind[record.kind].create(record);
+
+export const flagDefaultsForKind = (kind: UpstreamProviderKind): FlagDefaults =>
+  providersByKind[kind].defaultFlags;
 
 // The upstream scope is a required argument across the catalog-assembly chain
 // (this, getModels) so a caller can never omit it and silently receive the
@@ -79,13 +78,7 @@ export const listModelProviders = async (
     selection = [...enabledById.values()];
   }
 
-  const providers: Provider[] = [];
-  for (const upstream of selection) {
-    const factory = providerFactories[upstream.kind];
-    providers.push(await factory(upstream));
-  }
-
-  return providers;
+  return selection.map(createProviderInstance);
 };
 
 // Lift a provider-emitted `ProviderModel` into an `InternalModel`, seeding
@@ -93,7 +86,7 @@ export const listModelProviders = async (
 // The provider model is stored verbatim under that entry so dispatch hands
 // the same reference back to the provider's `callXxx`.
 const internalModelFromProviderModel = (providerModel: ProviderModel, upstreamId: string): InternalModel => {
-  const { providerData, enabledFlags, endpoints, ...metadata } = providerModel;
+  const { providerData, enabledFlags, flagOverrides, endpoints, ...metadata } = providerModel;
   return {
     ...metadata,
     endpoints: { ...endpoints },
@@ -272,7 +265,7 @@ export const getModelsFromProviders = async (
   scheduler: BackgroundScheduler,
 ): Promise<{ models: InternalModel[]; upstreamsByPublicId: Map<string, Provider[]>; failedUpstreams: readonly string[] }> => {
   if (providers.length === 0) {
-    throw new Error(NO_UPSTREAM_CONFIGURED_MESSAGE);
+    throw new Error('No upstream provider configured — connect GitHub Copilot or add a Custom/Azure upstream in the dashboard');
   }
 
   const { models, upstreamsByPublicId, sawSuccess, lastError, failedUpstreams } = await collectProviderModels(providers, fetcherForUpstream, scheduler);

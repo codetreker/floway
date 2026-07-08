@@ -4,7 +4,7 @@ import { buildClaudeCodeCatalog, type ClaudeCodeApiModel } from './models.ts';
 import { pricingForClaudeCodeModelKey } from './pricing.ts';
 import { createClaudeCodeProvider } from './provider.ts';
 import type { ClaudeCodeAccessTokenEntry, ClaudeCodeAccountCredential, ClaudeCodeUpstreamState } from './state.ts';
-import { initProviderRepo, type UpstreamCallOptions, type UpstreamRecord } from '@floway-dev/provider';
+import { initProviderRepo, type FlagId, type UpstreamCallOptions, type UpstreamRecord } from '@floway-dev/provider';
 import { noopUpstreamCallOptions } from '@floway-dev/test-utils';
 
 const upstreamId = 'up_cc_provider';
@@ -22,7 +22,7 @@ const API_MODELS: ClaudeCodeApiModel[] = [
 
 // The catalog builder emits a `ProviderModel` per API row (with the dated
 // upstream id on providerData); pick the entry the messages-routing tests want.
-const sonnetProviderModel = buildClaudeCodeCatalog(API_MODELS, new Set<string>())
+const sonnetProviderModel = buildClaudeCodeCatalog(API_MODELS, new Set<FlagId>())
   .find(m => m.id === 'claude-sonnet-4-5')!;
 
 const activeAccount: ClaudeCodeAccountCredential = {
@@ -108,7 +108,7 @@ const stubModelsListFetch = (): ReturnType<typeof vi.spyOn> => vi.spyOn(globalTh
 describe('createClaudeCodeProvider — factory surface', () => {
   test('getProvidedModels mirrors the live /v1/models catalog under public aliases', async () => {
     stubModelsListFetch();
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     const models = await instance.instance.getProvidedModels(noopUpstreamCallOptions().fetcher);
     expect(models.map(m => m.id)).toEqual([
       'claude-fable-5',
@@ -121,25 +121,28 @@ describe('createClaudeCodeProvider — factory surface', () => {
   });
 
   test('getProvidedModels stamps the effective flag set onto every model', async () => {
-    // claude-code has zero declared flag defaults — verify the effective set
-    // stays empty regardless of the other providers' defaults.
+    // claude-code's provider defaults leave `strip-billing-attribution` off
+    // (Anthropic reads the block to bill against the user's plan) and turn
+    // `responses-compact-shim` on (Messages has no native compact wire).
+    // Both should be reflected on every emitted model's enabledFlags.
     stubModelsListFetch();
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     const models = await instance.instance.getProvidedModels(noopUpstreamCallOptions().fetcher);
     for (const m of models) {
       expect(m.enabledFlags.has('strip-billing-attribution')).toBe(false);
+      expect(m.enabledFlags.has('responses-compact-shim')).toBe(true);
     }
   });
 
   test('getPricingForModelKey wires through the pricing table (keyed by dated upstream id)', async () => {
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     expect(instance.instance.getPricingForModelKey('claude-sonnet-4-5-20250929'))
       .toEqual(pricingForClaudeCodeModelKey('claude-sonnet-4-5-20250929'));
     expect(instance.instance.getPricingForModelKey('unknown-id')).toBeNull();
   });
 
   test('kind is "claude-code" and supportsResponsesItemReference is false', async () => {
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     expect(instance.kind).toBe('claude-code');
     expect(instance.supportsResponsesItemReference).toBe(false);
     expect(instance.upstream).toBe(upstreamId);
@@ -148,7 +151,7 @@ describe('createClaudeCodeProvider — factory surface', () => {
 
 describe('createClaudeCodeProvider — callMessages routes through chain', () => {
   test('unshaped request runs the re-mimicry chain (3-block system, pinned UA, metadata.user_id)', async () => {
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
 
     await instance.instance.callMessages(
@@ -174,7 +177,7 @@ describe('createClaudeCodeProvider — callMessages routes through chain', () =>
   });
 
   test('shaped request preserves caller-supplied system + headers (chain skipped)', async () => {
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
 
     const userId = JSON.stringify({ device_id: 'd'.repeat(32), account_uuid: '', session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
@@ -210,7 +213,7 @@ describe('createClaudeCodeProvider — callMessages routes through chain', () =>
   });
 
   test('CC UA but a payload that fails the strict shape gate still runs the chain', async () => {
-    const instance = await createClaudeCodeProvider(currentRecord);
+    const instance = createClaudeCodeProvider(currentRecord);
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
 
     await instance.instance.callMessages(

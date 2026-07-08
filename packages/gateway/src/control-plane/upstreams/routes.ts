@@ -17,8 +17,8 @@ import { fetchGitHubUser, pollGitHubDeviceFlow, startGitHubDeviceFlow, type GitH
 import type { claudeCodeOauthAuthorizeUrlBody, claudeCodeOauthExchangeBody, claudeCodeOauthRefreshBody, claudeCodeProbeBody, claudeCodeSetupTokenAuthorizeUrlBody, claudeCodeSetupTokenExchangeBody, codexOauthAuthorizeUrlBody, codexOauthExchangeBody, codexOauthRefreshBody, copilotOauthDeviceLoginPollBody, copilotQuotaBody, createUpstreamBody, listModelsBody, updateUpstreamBody } from '../schemas.ts';
 import { copilotConfigField, type CopilotUpstreamConfig, isRecord } from '../shared/field-validators.ts';
 import {
-  getFlagCatalog,
   normalizeModelPrefix,
+  OPTIONAL_FLAGS,
   ProviderModelsUnavailableError,
   ALL_PROVIDER_KINDS,
   type Fetcher,
@@ -159,7 +159,7 @@ const normalizeModelPrefixField = (input: unknown): ValidationResult<ModelPrefix
 // genuine misconfiguration that the operator must see.
 const warmModelsCache = async (record: UpstreamRecord, c: Context): Promise<void> => {
   const scheduler = backgroundSchedulerFromContext(c);
-  const instance = await createProviderInstance(record);
+  const instance = createProviderInstance(record);
   const fetcher = (await createPerRequestFetcher(getCurrentColo(c.req.raw)))(record.id);
   try {
     await fetchUpstreamModelsCached(instance, { scheduler, fetcher, force: true });
@@ -211,7 +211,7 @@ export const listUpstreamOptions = async (c: Context) => {
     })));
 };
 
-export const listOptionalFlags = (c: Context) => c.json(getFlagCatalog());
+export const listOptionalFlags = (c: Context) => c.json(OPTIONAL_FLAGS);
 
 const isValidProviderKind = (value: unknown): value is UpstreamProviderKind =>
   typeof value === 'string' && (ALL_PROVIDER_KINDS as readonly string[]).includes(value);
@@ -920,6 +920,7 @@ const reshapeModelForDashboard = (model: ProviderModel): Record<string, unknown>
     ...(Object.keys(model.limits).length > 0 ? { limits: model.limits } : {}),
     ...(model.cost ? { cost: model.cost } : {}),
     ...(model.chat ? { chat: model.chat } : {}),
+    ...(model.flagOverrides ? { flagOverrides: model.flagOverrides } : {}),
   };
 };
 
@@ -982,7 +983,7 @@ export const listModels = async (c: CtxWithJson<typeof listModelsBody>) => {
     // Force through the SWR cache when the record is persisted so the
     // side-effect refresh keeps the data-plane cache in step; otherwise
     // live-fetch without any caching.
-    const instance = await createProviderInstance(synthRecord);
+    const instance = createProviderInstance(synthRecord);
     const models = record.id !== ''
       ? await fetchUpstreamModelsCached(instance, { scheduler, fetcher, force: true })
       : await instance.instance.getProvidedModels(fetcher);

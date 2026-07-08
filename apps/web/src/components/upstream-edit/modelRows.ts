@@ -1,14 +1,17 @@
 import type { ModelEndpointKey, ModelEndpoints, ModelKind, UpstreamModelConfig } from '../../api/types.ts';
 
-export type Row =
-  | { uiId: string; kind: 'manual'; config: UpstreamModelConfig }
-  | { uiId: string; kind: 'auto'; auto: UpstreamModelConfig };
+// A row's `kind` names the source of its `config`, not the shape:
+// `manual` came from `upstreams.config.models[]` (persists on PATCH,
+// operator-editable); `auto` came from the live wire projection of
+// `POST /api/upstreams/list-models` (read-only, never persists).
+export interface Row {
+  uiId: string;
+  kind: 'manual' | 'auto';
+  config: UpstreamModelConfig;
+}
 
 let nextUiId = 0;
 export const newUiId = () => `m${++nextUiId}`;
-
-export const configOf = (row: Row): UpstreamModelConfig =>
-  row.kind === 'manual' ? row.config : row.auto;
 
 const CHAT_ENDPOINT_KEYS: ModelEndpointKey[] = ['completions', 'chatCompletions', 'responses', 'messages'];
 const IMAGE_ENDPOINT_KEYS: ModelEndpointKey[] = ['imagesGenerations', 'imagesEdits'];
@@ -25,6 +28,10 @@ export const defaultEndpointsForKind = (kind: ModelKind, current: ModelEndpoints
   return kind === 'image' ? { imagesGenerations: {}, imagesEdits: {} } : { chatCompletions: {} };
 };
 
+// Crystallize an auto row's live projection into a manual row: copy every
+// metadata field, and pull the auto row's `flagOverrides` (the provider's
+// per-model rule) into the manual row's `flagOverrides` so the operator
+// starts from the same layer-3 state the provider was applying.
 export const seedFromAuto = (auto: UpstreamModelConfig): UpstreamModelConfig => {
   const kind = auto.kind;
   return {
@@ -38,6 +45,7 @@ export const seedFromAuto = (auto: UpstreamModelConfig): UpstreamModelConfig => 
     ...(auto.limits ? { limits: { ...auto.limits } } : {}),
     ...(auto.cost ? { cost: { ...auto.cost } } : {}),
     ...(auto.chat ? { chat: auto.chat } : {}),
+    ...(auto.flagOverrides ? { flagOverrides: { ...auto.flagOverrides } } : {}),
   };
 };
 
@@ -46,17 +54,15 @@ export const seedFromAuto = (auto: UpstreamModelConfig): UpstreamModelConfig => 
 // backend publicModelId() so the toggle and the combobox key on the same id
 // the data plane filters by.
 export const publicIdOf = (row: Row): string => {
-  const c = configOf(row);
-  const configured = c.publicModelId?.trim();
+  const configured = row.config.publicModelId?.trim();
   if (configured) return configured;
-  return c.upstreamModelId;
+  return row.config.upstreamModelId;
 };
 
 export const titleFor = (row: Row): string => {
-  const c = configOf(row);
-  const display = c.display_name?.trim();
+  const display = row.config.display_name?.trim();
   if (display) return display;
-  const upstream = c.upstreamModelId.trim();
+  const upstream = row.config.upstreamModelId.trim();
   if (upstream) return upstream;
   return 'Untitled model';
 };
