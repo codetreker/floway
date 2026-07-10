@@ -51,7 +51,7 @@ export const CODEX_MODELS_PATH = '/codex/models';
 // here silently truncates the model list. The same value flows into both
 // the `?client_version=` query param and the User-Agent so the upstream sees
 // a self-consistent client.
-export const CODEX_CLI_VERSION = '0.144.0';
+export const CODEX_CLI_VERSION = '0.144.1';
 
 // Shared official Codex data-plane identity for /codex/models and
 // /codex/responses. The User-Agent intentionally includes Codex's normal

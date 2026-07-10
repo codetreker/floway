@@ -408,7 +408,7 @@ describe('codex 1p namespace', () => {
           return await response.json() as CodexModelsResponse;
         },
       );
-      // Bundled rust-v0.136.0 catalog has gpt-5.4 at context_window=272000
+      // Bundled rust-v0.144.1 catalog has gpt-5.4 at context_window=272000
       // and max_context_window=1000000. Registry says the gateway can only
       // serve 272000, so both fields collapse to that — codex must not
       // believe a 1M ceiling we cannot honour.
