@@ -221,10 +221,9 @@ export interface CopilotFetchOptions {
    *  request and the api.github.com token exchange so a single fallback
    *  chain covers both paths under restricted egress. */
   fetcher: Fetcher;
-  /** Recorder threaded through the data-plane fetcher's per-attempt wrap.
-   *  Deliberately not applied to the GitHub→Copilot token exchange: that
-   *  hop is the gateway's own auth maintenance, not the user's request. */
-  recordUpstreamLatency?: <T>(promise: Promise<T>) => Promise<T>;
+  /** See UpstreamCallOptions.wrapUpstreamCall. Fires on the data-plane
+   *  request only, after any token-exchange round trip. */
+  wrapUpstreamCall: <T>(dispatch: () => Promise<T>) => Promise<T>;
 }
 
 export interface CopilotAuth {
@@ -272,7 +271,7 @@ export async function copilotAuthedFetch(path: string, init: RequestInit, auth: 
     }
   }
 
-  return await options.fetcher(`${entry.baseUrl}${path}`, { ...init, headers }, options.recordUpstreamLatency);
+  return await options.wrapUpstreamCall(() => options.fetcher(`${entry.baseUrl}${path}`, { ...init, headers }));
 }
 
 // Headers for api.github.com calls — token exchange and /copilot_internal/user.

@@ -10,7 +10,7 @@ import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
 import { getRepo } from '../../repo/index.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
-import { getCurrentColo } from '../../runtime/runtime-info.ts';
+import { getRuntimeLocation } from '../../runtime/runtime-info.ts';
 import type { PublicModelsResponse } from '@floway-dev/protocols/common';
 import { ProviderModelsUnavailableError } from '@floway-dev/provider';
 
@@ -67,7 +67,7 @@ const toClaudeCodeShape = (response: PublicModelsResponse) => {
 
 export const models = async (c: Context) => {
   try {
-    const fetcherForUpstream = await createPerRequestFetcher(getCurrentColo(c.req.raw));
+    const fetcherForUpstream = await createPerRequestFetcher(getRuntimeLocation(c.req.raw));
     const response = await loadModels(effectiveUpstreamIdsFromContext(c), fetcherForUpstream, backgroundSchedulerFromContext(c), getRepo().modelAliases);
     // The Claude Code CLI's model discovery request identifies itself with
     // a `claude-code/<version>` User-Agent (built from the CLI's `n_()`

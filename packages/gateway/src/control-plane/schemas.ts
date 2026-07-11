@@ -629,7 +629,7 @@ export const updateAliasBody = aliasBodyCore.superRefine(aliasBodyRulesRefinemen
 // --- data transfer ---
 
 export const importBody = z.object({
-  version: z.literal(7, { error: 'version must be 7 — older export formats are not supported; re-export from the current deployment' }),
+  version: z.literal(8, { error: 'version must be 8 — older export formats are not supported; re-export from the current deployment' }),
   mode: z.enum(['merge', 'replace'], { error: "mode must be 'merge' or 'replace'" }),
   data: z.unknown().optional(),
 });
@@ -673,10 +673,20 @@ export const searchUsageQuery = z.object({
   provider: z.string().optional(),
 });
 
-export const performanceQuery = z.object({
-  ...usageBaseQuery,
-  metric_scope: z.enum(['request_total', 'upstream_success']).optional(),
-  group_by: z.enum(['none', 'keyId', 'userId', 'model', 'runtimeLocation']).optional(),
+export const performanceQuery = z.object(usageBaseQuery).omit({ include_key_metadata: true, include_user_metadata: true }).extend({
+  group_by: z.enum(['keyId', 'userId', 'model', 'upstream', 'operation', 'runtimeLocation']).optional(),
   bucket: z.enum(['hour', '4h', '8h', 'day', 'all']).optional(),
   timezone_offset_minutes: z.string().optional(),
+  // Cross-cutting filters applied to raw records before aggregation. Each is
+  // a single value (dashboard dropdown is single-select); combining filters
+  // is AND.
+  filter_model: z.string().optional(),
+  filter_upstream: z.string().optional(),
+  filter_operation: z.string().optional(),
+  filter_runtime_location: z.string().optional(),
+  // User ids are auto-increment starting at 1, so zero and leading-zero forms
+  // can never resolve and are rejected up front rather than silently returning
+  // an empty result.
+  filter_user_id: z.union([z.literal(''), z.string().regex(/^[1-9]\d*$/, 'filter_user_id must be a positive integer')]).optional(),
+  filter_key_id: z.string().optional(),
 });

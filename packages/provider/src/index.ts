@@ -31,6 +31,7 @@ export {
 export type {
   InternalAliasedFrom,
   InternalModel,
+  PerformanceOperation,
   PerformanceTelemetryContext,
   ProviderModel,
   ProxyFallbackEntry,
@@ -96,7 +97,7 @@ export type { ValidatePathErr, ValidatePathOk } from './join.ts';
 export { joinBaseAndPath, validateUpstreamPath } from './join.ts';
 
 export type { Fetcher, UpstreamFetchOptions } from './options.ts';
-export { directFetcher } from './options.ts';
+export { directFetcher, identityWrapUpstreamCall } from './options.ts';
 
 export { isAbortError } from './abort.ts';
 
