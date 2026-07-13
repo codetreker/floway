@@ -397,6 +397,7 @@ test('Copilot provider runs the Responses boundary chain on the compact path', a
   if (!responsesBody) throw new Error('expected /responses to be hit');
   assertEquals('service_tier' in responsesBody, false);
   const wireInput = responsesBody?.input as Array<{ type: string }>;
+  assertEquals(wireInput[0]?.type, 'message');
   assertEquals(wireInput.at(-1)?.type, 'compaction_trigger');
   assertEquals(visionHeader, 'true');
   assertEquals(initiatorHeader, 'user');
