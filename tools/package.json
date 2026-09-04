@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@azure/msal-node": "6.0.0",
     "@floway-dev/gateway": "workspace:*",
     "@floway-dev/protocols": "workspace:*",
     "@floway-dev/provider": "workspace:*",
@@ -21,7 +22,7 @@
     "@floway-dev/provider-m365-copilot-web": "workspace:*",
     "@floway-dev/provider-ollama": "workspace:*",
     "jsonc-parser": "^3.3.1",
-    "playwright-core": "^1.62.1",
+    "open": "11.0.2",
     "tsx": "^4"
   },
   "devDependencies": {

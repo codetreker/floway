@@ -1,5 +1,5 @@
 import { assertM365CopilotWebUpstreamConfig, type M365CopilotWebUpstreamConfig } from './config.ts';
-import { M365_CHAT_SCOPES, M365_OAUTH_CLIENT_ID, M365_OAUTH_REDIRECT_URI, assertM365EnrollmentBundle } from './enrollment.ts';
+import { M365_CHAT_SCOPES, M365_OAUTH_CLIENT_ID, assertM365EnrollmentBundle, assertM365LoopbackRedirectUri, type M365LoopbackRedirectUri } from './enrollment.ts';
 import { M365OAuthError } from './errors.ts';
 import { validateM365EnrollmentIdToken } from './oidc.ts';
 import { assertM365CopilotWebUpstreamState, type M365CopilotWebUpstreamState } from './state.ts';
@@ -91,15 +91,17 @@ const tokenRequest = async (url: string, body: URLSearchParams, fetcher: Fetcher
 export const exchangeM365AuthorizationCode = async (input: {
   code: string;
   codeVerifier: string;
+  redirectUri: M365LoopbackRedirectUri;
   fetcher: Fetcher;
   signal?: AbortSignal;
 }): Promise<M365OAuthTokens & { refreshToken: string; idToken: string }> => {
+  assertM365LoopbackRedirectUri(input.redirectUri);
   const tokens = await tokenRequest(M365_OAUTH_TOKEN_URL('common'), new URLSearchParams({
     client_id: M365_OAUTH_CLIENT_ID,
     grant_type: 'authorization_code',
     code: input.code,
     code_verifier: input.codeVerifier,
-    redirect_uri: M365_OAUTH_REDIRECT_URI,
+    redirect_uri: input.redirectUri,
     scope: [...M365_CHAT_SCOPES, ...BASE_SCOPES].join(' '),
   }), input.fetcher, input.signal);
   if (tokens.refreshToken === undefined || tokens.idToken === undefined) throw new M365OAuthError('invalid_response', 'M365 OAuth enrollment exchange requires refresh_token and id_token', false);
@@ -108,7 +110,7 @@ export const exchangeM365AuthorizationCode = async (input: {
 
 export const exchangeM365EnrollmentBundle = async (bundle: unknown, fetcher: Fetcher, now = Date.now()) => {
   assertM365EnrollmentBundle(bundle, now);
-  return await exchangeM365AuthorizationCode({ code: bundle.authorizationCode, codeVerifier: bundle.codeVerifier, fetcher });
+  return await exchangeM365AuthorizationCode({ code: bundle.authorizationCode, codeVerifier: bundle.codeVerifier, redirectUri: bundle.redirectUri, fetcher });
 };
 
 export const completeM365Enrollment = async (input: {
@@ -125,6 +127,7 @@ export const completeM365Enrollment = async (input: {
   const tokens = await exchangeM365AuthorizationCode({
     code: input.bundle.authorizationCode,
     codeVerifier: input.bundle.codeVerifier,
+    redirectUri: input.bundle.redirectUri,
     fetcher: input.fetcher,
     signal: input.signal,
   });

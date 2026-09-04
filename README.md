@@ -96,8 +96,9 @@ secrets through the editor API, provides an explicit credential health refresh,
 requires live tone probing, and supports re-enrollment when Microsoft revokes
 the session.
 
-Run the local enrollment helper from a trusted operator workstation with a
-system Chromium installation (set `CHROMIUM_PATH` when it is not discovered):
+Run the local enrollment helper from a trusted operator workstation. It opens
+the system default browser and receives the authorization response through a
+temporary `http://localhost:<port>/` loopback callback:
 
 ```bash
 mkdir -p .tmp
@@ -108,9 +109,9 @@ Paste the generated JSON into a new Microsoft 365 Copilot web upstream within
 five minutes, then delete the file. Floway exchanges the authorization code,
 validates the Microsoft identity, and stores the resulting refresh token; the
 helper never receives an access, ID, or refresh token. Use existing Floway user
-and API-key upstream scopes to control access. The helper opens a visible
-browser, so the workstation and Floway administrator must be trusted. Keep the
-upstream disabled until tone probes succeed.
+and API-key upstream scopes to control access. The workstation, default browser,
+and Floway administrator must be trusted. Keep the upstream disabled until tone
+probes succeed.
 
 ## Other Deployment Options
 

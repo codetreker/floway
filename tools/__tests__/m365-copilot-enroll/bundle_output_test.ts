@@ -16,6 +16,7 @@ import {
 
 const temporaryDirectories: string[] = [];
 const ISSUED_AT = new Date();
+const REDIRECT_URI = 'http://localhost:49152/';
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(path => rm(path, { recursive: true, force: true })));
@@ -26,6 +27,7 @@ const bundleFixture = (authorizationCode = 'private-authorization-code'): M365En
     authorizationCode,
     codeVerifier: 'v'.repeat(86),
     nonce: 'n'.repeat(43),
+    redirectUri: REDIRECT_URI,
     issuedAt: ISSUED_AT,
   });
 
@@ -36,7 +38,7 @@ describe('M365 enrollment bundle', () => {
       version: 1,
       issuedAt: ISSUED_AT.toISOString(),
       clientId: '96ff4394-9197-43aa-b393-6a41652e21f8',
-      redirectUri: 'https://login.microsoftonline.com/common/oauth2/nativeclient',
+      redirectUri: REDIRECT_URI,
       authorizationCode: 'private-authorization-code',
       codeVerifier: 'v'.repeat(86),
       nonce: 'n'.repeat(43),

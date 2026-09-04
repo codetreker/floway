@@ -1,13 +1,18 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { openM365InteractiveBrowser, type M365InteractiveBrowser } from './browser.ts';
+import {
+  createM365AuthorizationSecrets,
+  createM365AuthorizationUrl,
+  openM365SystemBrowser,
+  type M365AuthorizationSecrets,
+} from './authorization.ts';
 import { createM365EnrollmentBundle } from './bundle.ts';
+import { listenForM365AuthorizationCode, type M365LoopbackAuthorization } from './loopback.ts';
 import { M365_COPILOT_ENROLL_HELP, parseM365CopilotEnrollOptions } from './options.ts';
 import { prepareM365EnrollmentOutput, type M365EnrollmentOutput } from './output.ts';
-import { createM365PkceAuthorization, type M365PkceAuthorization } from './pkce.ts';
 import { formatM365AuthError } from './redaction.ts';
-import { buildM365AuthorizationUrl } from '@floway-dev/provider-m365-copilot-web/enrollment';
+import type { M365LoopbackRedirectUri } from '@floway-dev/provider-m365-copilot-web/enrollment';
 
 export interface M365EnrollIo {
   stdout: { write(value: string): unknown };
@@ -15,16 +20,24 @@ export interface M365EnrollIo {
 }
 
 export interface M365EnrollDependencies {
-  openBrowser(input: { chromiumPath?: string }): Promise<M365InteractiveBrowser>;
-  createPkce(): M365PkceAuthorization;
+  createAuthorizationSecrets(): Promise<M365AuthorizationSecrets>;
+  createAuthorizationUrl(input: {
+    redirectUri: M365LoopbackRedirectUri;
+    secrets: M365AuthorizationSecrets;
+    loginHint?: string;
+  }): Promise<string>;
+  listenForAuthorizationCode(input: { expectedState: string }): Promise<M365LoopbackAuthorization>;
   now(): Date;
+  openSystemBrowser(authorizationUrl: string): Promise<void>;
   prepareOutput(outputPath: string): Promise<M365EnrollmentOutput>;
 }
 
 const defaultDependencies = (): M365EnrollDependencies => ({
-  openBrowser: async input => await openM365InteractiveBrowser(input),
-  createPkce: createM365PkceAuthorization,
+  createAuthorizationSecrets: createM365AuthorizationSecrets,
+  createAuthorizationUrl: async input => await createM365AuthorizationUrl(input),
+  listenForAuthorizationCode: listenForM365AuthorizationCode,
   now: () => new Date(),
+  openSystemBrowser: openM365SystemBrowser,
   prepareOutput: prepareM365EnrollmentOutput,
 });
 
@@ -45,27 +58,33 @@ export const runM365CopilotEnrollCli = async (
     const output = await dependencies.prepareOutput(options.outputPath);
     let operationError: unknown;
     try {
-      const browser = await dependencies.openBrowser({
-        ...(options.chromiumPath === undefined ? {} : { chromiumPath: options.chromiumPath }),
+      const secretsForAuthorization = await dependencies.createAuthorizationSecrets();
+      secrets.push(
+        secretsForAuthorization.state,
+        secretsForAuthorization.nonce,
+        secretsForAuthorization.codeVerifier,
+        secretsForAuthorization.codeChallenge,
+      );
+      const callback = await dependencies.listenForAuthorizationCode({
+        expectedState: secretsForAuthorization.state,
       });
-      io.stderr.write('A visible browser has opened. Complete Microsoft sign-in there.\n');
       let bundle: ReturnType<typeof createM365EnrollmentBundle>;
       let authorizationError: unknown;
       try {
-        const pkce = dependencies.createPkce();
-        secrets.push(pkce.state, pkce.nonce, pkce.codeVerifier);
-        const authorizationUrl = buildM365AuthorizationUrl({
-          state: pkce.state,
-          nonce: pkce.nonce,
-          codeChallenge: pkce.codeChallenge,
+        const authorizationUrl = await dependencies.createAuthorizationUrl({
+          redirectUri: callback.redirectUri,
+          secrets: secretsForAuthorization,
           ...(options.loginHint === undefined ? {} : { loginHint: options.loginHint }),
         });
-        const authorizationCode = await browser.authorize(authorizationUrl, pkce.state);
+        await dependencies.openSystemBrowser(authorizationUrl);
+        io.stderr.write('Opened the default system browser for MSAL sign-in. Complete Microsoft sign-in there.\n');
+        const authorizationCode = await callback.authorizationCode;
         secrets.push(authorizationCode);
         bundle = createM365EnrollmentBundle({
           authorizationCode,
-          codeVerifier: pkce.codeVerifier,
-          nonce: pkce.nonce,
+          codeVerifier: secretsForAuthorization.codeVerifier,
+          nonce: secretsForAuthorization.nonce,
+          redirectUri: callback.redirectUri,
           issuedAt: dependencies.now(),
         });
       } catch (error) {
@@ -73,11 +92,11 @@ export const runM365CopilotEnrollCli = async (
         throw error;
       } finally {
         try {
-          await browser.close();
+          await callback.close();
         } catch (closeError) {
           if (authorizationError === undefined) throw closeError;
           throw new Error(
-            `${formatM365AuthError(authorizationError, secrets)}; browser cleanup failed: ${formatM365AuthError(closeError, secrets)}`,
+            `${formatM365AuthError(authorizationError, secrets)}; loopback cleanup failed: ${formatM365AuthError(closeError, secrets)}`,
           );
         }
       }

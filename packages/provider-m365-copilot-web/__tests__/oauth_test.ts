@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CONFIG, recordFixture, stateFixture } from './fixtures.ts';
 import { ensureM365AccessToken, refreshM365Credential } from '../src/access-token.ts';
-import { M365_OAUTH_CLIENT_ID, M365_OAUTH_REDIRECT_URI, assertM365EnrollmentBundle, buildM365AuthorizationUrl } from '../src/enrollment.ts';
+import { M365_OAUTH_CLIENT_ID, assertM365EnrollmentBundle, assertM365LoopbackRedirectUri } from '../src/enrollment.ts';
 import { M365OAuthError } from '../src/errors.ts';
-import { createM365ImportedCredential, refreshM365AccessToken } from '../src/oauth.ts';
+import { createM365ImportedCredential, exchangeM365EnrollmentBundle, refreshM365AccessToken } from '../src/oauth.ts';
 import { initProviderRepo, type Fetcher } from '@floway-dev/provider';
 
 const bundle = (issuedAt = new Date().toISOString()) => ({
@@ -12,20 +12,48 @@ const bundle = (issuedAt = new Date().toISOString()) => ({
   version: 1 as const,
   issuedAt,
   clientId: M365_OAUTH_CLIENT_ID,
-  redirectUri: M365_OAUTH_REDIRECT_URI,
+  redirectUri: 'http://localhost:49152/',
   authorizationCode: 'code',
   codeVerifier: 'v'.repeat(43),
   nonce: 'nonce',
 });
 
 describe('M365 OAuth', () => {
-  it('builds and validates the one-time native-client enrollment flow', () => {
-    const url = new URL(buildM365AuthorizationUrl({ state: 'state', codeChallenge: 'challenge', nonce: 'nonce' }));
-    expect(url.searchParams.get('nonce')).toBe('nonce');
-    expect(url.searchParams.get('scope')).toContain('offline_access');
+  it('validates the one-time system-browser loopback enrollment flow', () => {
     expect(() => assertM365EnrollmentBundle(bundle())).not.toThrow();
+    expect(() => assertM365LoopbackRedirectUri('http://localhost:1024/')).not.toThrow();
+    expect(() => assertM365LoopbackRedirectUri('http://localhost:65535/')).not.toThrow();
     expect(() => assertM365EnrollmentBundle(bundle(new Date(Date.now() - 10 * 60 * 1000).toISOString()))).toThrow('expired');
     expect(() => assertM365EnrollmentBundle({ ...bundle(), extra: true })).toThrow('unexpected key');
+    for (const redirectUri of [
+      'https://localhost:49152/',
+      'http://127.0.0.1:49152/',
+      'http://localhost/',
+      'http://localhost:80/',
+      'http://localhost:49152',
+      'http://LOCALHOST:49152/',
+      'http://user@localhost:49152/',
+      'http://localhost:49152/callback',
+      'http://localhost:49152/?query=1',
+      'http://localhost:49152/#fragment',
+    ]) {
+      expect(() => assertM365EnrollmentBundle({ ...bundle(), redirectUri })).toThrow('redirectUri');
+    }
+  });
+
+  it('exchanges the code with the exact validated dynamic redirect URI', async () => {
+    const fetcher: Fetcher = vi.fn(async (_url, init) => {
+      const parameters = new URLSearchParams(String(init.body));
+      expect(parameters.get('client_id')).toBe(M365_OAUTH_CLIENT_ID);
+      expect(parameters.get('redirect_uri')).toBe('http://localhost:49152/');
+      return new Response(JSON.stringify({
+        access_token: 'access', refresh_token: 'refresh', id_token: 'id', token_type: 'Bearer', expires_in: 3600,
+      }));
+    });
+    await expect(exchangeM365EnrollmentBundle(bundle(), fetcher)).resolves.toMatchObject({
+      accessToken: 'access', refreshToken: 'refresh', idToken: 'id',
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it('refreshes only the chat audience at the tenant endpoint', async () => {

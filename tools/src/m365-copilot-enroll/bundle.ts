@@ -1,8 +1,8 @@
 import {
   M365_OAUTH_CLIENT_ID,
-  M365_OAUTH_REDIRECT_URI,
   assertM365EnrollmentBundle,
   type M365EnrollmentBundle,
+  type M365LoopbackRedirectUri,
 } from '@floway-dev/provider-m365-copilot-web/enrollment';
 
 export { M365_ENROLLMENT_MAX_AGE_MS } from '@floway-dev/provider-m365-copilot-web/enrollment';
@@ -12,6 +12,7 @@ export const createM365EnrollmentBundle = (input: {
   authorizationCode: string;
   codeVerifier: string;
   nonce: string;
+  redirectUri: M365LoopbackRedirectUri;
   issuedAt?: Date;
 }): M365EnrollmentBundle => {
   const issuedAt = input.issuedAt ?? new Date();
@@ -20,7 +21,7 @@ export const createM365EnrollmentBundle = (input: {
     version: 1,
     issuedAt: issuedAt.toISOString(),
     clientId: M365_OAUTH_CLIENT_ID,
-    redirectUri: M365_OAUTH_REDIRECT_URI,
+    redirectUri: input.redirectUri,
     authorizationCode: input.authorizationCode,
     codeVerifier: input.codeVerifier,
     nonce: input.nonce,
