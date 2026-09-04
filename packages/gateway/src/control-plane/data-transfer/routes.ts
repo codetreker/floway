@@ -8,7 +8,7 @@
 // credential-bearing proxy URIs. The endpoint is admin-only; handle the file
 // with the same care as a DB backup.
 
-import { parseImportData, type SerializedProxy } from './import-schema.ts';
+import { parseImportData, type SerializedProxy, validateM365AccountIdentities } from './import-schema.ts';
 import { parseWebSearchConfigDefault, parseWebSearchConfigStrict } from '../../data-plane/tools/web-search/config.ts';
 import type { WebSearchConfig } from '../../data-plane/tools/web-search/types.ts';
 import { notifyDisabledBestEffort } from '../../dump/registry.ts';
@@ -143,6 +143,10 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const apiKeyIdentityError = validateApiKeyIdentities(apiKeys, mode === 'merge' ? preImportKeys : [], mode);
   if (apiKeyIdentityError) return c.json({ error: `invalid apiKeys: ${apiKeyIdentityError}` }, 400);
   const preImportRetentionById = new Map<string, number | null>(preImportKeys.map(key => [key.id, key.dumpRetentionSeconds]));
+
+  const existingUpstreams = mode === 'merge' ? await repo.upstreams.list() : [];
+  const m365AccountIdentityError = validateM365AccountIdentities(upstreams, existingUpstreams);
+  if (m365AccountIdentityError !== null) return c.json({ error: `invalid upstreams: ${m365AccountIdentityError}` }, 400);
 
   const existingProxyIdsForRefs = mode === 'merge' ? (await repo.proxies.list()).map(proxy => proxy.id) : [];
   const fallbackRefError = validateProxyFallbackReferences(upstreams, proxies, existingProxyIdsForRefs);

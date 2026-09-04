@@ -354,6 +354,9 @@ importers:
       '@floway-dev/provider-custom':
         specifier: workspace:*
         version: link:../provider-custom
+      '@floway-dev/provider-m365-copilot-web':
+        specifier: workspace:*
+        version: link:../provider-m365-copilot-web
       '@floway-dev/provider-ollama':
         specifier: workspace:*
         version: link:../provider-ollama
@@ -577,6 +580,22 @@ importers:
         specifier: workspace:*
         version: link:../test-utils
 
+  packages/provider-m365-copilot-web:
+    dependencies:
+      '@floway-dev/http':
+        specifier: workspace:*
+        version: link:../http
+      '@floway-dev/protocols':
+        specifier: workspace:*
+        version: link:../protocols
+      '@floway-dev/provider':
+        specifier: workspace:*
+        version: link:../provider
+    devDependencies:
+      '@floway-dev/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+
   packages/provider-ollama:
     dependencies:
       '@floway-dev/protocols':
@@ -647,12 +666,18 @@ importers:
       '@floway-dev/provider-copilot':
         specifier: workspace:*
         version: link:../packages/provider-copilot
+      '@floway-dev/provider-m365-copilot-web':
+        specifier: workspace:*
+        version: link:../packages/provider-m365-copilot-web
       '@floway-dev/provider-ollama':
         specifier: workspace:*
         version: link:../packages/provider-ollama
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
+      playwright-core:
+        specifier: ^1.62.1
+        version: 1.62.1
       tsx:
         specifier: ^4
         version: 4.22.4
@@ -4484,6 +4509,11 @@ packages:
 
   pkg-types@2.3.1:
     resolution: {integrity: sha512-y+ichcgc2LrADuhLNAx8DFjVfgz91pRxfZdI3UDhxHvcVEZsenLO+7XaU5vOp0u/7V/wZ+plyuQxtrDlZJ+yeg==}
+
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -9947,6 +9977,8 @@ snapshots:
       confbox: 0.2.4
       exsolve: 1.0.8
       pathe: 2.0.3
+
+  playwright-core@1.62.1: {}
 
   possible-typed-array-names@1.1.0: {}
 

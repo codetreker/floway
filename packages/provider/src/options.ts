@@ -1,7 +1,7 @@
 import { isReplayableBody } from '@floway-dev/http';
 import type { Fetcher, FetchInit, HttpHeaderLines } from '@floway-dev/http';
 
-export type { Fetcher, FetchInit, HttpHeaderLines, ReplayableBody } from '@floway-dev/http';
+export type { Fetcher, FetchInit, HttpHeaderLines, ReplayableBody, WebSocketConnector } from '@floway-dev/http';
 export { isReplayableBody } from '@floway-dev/http';
 
 export const directFetcher: Fetcher = (url, init) => {

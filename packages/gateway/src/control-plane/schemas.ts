@@ -377,7 +377,7 @@ export const createUpstreamBody = z.discriminatedUnion('kind', [
 // without this field the schema would silently strip it and the API would
 // look like it had accepted the change.
 export const updateUpstreamBody = z.object({
-  kind: z.enum(['custom', 'azure', 'copilot', 'codex', 'claude-code', 'ollama']).optional(),
+  kind: z.enum(['custom', 'azure', 'copilot', 'codex', 'claude-code', 'ollama', 'm365-copilot-web']).optional(),
   name: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
   sort_order: z.number().int().optional(),
@@ -388,7 +388,7 @@ export const updateUpstreamBody = z.object({
   hue: upstreamHueSchema.optional(),
   // Patches only carry field diffs, not per-kind shape validation — the
   // handler dispatches on the existing row's kind and enforces the shape
-  // there (Copilot/Codex/Claude Code reject a config patch outright, since
+  // there (Copilot/Codex/Claude Code/M365 reject a config patch outright, since
   // OAuth-managed slices belong to the action endpoints; the rest run
   // through `assertXxxUpstreamRecord`). `z.record(z.unknown())` blocks
   // primitives / arrays / null from reaching the handler as `config`.
@@ -409,6 +409,23 @@ export const upstreamRecordEnvelope = z.object({
   state: z.unknown(),
   proxy_fallback_list: proxyFallbackListSchema.optional(),
 }).passthrough();
+
+const m365CopilotWebActionRecord = z.strictObject({
+  id: z.string().min(1),
+  kind: z.literal('m365-copilot-web'),
+  proxy_fallback_list: proxyFallbackListSchema,
+});
+
+const m365CopilotWebEnrollmentRecord = z.strictObject({
+  id: z.string(),
+  kind: z.literal('m365-copilot-web'),
+  proxy_fallback_list: proxyFallbackListSchema,
+  name: z.string().min(1),
+  flag_overrides: flagOverridesSchema,
+  disabled_public_model_ids: disabledPublicModelIdsSchema,
+  model_prefix: modelPrefixSchema,
+  hue: upstreamHueSchema,
+});
 
 // The bare envelope contract — every action endpoint that takes no extras
 // beyond `record` (refresh, probe, quota, list-models) shares this shape.
@@ -489,6 +506,19 @@ export const claudeCodeSetupTokenExchangeBody = z.object({
 });
 
 export const claudeCodeProbeBody = recordOnlyBody;
+
+// --- Microsoft 365 Copilot web enrollment and health actions ---
+
+export const m365CopilotWebEnrollmentBody = z.strictObject({
+  record: m365CopilotWebEnrollmentRecord,
+  enrollment_bundle: z.string().min(1),
+  locale: z.string().min(1),
+  time_zone: z.string().min(1),
+  time_zone_offset_minutes: z.number().int().min(-840).max(840),
+});
+
+export const m365CopilotWebRefreshBody = z.strictObject({ record: m365CopilotWebActionRecord });
+export const m365CopilotWebProbeTonesBody = z.strictObject({ record: m365CopilotWebActionRecord });
 
 // --- ollama ---
 

@@ -28,6 +28,11 @@ test('configured pricing and provider pricing resolve through their owning sourc
   assertEquals(resolveUsagePricing(upstream('claude-code', {}), { model: 'claude-sonnet-4-6', modelKey: 'claude-sonnet-4-6' }).status, 'priced');
   assertEquals(resolveUsagePricing(upstream('copilot', {}), { model: 'gpt-5.4', modelKey: 'gpt-5.4' }).status, 'priced');
   assertEquals(resolveUsagePricing(upstream('ollama', { models: [] }), { model: 'gpt-oss:120b', modelKey: 'gpt-oss:120b' }).status, 'priced');
+  assertEquals(resolveUsagePricing(upstream('m365-copilot-web', {}), { model: 'm365-copilot-auto', modelKey: 'm365-copilot-auto' }), {
+    status: 'unpriced',
+    source: 'provider:m365-copilot-web',
+    guardsModelsCache: false,
+  });
 });
 
 test('custom fetched pricing requires a current catalog with matching model identity', () => {

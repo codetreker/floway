@@ -1,11 +1,11 @@
-import { createFetcher } from '../../dial/fetcher.ts';
-import { createPerRequestFetcher } from '../../dial/per-request.ts';
+import { createFetcher, createWebSocketConnector } from '../../dial/fetcher.ts';
+import { createPerRequestFetcher, createPerRequestWebSocketConnector } from '../../dial/per-request.ts';
 import { loadProxyCatalog } from '../../dial/proxy-catalog.ts';
 import { getRepo } from '../../repo/index.ts';
 import { isDirectFallbackId, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
-import { getFetch, getSocketDial } from '@floway-dev/platform';
-import type { Fetcher, ProxyFallbackEntry } from '@floway-dev/provider';
-import { runDirectConnectRequest, runProxiedRequest } from '@floway-dev/proxy';
+import { getFetch, getSocketDial, getWebSocketConnector } from '@floway-dev/platform';
+import type { Fetcher, ProxyFallbackEntry, WebSocketConnector } from '@floway-dev/provider';
+import { openDirectApplicationStream, openProxiedApplicationStream, runDirectConnectRequest, runProxiedRequest } from '@floway-dev/proxy';
 
 // Fetcher resolution for control-plane operations that fire from the
 // dashboard edit form, where the in-progress proxy_fallback_list must take
@@ -29,11 +29,23 @@ export const resolveControlPlaneFetcher = async (opts: {
   return await buildOverrideFetcher([], 'draft', opts.runtimeLocation);
 };
 
-const buildOverrideFetcher = async (
+export const resolveControlPlaneWebSocketConnector = async (opts: {
+  override?: readonly ProxyFallbackEntry[];
+  upstreamId?: string;
+  runtimeLocation: string;
+}): Promise<WebSocketConnector> => {
+  if (opts.override !== undefined) {
+    return await buildOverrideWebSocketConnector(opts.override, opts.upstreamId ?? 'draft', opts.runtimeLocation);
+  }
+  if (opts.upstreamId !== undefined) {
+    return (await createPerRequestWebSocketConnector(opts.runtimeLocation))(opts.upstreamId);
+  }
+  return await buildOverrideWebSocketConnector([], 'draft', opts.runtimeLocation);
+};
+
+const loadOverridePolicy = async (
   rawList: readonly ProxyFallbackEntry[],
-  upstreamId: string,
-  runtimeLocation: string,
-): Promise<Fetcher> => {
+): Promise<{ list: ProxyFallbackEntry[]; proxyById: Awaited<ReturnType<typeof loadProxyCatalog>>['proxyById'] }> => {
   const list = normalizeProxyFallbackList(rawList);
   const referenced = new Set(list.filter(entry => !isDirectFallbackId(entry.id)).map(entry => entry.id));
 
@@ -50,15 +62,43 @@ const buildOverrideFetcher = async (
     throw new Error(`malformed proxy ${bad.id}: ${err.message}`);
   }
 
+  return { list, proxyById };
+};
+
+const buildOverrideFetcher = async (
+  rawList: readonly ProxyFallbackEntry[],
+  upstreamId: string,
+  runtimeLocation: string,
+): Promise<Fetcher> => {
+  const { list, proxyById } = await loadOverridePolicy(rawList);
   return createFetcher({
-    repo,
+    repo: getRepo(),
     upstreamId,
     fallbackList: list,
     runtimeLocation,
     proxyById,
+    socketDial: getSocketDial,
     runProxied: runProxiedRequest,
     runDirectFetch: getFetch(),
     runDirectConnect: runDirectConnectRequest,
+  });
+};
+
+const buildOverrideWebSocketConnector = async (
+  rawList: readonly ProxyFallbackEntry[],
+  upstreamId: string,
+  runtimeLocation: string,
+): Promise<WebSocketConnector> => {
+  const { list, proxyById } = await loadOverridePolicy(rawList);
+  return createWebSocketConnector({
+    repo: getRepo(),
+    upstreamId,
+    fallbackList: list,
+    runtimeLocation,
+    proxyById,
     socketDial: getSocketDial,
+    openProxiedStream: openProxiedApplicationStream,
+    openDirectStream: openDirectApplicationStream,
+    runDirectWebSocket: getWebSocketConnector,
   });
 };

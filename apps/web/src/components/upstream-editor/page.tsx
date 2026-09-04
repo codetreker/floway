@@ -87,6 +87,7 @@ export function UpstreamEditorPage({ data }: { data: UpstreamEditorLoaderData })
     if (data.mode !== 'create') return;
     if (record.kind === 'copilot' && !values.config.githubToken) ctx.addIssue({ code: 'custom', message: 'dashboard.upstreamEditor.validation.copilot', path: ['config'] });
     if ((record.kind === 'codex' || record.kind === 'claude-code') && values.config.accounts.length === 0) ctx.addIssue({ code: 'custom', message: 'dashboard.upstreamEditor.validation.credential', path: ['config'] });
+    if (record.kind === 'm365-copilot-web' && values.state.credential === null) ctx.addIssue({ code: 'custom', message: 'dashboard.upstreamEditor.m365.validation.credential', path: ['config'] });
   }), [data.mode, record.kind]);
   const form = useForm<UpstreamEditorValues>({
     defaultValues: initialValues,
@@ -168,6 +169,12 @@ export function UpstreamEditorPage({ data }: { data: UpstreamEditorLoaderData })
     });
   };
 
+  const acceptPersistedProviderRecord = (saved: UpstreamRecord) => {
+    updateRecord(saved);
+    reset(valuesFromRecord(saved));
+    if (data.mode === 'create') setCreatedUpstreamId(saved.id);
+  };
+
   const submitForm = () => {
     if (modelsYamlDraft !== null) {
       const parsed = parseModels(modelsYamlDraft.text, { allowRerank: record.kind === 'custom' });
@@ -189,9 +196,9 @@ export function UpstreamEditorPage({ data }: { data: UpstreamEditorLoaderData })
         : await callApi(() => api.api.upstreams[':id'].$patch({ param: { id: record.id }, json: updateBody(record, values) }));
       if (result.error) { handle.settle(); setSaving(false); setSaveError(result.error.message); return; }
       let saved: UpstreamRecord = result.data;
-      if (data.mode === 'edit') {
+      if (data.mode === 'edit' && record.kind !== 'm365-copilot-web') {
         const full = await callApi(() => api.api.upstreams[':id'].$get({ param: { id: record.id } }));
-        if (!full.error) saved = full.data;
+        if (!full.error && full.data.kind !== 'm365-copilot-web') saved = full.data;
       }
       updateRecord(saved);
       reset(valuesFromRecord(saved));
@@ -222,7 +229,7 @@ export function UpstreamEditorPage({ data }: { data: UpstreamEditorLoaderData })
             change, keeping the button live for the press that surfaces the
             field's own error. */}
         <div className="ml-auto flex items-center gap-2">
-          <Button appearance="primary" disabled={data.mode === 'edit' && !hasUnsavedChanges} disabledFocusable={saving} icon={saving ? <Spinner size="tiny" /> : <SaveRegular />} onClick={() => void submitForm()}>{t('dashboard.upstreamEditor.actions.save')}</Button>
+          {!(data.mode === 'create' && record.kind === 'm365-copilot-web') && <Button appearance="primary" disabled={data.mode === 'edit' && !hasUnsavedChanges} disabledFocusable={saving} icon={saving ? <Spinner size="tiny" /> : <SaveRegular />} onClick={() => void submitForm()}>{t('dashboard.upstreamEditor.actions.save')}</Button>}
         </div>
       </header>
       {saveError && <OutcomeMessageBar onDismiss={() => setSaveError(null)}>{saveError}</OutcomeMessageBar>}
@@ -232,6 +239,7 @@ export function UpstreamEditorPage({ data }: { data: UpstreamEditorLoaderData })
             catalogAvailable={modelsError === null}
             discovered={discovered}
             onPatch={applyProviderPatch}
+            onPersistedRecord={acceptPersistedProviderRecord}
             onRefreshModels={() => void refreshModels()}
             proxies={data.proxies}
             record={record}

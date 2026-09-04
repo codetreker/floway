@@ -39,6 +39,13 @@ import type {
   CustomUpstreamConfig as StoredCustomUpstreamConfig,
 } from '@floway-dev/provider-custom';
 import type {
+  M365AccessTokenState,
+  M365CopilotWebAccountConfig,
+  M365CopilotWebUpstreamConfig as StoredM365CopilotWebUpstreamConfig,
+  M365CopilotWebUpstreamState as StoredM365CopilotWebUpstreamState,
+  M365ToneReceiptState,
+} from '@floway-dev/provider-m365-copilot-web';
+import type {
   OllamaUpstreamConfig as StoredOllamaUpstreamConfig,
   OllamaUpstreamState as StoredOllamaUpstreamState,
 } from '@floway-dev/provider-ollama';
@@ -128,6 +135,26 @@ export interface ClaudeCodeUpstreamState {
   accounts: ClaudeCodeAccountCredentialSummary[];
 }
 
+export type M365CopilotWebUpstreamConfig = Omit<StoredM365CopilotWebUpstreamConfig, 'account'> & {
+  account: M365CopilotWebAccountConfig | null;
+};
+
+export interface M365CopilotWebCredentialSummary {
+  refreshTokenSet: boolean;
+  generation: number;
+  health: StoredM365CopilotWebUpstreamState['credential']['health'];
+  stateUpdatedAt: string;
+}
+
+export type M365AccessTokenSummary = Omit<M365AccessTokenState, 'token'>;
+export type M365ToneReceiptSummary = Omit<M365ToneReceiptState, 'diagnostic'>;
+
+export interface M365CopilotWebUpstreamState {
+  credential: M365CopilotWebCredentialSummary | null;
+  accessToken: M365AccessTokenSummary | null;
+  toneReceipts: Record<string, M365ToneReceiptSummary>;
+}
+
 interface SerializedUpstreamRecordBase {
   id: string;
   name: string;
@@ -169,6 +196,7 @@ export type RedactedSerializedUpstreamRecord =
   | (SerializedUpstreamRecordBase & { kind: 'copilot'; config: RedactedCopilotConfig; state: CopilotUpstreamState | null })
   | (SerializedUpstreamRecordBase & { kind: 'codex'; config: StoredCodexUpstreamConfig; state: { accounts: RedactedCodexCredential[] } })
   | (SerializedUpstreamRecordBase & { kind: 'claude-code'; config: StoredClaudeCodeUpstreamConfig; state: { accounts: RedactedClaudeCodeCredential[] } })
+  | (SerializedUpstreamRecordBase & { kind: 'm365-copilot-web'; config: StoredM365CopilotWebUpstreamConfig; state: M365CopilotWebUpstreamState })
   | (SerializedUpstreamRecordBase & { kind: 'ollama'; config: RedactedOllamaConfig; state: StoredOllamaUpstreamState | null });
 
 export type FullSerializedUpstreamRecord =
@@ -177,6 +205,7 @@ export type FullSerializedUpstreamRecord =
   | (SerializedUpstreamRecordBase & { kind: 'copilot'; config: StoredCopilotUpstreamConfig; state: StoredCopilotUpstreamState | null })
   | (SerializedUpstreamRecordBase & { kind: 'codex'; config: StoredCodexUpstreamConfig; state: StoredCodexUpstreamState })
   | (SerializedUpstreamRecordBase & { kind: 'claude-code'; config: StoredClaudeCodeUpstreamConfig; state: StoredClaudeCodeUpstreamState })
+  | (SerializedUpstreamRecordBase & { kind: 'm365-copilot-web'; config: StoredM365CopilotWebUpstreamConfig; state: StoredM365CopilotWebUpstreamState })
   | (SerializedUpstreamRecordBase & { kind: 'ollama'; config: StoredOllamaUpstreamConfig; state: StoredOllamaUpstreamState | null });
 
 // A blueprint is an unsaved upstream, so it carries no hue: the dashboard
@@ -189,6 +218,7 @@ export type BlueprintSerializedUpstreamRecord =
   | (BlueprintUpstreamRecordBase & { kind: 'copilot'; config: StoredCopilotUpstreamConfig; state: null })
   | (BlueprintUpstreamRecordBase & { kind: 'codex'; config: { accounts: CodexAccountIdentity[] }; state: { accounts: CodexAccountCredential[] } })
   | (BlueprintUpstreamRecordBase & { kind: 'claude-code'; config: { accounts: ClaudeCodeAccountIdentity[] }; state: { accounts: ClaudeCodeAccountCredential[] } })
+  | (BlueprintUpstreamRecordBase & { kind: 'm365-copilot-web'; config: M365CopilotWebUpstreamConfig; state: M365CopilotWebUpstreamState })
   | (BlueprintUpstreamRecordBase & { kind: 'ollama'; config: StoredOllamaUpstreamConfig; state: null });
 
 export interface ModelsCacheStatus {
@@ -217,6 +247,7 @@ export type UpstreamRecord =
   | (DashboardUpstreamRecordBase & { kind: 'copilot'; config: CopilotUpstreamConfig; state: CopilotUpstreamState | StoredCopilotUpstreamState | null })
   | (DashboardUpstreamRecordBase & { kind: 'codex'; config: CodexUpstreamConfig; state: CodexUpstreamState; codex_quota?: CodexQuotaSnapshotMap | null })
   | (DashboardUpstreamRecordBase & { kind: 'claude-code'; config: ClaudeCodeUpstreamConfig; state: ClaudeCodeUpstreamState })
+  | (DashboardUpstreamRecordBase & { kind: 'm365-copilot-web'; config: M365CopilotWebUpstreamConfig; state: M365CopilotWebUpstreamState })
   | (DashboardUpstreamRecordBase & { kind: 'ollama'; config: OllamaUpstreamConfig; state: StoredOllamaUpstreamState | null });
 
 export interface ListedUpstreamModel extends UpstreamModelConfig {

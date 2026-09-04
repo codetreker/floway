@@ -7,6 +7,7 @@ import { claudeCodeProviderModule } from '@floway-dev/provider-claude-code';
 import { codexProviderModule } from '@floway-dev/provider-codex';
 import { copilotProviderModule } from '@floway-dev/provider-copilot';
 import { customProviderModule } from '@floway-dev/provider-custom';
+import { m365CopilotWebProviderModule } from '@floway-dev/provider-m365-copilot-web';
 import { ollamaProviderModule } from '@floway-dev/provider-ollama';
 
 const providersByKind: Record<UpstreamProviderKind, ProviderModule> = {
@@ -15,6 +16,7 @@ const providersByKind: Record<UpstreamProviderKind, ProviderModule> = {
   azure: azureProviderModule,
   codex: codexProviderModule,
   'claude-code': claudeCodeProviderModule,
+  'm365-copilot-web': m365CopilotWebProviderModule,
   ollama: ollamaProviderModule,
 };
 
@@ -25,7 +27,11 @@ export type GatewayProvider = Provider & {
 
 export const createProvider = (
   record: UpstreamRecord,
-  cacheGeneration: ModelsCacheGeneration = { updatedAt: record.updatedAt, config: record.config },
+  cacheGeneration: ModelsCacheGeneration = {
+    updatedAt: record.updatedAt,
+    config: record.config,
+    ...(record.kind === 'm365-copilot-web' ? { state: record.state } : {}),
+  },
 ): GatewayProvider => {
   const provider = providersByKind[record.kind].create(record);
   return {

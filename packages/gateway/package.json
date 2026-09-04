@@ -50,6 +50,7 @@
     "@floway-dev/provider-codex": "workspace:*",
     "@floway-dev/provider-copilot": "workspace:*",
     "@floway-dev/provider-custom": "workspace:*",
+    "@floway-dev/provider-m365-copilot-web": "workspace:*",
     "@floway-dev/provider-ollama": "workspace:*",
     "@floway-dev/proxy": "workspace:*",
     "@floway-dev/translate": "workspace:*",

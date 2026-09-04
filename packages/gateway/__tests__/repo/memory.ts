@@ -62,6 +62,10 @@ import type {
   UsageRepo,
   User,
   UsersRepo,
+  UpstreamMetadataUpdate,
+  UpstreamMetadataUpdateResult,
+  UpstreamConfigStateReplacement,
+  UpstreamConfigStateReplacementResult,
 } from '../../src/repo/types.ts';
 import { serializeStoredConfig, serializeStoredState } from '../../src/repo/upstream-json.ts';
 import { usageMetricRows } from '../../src/repo/usage-metrics.ts';
@@ -730,8 +734,26 @@ class MemoryWebSearchConfigRepo implements WebSearchConfigRepo {
   }
 }
 
+const m365AccountIdentity = (upstream: UpstreamRecord): string | null => {
+  if (upstream.kind !== 'm365-copilot-web') return null;
+  const config = upstream.config as { account?: { tenantId?: unknown; objectId?: unknown } };
+  const { tenantId, objectId } = config.account ?? {};
+  if (typeof tenantId !== 'string' || typeof objectId !== 'string') {
+    throw new Error(`Malformed M365 account identity for upstream ${upstream.id}`);
+  }
+  return `${tenantId.toLowerCase()}\0${objectId.toLowerCase()}`;
+};
+
 class MemoryUpstreamRepo implements UpstreamRepo {
   private store = new Map<string, UpstreamRecord>();
+
+  private assertM365AccountAvailable(upstream: UpstreamRecord): void {
+    const identity = m365AccountIdentity(upstream);
+    if (identity === null) return;
+    const collision = [...this.store.values()].find(candidate =>
+      candidate.id !== upstream.id && m365AccountIdentity(candidate) === identity);
+    if (collision !== undefined) throw new Error("UNIQUE constraint failed: index 'idx_upstreams_m365_account'");
+  }
 
   list(): Promise<UpstreamRecord[]> {
     return Promise.resolve([...this.store.values()].map(cloneUpstreamRecord).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)));
@@ -746,6 +768,7 @@ class MemoryUpstreamRepo implements UpstreamRepo {
   // an existing row keeps whatever the refresh path last wrote there, and a new
   // row starts uncached whatever the caller's record carried.
   save(upstream: UpstreamRecord): Promise<void> {
+    this.assertM365AccountAvailable(upstream);
     const existing = this.store.get(upstream.id);
     const preserved = existing
       ? { ...upstream, createdAt: existing.createdAt, modelsCache: existing.modelsCache }
@@ -755,12 +778,52 @@ class MemoryUpstreamRepo implements UpstreamRepo {
   }
 
   saveClearingModelsCache(upstream: UpstreamRecord): Promise<void> {
+    this.assertM365AccountAvailable(upstream);
     const existing = this.store.get(upstream.id);
     const next = existing
       ? { ...upstream, createdAt: existing.createdAt, modelsCache: null }
       : { ...upstream, modelsCache: null };
     this.store.set(next.id, cloneUpstreamRecord(next));
     return Promise.resolve();
+  }
+
+  updateMetadataPreservingState(
+    id: string,
+    kind: UpstreamRecord['kind'],
+    update: UpstreamMetadataUpdate,
+  ): Promise<UpstreamMetadataUpdateResult> {
+    const existing = this.store.get(id);
+    if (existing?.kind !== kind) return Promise.resolve({ status: 'missing' });
+    if (existing.updatedAt !== update.expectedUpdatedAt) return Promise.resolve({ status: 'version-conflict' });
+    const { expectedUpdatedAt: _expectedUpdatedAt, ...fields } = update;
+    const next = cloneUpstreamRecord({
+      ...existing,
+      ...fields,
+      modelsCache: null,
+    });
+    this.store.set(id, next);
+    return Promise.resolve({ status: 'ok', record: cloneUpstreamRecord(next) });
+  }
+
+  replaceConfigAndStatePreservingMetadata(
+    id: string,
+    kind: UpstreamRecord['kind'],
+    replacement: UpstreamConfigStateReplacement,
+  ): Promise<UpstreamConfigStateReplacementResult> {
+    const existing = this.store.get(id);
+    if (existing?.kind !== kind) return Promise.resolve({ status: 'missing' });
+    if (serializeStoredState(existing.state) !== serializeStoredState(replacement.expectedState)) {
+      return Promise.resolve({ status: 'state-conflict' });
+    }
+    const { expectedState: _expectedState, ...fields } = replacement;
+    const next = cloneUpstreamRecord({
+      ...existing,
+      ...fields,
+      modelsCache: null,
+    });
+    this.assertM365AccountAvailable(next);
+    this.store.set(id, next);
+    return Promise.resolve({ status: 'ok', record: cloneUpstreamRecord(next) });
   }
 
   delete(id: string): Promise<boolean> {
@@ -785,9 +848,21 @@ class MemoryUpstreamRepo implements UpstreamRepo {
     return Promise.resolve();
   }
 
+  async saveStateClearingModelsCache(id: string, mutate: (current: unknown) => unknown): Promise<void> {
+    await this.saveState(id, mutate);
+    const existing = this.store.get(id);
+    if (!existing) throw new UpstreamGoneError(id);
+    existing.modelsCache = null;
+  }
+
   saveModelsCache(id: string, generation: ModelsCacheGeneration, cache: Omit<UpstreamModelsCache, 'lastError'>): Promise<boolean> {
     const existing = this.store.get(id);
-    if (!existing || existing.updatedAt !== generation.updatedAt || serializeStoredConfig(existing.config) !== serializeStoredConfig(generation.config)) return Promise.resolve(false);
+    if (
+      !existing
+      || existing.updatedAt !== generation.updatedAt
+      || serializeStoredConfig(existing.config) !== serializeStoredConfig(generation.config)
+      || (generation.state !== undefined && serializeStoredState(existing.state) !== serializeStoredState(generation.state))
+    ) return Promise.resolve(false);
     existing.modelsCache = { revision: cache.revision, fetchedAt: cache.fetchedAt, models: [...cache.models], lastError: null };
     return Promise.resolve(true);
   }
@@ -796,7 +871,9 @@ class MemoryUpstreamRepo implements UpstreamRepo {
   // previously-successful fetch.
   saveModelsCacheError(id: string, generation: ModelsCacheGeneration, error: NonNullable<UpstreamModelsCache['lastError']>): Promise<boolean> {
     const existing = this.store.get(id);
-    const cache = existing?.updatedAt === generation.updatedAt && serializeStoredConfig(existing.config) === serializeStoredConfig(generation.config)
+    const cache = existing?.updatedAt === generation.updatedAt
+      && serializeStoredConfig(existing.config) === serializeStoredConfig(generation.config)
+      && (generation.state === undefined || serializeStoredState(existing.state) === serializeStoredState(generation.state))
       ? existing.modelsCache
       : null;
     if (!cache) return Promise.resolve(false);

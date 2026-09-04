@@ -30,12 +30,20 @@ export async function clientLoader({ params }: Route.ClientLoaderArgs) {
   const record = {
     ...recordResult.data,
     name: providerDefaultName[kind],
-    enabled: true,
+    enabled: kind !== 'm365-copilot-web',
     // A blueprint carries no hue: the badge only has to be told apart from the
     // ones already on screen, which is a fact the dashboard holds and the
     // server does not.
     hue: pickDistinctHue(aux.upstreams.map(upstream => upstream.hue)),
   };
+  if (record.kind === 'm365-copilot-web') {
+    record.config = {
+      ...record.config,
+      locale: navigator.language,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZoneOffsetMinutes: -new Date().getTimezoneOffset(),
+    };
+  }
   return { ...aux, mode: 'create' as const, record, discovered: [], modelsError: null };
 }
 

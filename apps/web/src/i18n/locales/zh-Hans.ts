@@ -53,6 +53,7 @@ const zhHansCN = {
       copilot: 'Copilot',
       codex: 'Codex',
       'claude-code': 'Claude Code',
+      'm365-copilot-web': 'Microsoft 365 Copilot',
       ollama: 'Ollama',
     },
     dashboard: {
@@ -439,8 +440,10 @@ const zhHansCN = {
           copilot: 'GitHub Copilot 账号',
           codex: 'ChatGPT Plus、Pro 或 Team',
           'claude-code': 'Claude Pro、Max 或 Team 订阅',
+          'm365-copilot-web': '不受支持的 Microsoft 365 Copilot Web 兼容接入',
           ollama: 'ollama.com 或自托管服务',
         },
+        providersExperimental: '实验性功能 — {{description}}',
         models: {
           count_other: '{{count, number}} 个模型',
           unavailable: '数量不可用',
@@ -532,6 +535,29 @@ const zhHansCN = {
           pathOverrides: '路径覆盖',
         },
         auth: { none: '无认证' },
+        m365: {
+          experimentalTitle: '实验性且不受支持',
+          experimentalDescription: '该 provider 使用未公开的 Microsoft Web 协议，上游改动可能随时导致失效。在凭据刷新和 tone 探测成功前，请保持上游停用。',
+          tenant: 'Tenant {{id}}',
+          enrollmentBundle: '一次性登录包',
+          enrollmentBundleHint: '粘贴 Floway M365 登录辅助工具生成的短期 JSON。Floway 会在五分钟内完成兑换，辅助工具不会接触 Refresh Token。',
+          enrollmentBundlePlaceholder: '{"schema":"floway.m365-copilot-web-enrollment","version":1,...}',
+          enroll: '登录账号',
+          reenroll: '重新登录账号',
+          refresh: '刷新凭据',
+          probeTones: '探测 Tone',
+          tonesAvailable: '{{total, number}} 个 Tone 中有 {{available, number}} 个可用',
+          tonesNeverProbed: '尚未探测 Tone',
+          credentialHealth: {
+            active: '凭据有效',
+            reauth_required: '需要重新登录',
+            refresh_failed: '刷新失败',
+          },
+          validation: {
+            credential: '保存前请先登录账号。',
+            json: '请输入有效的 JSON。',
+          },
+        },
         headers: {
           title: '上游请求标头',
           description: '每条规则决定一个标头发往此上游时的取值。透传会转发客户端的值，也只有透传需要客户端发送该标头；空值或自定义值会写入每一个请求。',

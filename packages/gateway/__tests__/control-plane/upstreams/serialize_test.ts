@@ -62,6 +62,80 @@ test('upstreamRecordToJson redacts custom bearer token inside config', () => {
   assertEquals(config.models, [{ upstreamModelId: 'gpt-prod', kind: 'chat', endpoints: { openaiChatCompletions: {} } }]);
 });
 
+test('upstreamRecordToJson never exposes Microsoft 365 refresh or access tokens', () => {
+  const record: UpstreamRecord = {
+    ...custom,
+    id: 'up_m365_test',
+    kind: 'm365-copilot-web',
+    config: {
+      account: {
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        objectId: '22222222-2222-4222-8222-222222222222',
+        username: 'alice@example.com',
+        chatHubHost: 'substrate.office.com',
+        chatHubPath: '22222222-2222-4222-8222-222222222222@11111111-1111-4111-8111-111111111111',
+      },
+      locale: 'en-US',
+      timeZone: 'UTC',
+      timeZoneOffsetMinutes: 0,
+    },
+    state: {
+      credential: {
+        credentialId: 'm365-credential',
+        refreshToken: 'refresh-secret',
+        generation: 1,
+        health: 'active',
+        stateUpdatedAt: timestamp,
+      },
+      accessToken: { token: 'access-secret', expiresAt: 1_900_000_000_000, refreshedAt: timestamp, credentialGeneration: 1 },
+      toneReceipts: {
+        'm365-copilot-auto': { tone: 'magic', available: true, probedAt: timestamp, expiresAt: 1_900_000_000_000, diagnostic: 'private diagnostic' },
+      },
+      sessions: {
+        ['a'.repeat(64)]: {
+          handleHash: 'a'.repeat(64), apiKeyId: 'key-secret', modelId: 'm365-copilot-auto',
+          routeProfileDigest: 'b'.repeat(64), historyDigest: 'c'.repeat(64), historyLength: 1,
+          sessionId: 'session-secret', conversationId: 'conversation-secret', turnCount: 1, revision: 1,
+          status: 'claimed', claimToken: 'claim-secret', claimExpiresAt: 1_900_000_000_000,
+          expiresAt: 1_900_000_000_000, lastUsedAt: 1_800_000_000_000,
+        },
+      },
+      accountLease: { claimToken: 'lease-secret', claimExpiresAt: 1_900_000_000_000 },
+    },
+  };
+
+  const result = upstreamRecordToJson(record);
+  if (result.kind !== 'm365-copilot-web') throw new Error('Expected an M365 Copilot web response');
+  assertEquals(result.state.credential, {
+    refreshTokenSet: true,
+    generation: 1,
+    health: 'active',
+    stateUpdatedAt: timestamp,
+  });
+  assertEquals(result.state.accessToken, {
+    expiresAt: 1_900_000_000_000,
+    refreshedAt: timestamp,
+    credentialGeneration: 1,
+  });
+  assertEquals(result.state.toneReceipts, {
+    'm365-copilot-auto': { tone: 'magic', available: true, probedAt: timestamp, expiresAt: 1_900_000_000_000 },
+  });
+  expect(JSON.stringify(result)).not.toContain('refresh-secret');
+  expect(JSON.stringify(result)).not.toContain('access-secret');
+  expect(JSON.stringify(result)).not.toContain('session-secret');
+  expect(JSON.stringify(result)).not.toContain('claim-secret');
+  expect(JSON.stringify(result)).not.toContain('lease-secret');
+  expect(JSON.stringify(result)).not.toContain('private diagnostic');
+
+  const transfer = upstreamRecordToFullJson(record);
+  if (transfer.kind !== 'm365-copilot-web') throw new Error('Expected an M365 Copilot web transfer record');
+  assertEquals(transfer.state.accessToken, null);
+  assertEquals(transfer.state.toneReceipts, {});
+  assertEquals(transfer.state.sessions, {});
+  assertEquals(transfer.state.accountLease, null);
+  assertEquals(transfer.state.credential.refreshToken, 'refresh-secret');
+});
+
 test('upstreamRecordToJson redacts Azure API keys inside config', () => {
   const result = upstreamRecordToJson({
     ...custom,

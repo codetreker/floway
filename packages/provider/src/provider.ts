@@ -3,7 +3,7 @@ import type { FlagDefaults } from './flags.ts';
 import type { OpenAIImagesEditsRequest } from './images.ts';
 import type { ModelPrefixConfig } from './model-prefix.ts';
 import type { ProviderModel, UpstreamModelsCache, UpstreamProviderKind, UpstreamRecord } from './model.ts';
-import type { Fetcher } from './options.ts';
+import type { Fetcher, WebSocketConnector } from './options.ts';
 import type { AnthropicMessagesPayload, AnthropicMessagesStreamEvent } from '@floway-dev/protocols/anthropic-messages';
 import type { ProtocolFrame, RerankTarget } from '@floway-dev/protocols/common';
 import type { OpenAIChatCompletionsPayload, OpenAIChatCompletionsStreamEvent } from '@floway-dev/protocols/openai-chat-completions';
@@ -93,6 +93,8 @@ export type ProviderOpenAIResponsesResult =
 // Every upstream call (data-plane request, OAuth refresh, etc.) must go
 // through this fetcher so a single fallback chain governs every leg of the
 // call under restricted egress.
+// `connectWebSocket`, when the runtime supplies one, follows the same
+// upstream proxy policy for WebSocket establishment.
 //
 // `waitUntil` registers a fire-and-forget promise that must outlive the
 // response. On workerd it maps to `ExecutionContext.waitUntil` so the
@@ -109,6 +111,8 @@ export type ProviderOpenAIResponsesResult =
 // reference past the call.
 export interface UpstreamCallOptions {
   fetcher: Fetcher;
+  caller?: { readonly apiKeyId: string };
+  connectWebSocket?: WebSocketConnector;
   waitUntil: (promise: Promise<unknown>) => void;
   headers: Headers;
   // Providers wrap the dispatch that fires the outbound fetch. The wrap

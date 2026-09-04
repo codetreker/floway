@@ -1,5 +1,6 @@
 import { test } from 'vitest';
 
+import { InMemoryRepo } from './memory.ts';
 import { createSqliteTestDb } from './test-sqlite.ts';
 import { MODEL_CATALOG_REVISION } from '../../src/data-plane/providers/models-cache.ts';
 import { SqlRepo, UPSTREAM_STATE_WRITE_ATTEMPTS } from '../../src/repo/sql.ts';
@@ -27,7 +28,163 @@ const baseRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord => 
   hue: 210,
   ...overrides,
 });
-const generationFor = (record: UpstreamRecord) => ({ updatedAt: record.updatedAt, config: record.config });
+const generationFor = (record: UpstreamRecord) => ({
+  updatedAt: record.updatedAt,
+  config: record.config,
+  ...(record.kind === 'm365-copilot-web' ? { state: record.state } : {}),
+});
+
+for (const [backend, makeRepo] of [
+  ['memory', async () => new InMemoryRepo().upstreams],
+  ['sql', async () => new SqlRepo(await createSqliteTestDb()).upstreams],
+] as const) {
+  test(`${backend} targeted upstream writes preserve the independently owned half and clear models`, async () => {
+    const repo = await makeRepo();
+    const record = baseRecord({
+      id: 'up_m365_metadata',
+      kind: 'm365-copilot-web',
+      config: { account: { tenantId: 'tenant-a', objectId: 'object-a' } },
+      state: { credential: 'before' },
+    });
+    await repo.save(record);
+    await repo.saveModelsCache(record.id, generationFor(record), {
+      revision: MODEL_CATALOG_REVISION,
+      fetchedAt: 1,
+      models: [stubProviderModel({ id: 'm365-model' })],
+    });
+
+    const stale = await repo.getById(record.id);
+    if (stale === null) throw new Error('M365 metadata test row disappeared');
+    await repo.saveState(record.id, () => ({ credential: 'rotated' }));
+    const updatedResult = await repo.updateMetadataPreservingState(record.id, 'm365-copilot-web', {
+      expectedUpdatedAt: stale.updatedAt,
+      name: 'Renamed M365',
+      enabled: true,
+      sortOrder: 9,
+      updatedAt: '2026-06-05T00:00:01.000Z',
+      flagOverrides: { ...stale.flagOverrides, 'strip-prompt-cache-key': true },
+      disabledPublicModelIds: ['m365-disabled'],
+      proxyFallbackList: [{ id: 'direct_fetch' }],
+      modelPrefix: { prefix: 'm365/', addressable: ['prefixed'], listed: ['prefixed'] },
+      hue: 123,
+    });
+    if (updatedResult.status !== 'ok') throw new Error(`M365 metadata update failed: ${updatedResult.status}`);
+    const updated = updatedResult.record;
+
+    assertEquals(updated.state, { credential: 'rotated' });
+    assertEquals(updated.config, record.config);
+    assertEquals(updated.modelsCache, null);
+    assertEquals(updated.name, 'Renamed M365');
+    assertEquals(updated.enabled, true);
+    await repo.saveModelsCache(updated.id, generationFor(updated), {
+      revision: MODEL_CATALOG_REVISION,
+      fetchedAt: 2,
+      models: [stubProviderModel({ id: 'm365-model-after-metadata' })],
+    });
+    const replaced = await repo.replaceConfigAndStatePreservingMetadata(updated.id, 'm365-copilot-web', {
+      config: { account: { tenantId: 'tenant-b', objectId: 'object-b' } },
+      state: { credential: 'reauthorized' },
+      expectedState: { credential: 'rotated' },
+      updatedAt: '2026-06-05T00:00:02.000Z',
+      enabled: false,
+    });
+    if (replaced.status !== 'ok') throw new Error(`M365 credential replacement failed: ${replaced.status}`);
+    assertEquals(replaced.record.name, 'Renamed M365');
+    assertEquals(replaced.record.enabled, false);
+    assertEquals(replaced.record.hue, 123);
+    assertEquals(replaced.record.config, { account: { tenantId: 'tenant-b', objectId: 'object-b' } });
+    assertEquals(replaced.record.state, { credential: 'reauthorized' });
+    assertEquals(replaced.record.modelsCache, null);
+    assertEquals(Object.hasOwn(replaced.record, 'expectedState'), false);
+    assertEquals(Object.hasOwn((await repo.getById(updated.id))!, 'expectedState'), false);
+    assertEquals(await repo.updateMetadataPreservingState(updated.id, 'm365-copilot-web', {
+      expectedUpdatedAt: updated.updatedAt,
+      name: 'Stale rename',
+      enabled: true,
+      sortOrder: updated.sortOrder,
+      updatedAt: '2026-06-05T00:00:03.000Z',
+      flagOverrides: updated.flagOverrides,
+      disabledPublicModelIds: updated.disabledPublicModelIds,
+      proxyFallbackList: updated.proxyFallbackList,
+      modelPrefix: updated.modelPrefix,
+      hue: updated.hue,
+    }), { status: 'version-conflict' });
+    assertEquals((await repo.getById(updated.id))?.enabled, false);
+    assertEquals(await repo.replaceConfigAndStatePreservingMetadata(updated.id, 'm365-copilot-web', {
+      config: record.config,
+      state: record.state,
+      expectedState: { credential: 'stale' },
+      updatedAt: '2026-06-05T00:00:04.000Z',
+      enabled: false,
+    }), { status: 'state-conflict' });
+    assertEquals(await repo.updateMetadataPreservingState('missing', 'm365-copilot-web', {
+      expectedUpdatedAt: stale.updatedAt,
+      name: stale.name,
+      enabled: stale.enabled,
+      sortOrder: stale.sortOrder,
+      updatedAt: stale.updatedAt,
+      flagOverrides: stale.flagOverrides,
+      disabledPublicModelIds: stale.disabledPublicModelIds,
+      proxyFallbackList: stale.proxyFallbackList,
+      modelPrefix: stale.modelPrefix,
+      hue: stale.hue,
+    }), { status: 'missing' });
+  });
+
+  test(`${backend} rejects case-only duplicate M365 account identities`, async () => {
+    const repo = await makeRepo();
+    await repo.save(baseRecord({
+      id: 'up_m365_a',
+      kind: 'm365-copilot-web',
+      config: { account: { tenantId: 'tenant-a', objectId: 'object-a' } },
+    }));
+    await assertRejects(() => repo.save(baseRecord({
+      id: 'up_m365_b',
+      kind: 'm365-copilot-web',
+      config: { account: { tenantId: 'TENANT-A', objectId: 'OBJECT-A' } },
+    })), Error, 'idx_upstreams_m365_account');
+  });
+
+  test(`${backend} tone-probe state generations fence stale catalog writes and clear the live cache`, async () => {
+    const repo = await makeRepo();
+    const record = baseRecord({
+      id: 'up_state_generation',
+      kind: 'm365-copilot-web',
+      config: { account: { tenantId: 'tenant-state', objectId: 'object-state' } },
+      state: { toneReceipts: { generation: 1 } },
+    });
+    await repo.save(record);
+    const staleGeneration = generationFor(record);
+    await repo.saveState(record.id, () => ({ toneReceipts: { generation: 2 } }));
+    assertEquals(await repo.saveModelsCache(record.id, staleGeneration, {
+      revision: MODEL_CATALOG_REVISION,
+      fetchedAt: 1,
+      models: [stubProviderModel({ id: 'stale-model' })],
+    }), false);
+
+    const fresh = await repo.getById(record.id);
+    if (fresh === null) throw new Error('State generation test row disappeared');
+    assertEquals(await repo.saveModelsCache(record.id, generationFor(fresh), {
+      revision: MODEL_CATALOG_REVISION,
+      fetchedAt: 2,
+      models: [stubProviderModel({ id: 'fresh-model' })],
+    }), true);
+    await repo.saveStateClearingModelsCache(record.id, current => current);
+    assertEquals((await repo.getById(record.id))?.modelsCache, null);
+    assertEquals(await repo.saveModelsCache(record.id, generationFor(fresh), {
+      revision: MODEL_CATALOG_REVISION,
+      fetchedAt: 3,
+      models: [stubProviderModel({ id: 'fresh-model-again' })],
+    }), true);
+    await repo.saveStateClearingModelsCache(record.id, () => ({ toneReceipts: { generation: 3 } }));
+    assertEquals((await repo.getById(record.id))?.modelsCache, null);
+    assertEquals(await repo.saveModelsCache(record.id, generationFor(fresh), {
+      revision: MODEL_CATALOG_REVISION,
+      fetchedAt: 4,
+      models: [stubProviderModel({ id: 'late-stale-model' })],
+    }), false);
+  });
+}
 
 const ownValue = (value: unknown, key: string): unknown => {
   if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) {

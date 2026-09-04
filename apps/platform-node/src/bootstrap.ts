@@ -8,6 +8,7 @@ import { createSharpImageProcessor } from './sharp-image-processor.ts';
 import { nodeSocketDial } from './socket-dial.ts';
 import { SqliteImageCacheStore } from './sqlite-image-cache-store.ts';
 import { timingSafeEqual } from './timing-safe-equal.ts';
+import { nodeWebSocketConnector } from './websocket.ts';
 import { FileDumpStore, initDumpBroker, initDumpStore } from '@floway-dev/gateway';
 import { dumpCodec } from '@floway-dev/gateway/dump-codec';
 import type { DumpMetadata } from '@floway-dev/gateway/dump-types';
@@ -24,6 +25,7 @@ import {
   initRuntimeKind,
   initSocketDial,
   initTimingSafeEqual,
+  initWebSocketConnector,
   type SqlDatabase,
 } from '@floway-dev/platform';
 
@@ -33,6 +35,7 @@ export const bootstrapNodePlatform = (): { db: SqlDatabase } => {
   initTimingSafeEqual(timingSafeEqual);
   initExternalResourceFetcher(createNodeExternalResourceFetcher());
   initFetch(nodeFetch);
+  initWebSocketConnector(nodeWebSocketConnector);
 
   const filesDir = getEnvOptional('FLOWAY_FILES_DIR', './data/files');
   const dbPath = getEnvOptional('FLOWAY_DB_PATH', './data/floway.db');

@@ -26,6 +26,7 @@ import { assertClaudeCodeUpstreamRecord, readClaudeCodeUpstreamState } from '@fl
 import { type CodexQuotaSnapshotMap, assertCodexUpstreamRecord, assertCodexUpstreamState, getCodexQuota } from '@floway-dev/provider-codex';
 import { parseCopilotUpstreamConfig, readCopilotUpstreamState } from '@floway-dev/provider-copilot';
 import { assertCustomUpstreamRecord } from '@floway-dev/provider-custom';
+import { assertM365CopilotWebUpstreamRecord } from '@floway-dev/provider-m365-copilot-web';
 import { assertOllamaUpstreamRecord } from '@floway-dev/provider-ollama';
 
 type CodexQuotaProjection = { codex_quota?: CodexQuotaSnapshotMap | null };
@@ -102,6 +103,10 @@ const normalizeConfig = (record: UpstreamRecord): ValidationResult<unknown> => {
       assertClaudeCodeUpstreamRecord(record);
       return { ok: true, value: record.config };
     }
+    if (record.kind === 'm365-copilot-web') {
+      assertM365CopilotWebUpstreamRecord(record);
+      return { ok: true, value: record.config };
+    }
     return {
       ok: true,
       value: parseCopilotUpstreamConfig(
@@ -162,7 +167,7 @@ const validateProxyFallbackList = (
 
 export const listUpstreams = async (c: Context) => {
   const [items, knownProxyIds] = await Promise.all([getRepo().upstreams.list(), loadKnownProxyIds()]);
-  return c.json(await Promise.all(items.map(record => serializeForResponse(record, knownProxyIds))));
+  return c.json(await Promise.all(items.map(record => serializeForResponse(record, knownProxyIds))) as Array<RedactedSerializedUpstreamRecord & { modelsCache: ModelsCacheStatus }>);
 };
 
 // Picker dataset for the per-key upstream whitelist editor. Non-admin users
@@ -202,18 +207,17 @@ export const getUpstreamBlueprint = (c: Context) => {
   });
 };
 
-// Single-record read for the edit page. Returns the FULL record — no
-// secret redaction — because every editor-scoped action posts the record
-// back to a helper endpoint that needs the same credentials the data plane
-// uses (refresh tokens, api keys, etc.). Codex quota and modelsCache are
-// response-only projections, so they are attached here alongside the
-// unredacted config/state — the edit page relies on `modelsCache` to
-// render the "last fetched / last error" panel on mount.
+// Existing provider editors still post their stored credentials back to action
+// endpoints. M365 actions always reload their persisted credential, so its
+// editor receives only the redacted summary.
 export const getUpstream = async (c: AuthedContext<'/:id'>) => {
   const id = c.req.param('id');
   const [record, knownProxyIds] = await Promise.all([getRepo().upstreams.getById(id), loadKnownProxyIds()]);
   if (!record) return c.json({ error: 'upstream not found' }, 404);
-  return c.json(await serializeForResponse(record, knownProxyIds, upstreamRecordToFullJson));
+  if (record.kind === 'm365-copilot-web') {
+    return c.json(await serializeForResponse(record, knownProxyIds) as Extract<RedactedSerializedUpstreamRecord, { kind: 'm365-copilot-web' }> & { modelsCache: ModelsCacheStatus });
+  }
+  return c.json(await serializeForResponse(record, knownProxyIds, upstreamRecordToFullJson) as Exclude<FullSerializedUpstreamRecord, { kind: 'm365-copilot-web' }> & { modelsCache: ModelsCacheStatus });
 };
 
 export const createUpstream = async (c: CtxWithJson<typeof createUpstreamBody>) => {
@@ -282,7 +286,7 @@ export const createUpstream = async (c: CtxWithJson<typeof createUpstreamBody>) 
   // Answer with the catalog status this warm produced, not the one the record
   // was built with — the dashboard re-seeds its draft from this body.
   const modelsCache = await warmModelsCache(record, c);
-  return c.json(await serializeForResponse({ ...record, modelsCache }, knownProxyIds), 201);
+  return c.json(await serializeForResponse({ ...record, modelsCache }, knownProxyIds) as RedactedSerializedUpstreamRecord & { modelsCache: ModelsCacheStatus }, 201);
 };
 
 export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody, '/:id'>) => {
@@ -299,10 +303,15 @@ export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody, '
   // Code accounts[]) are owned by the per-provider action endpoints, not
   // by generic PATCH. Metadata (name, enabled, sort_order, flag overrides,
   // disabled model ids) still flows through here.
-  if (body.config !== undefined && (existing.kind === 'copilot' || existing.kind === 'codex' || existing.kind === 'claude-code')) {
+  if (body.config !== undefined && (existing.kind === 'copilot'
+    || existing.kind === 'codex'
+    || existing.kind === 'claude-code'
+    || existing.kind === 'm365-copilot-web')) {
     const endpoint = existing.kind === 'copilot'
       ? '/api/upstreams/copilot/oauth/device-login/poll'
-      : `/api/upstreams/${existing.kind}/oauth/exchange`;
+      : existing.kind === 'm365-copilot-web'
+        ? '/api/upstreams/m365-copilot-web/auth/enroll'
+        : `/api/upstreams/${existing.kind}/oauth/exchange`;
     return c.json({ error: `Use POST ${endpoint} to update ${existing.kind} credentials` }, 400);
   }
 
@@ -335,9 +344,28 @@ export const updateUpstream = async (c: CtxWithJson<typeof updateUpstreamBody, '
   if (!config.ok) return c.json({ error: config.error }, 400);
   next = { ...next, config: config.value };
 
-  await getRepo().upstreams.save(next);
-  const modelsCache = await warmModelsCache(next, c);
-  return c.json(await serializeForResponse({ ...next, modelsCache }, knownProxyIds));
+  let stored = next;
+  if (next.kind === 'm365-copilot-web') {
+    const updated = await getRepo().upstreams.updateMetadataPreservingState(next.id, next.kind, {
+      expectedUpdatedAt: existing.updatedAt,
+      name: next.name,
+      enabled: next.enabled,
+      sortOrder: next.sortOrder,
+      updatedAt: next.updatedAt,
+      flagOverrides: next.flagOverrides,
+      disabledPublicModelIds: next.disabledPublicModelIds,
+      proxyFallbackList: next.proxyFallbackList,
+      modelPrefix: next.modelPrefix,
+      hue: next.hue,
+    });
+    if (updated.status === 'missing') return c.json({ error: 'Upstream not found' }, 404);
+    if (updated.status === 'version-conflict') return c.json({ error: 'Upstream changed while it was being edited. Reload and retry.' }, 409);
+    stored = updated.record;
+  } else {
+    await getRepo().upstreams.save(next);
+  }
+  const modelsCache = await warmModelsCache(stored, c);
+  return c.json(await serializeForResponse({ ...stored, modelsCache }, knownProxyIds) as RedactedSerializedUpstreamRecord & { modelsCache: ModelsCacheStatus });
 };
 
 export const deleteUpstream = async (c: AuthedContext<'/:id'>) => {

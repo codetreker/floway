@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import azureIconUrl from '../../assets/azure-color.svg?no-inline';
 import claudeIconUrl from '../../assets/claude-color.svg?no-inline';
 import githubCopilotIconUrl from '../../assets/githubcopilot.svg?no-inline';
+import microsoftIconUrl from '../../assets/microsoft-color.svg?no-inline';
 import ollamaIconUrl from '../../assets/ollama.svg?no-inline';
 import openaiIconUrl from '../../assets/openai.svg?no-inline';
 import { fluentComponents } from '../../fluent';
@@ -25,6 +26,7 @@ const providerLabels: Record<UpstreamProviderKind, string> = {
   copilot: 'Copilot',
   codex: 'Codex',
   'claude-code': 'Claude Code',
+  'm365-copilot-web': 'Microsoft 365 Copilot',
   ollama: 'Ollama',
 };
 
@@ -103,6 +105,7 @@ const providerIconUrls: Record<Exclude<UpstreamProviderKind, 'custom'>, string> 
   // Codex is the ChatGPT subscription, so it wears OpenAI's mark.
   codex: openaiIconUrl,
   'claude-code': claudeIconUrl,
+  'm365-copilot-web': microsoftIconUrl,
   ollama: ollamaIconUrl,
 };
 
@@ -113,6 +116,7 @@ const providerIconMaskSizes: Record<Exclude<UpstreamProviderKind, 'custom'>, str
   copilot: '100% 100%',
   codex: '80% 80%',
   'claude-code': '80% 80%',
+  'm365-copilot-web': '82% 82%',
   ollama: '86% 86%',
 };
 

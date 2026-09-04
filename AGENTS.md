@@ -70,6 +70,7 @@
 | Package | `packages/provider-codex` | Integrates OpenAI Codex subscriptions. |
 | Package | `packages/provider-copilot` | Integrates GitHub Copilot subscriptions. |
 | Package | `packages/provider-custom` | Integrates OpenAI-compatible providers. |
+| Package | `packages/provider-m365-copilot-web` | Integrates Microsoft 365 Copilot subscriptions. |
 | Package | `packages/provider-ollama` | Integrates Ollama. |
 | Package | `packages/proxy` | Routes traffic through configured proxies. |
 | Package | `packages/test-utils` | Provides shared test infrastructure. |
