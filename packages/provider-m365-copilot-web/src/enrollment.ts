@@ -1,5 +1,5 @@
-// https://github.com/cramt/m365-copilot-proxy/blob/d7c6d8080bf2bb769c1949c2dfbe60bb7ca929c3/packages/core/src/auth.ts#L10-L19
-export const M365_OAUTH_CLIENT_ID = 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1';
+// https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+export const M365_OAUTH_CLIENT_ID = '96ff4394-9197-43aa-b393-6a41652e21f8';
 export const M365_OAUTH_REDIRECT_URI = 'https://login.microsoftonline.com/common/oauth2/nativeclient';
 export const M365_OAUTH_AUTHORIZE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 // https://github.com/cramt/m365-copilot-proxy/blob/d7c6d8080bf2bb769c1949c2dfbe60bb7ca929c3/packages/core/src/auth.ts#L16-L33

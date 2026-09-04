@@ -54,7 +54,7 @@ describe('M365 Copilot enrollment CLI', () => {
       schema: 'floway.m365-copilot-web-enrollment',
       version: 1,
       issuedAt: '2026-09-04T00:00:00.000Z',
-      clientId: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1',
+      clientId: '96ff4394-9197-43aa-b393-6a41652e21f8',
       redirectUri: 'https://login.microsoftonline.com/common/oauth2/nativeclient',
       authorizationCode: AUTHORIZATION_CODE,
       codeVerifier: VERIFIER,
