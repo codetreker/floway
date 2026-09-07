@@ -77,6 +77,7 @@ export const providerDefaultName: Record<UpstreamProviderKind, string> = {
   copilot: 'GitHub Copilot',
   codex: 'ChatGPT Codex',
   'claude-code': 'Claude Code',
+  'm365-copilot-web': 'Microsoft 365 Copilot',
   ollama: 'Ollama',
 };
 

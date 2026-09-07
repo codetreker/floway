@@ -33,6 +33,7 @@ export function UpstreamConfigSidebar({
   catalogAvailable,
   discovered,
   onPatch,
+  onPersistedRecord,
   onRefreshModels,
   proxies,
   record,
@@ -41,6 +42,7 @@ export function UpstreamConfigSidebar({
   catalogAvailable: boolean;
   discovered: UpstreamModelConfig[];
   onPatch: (patch: { config?: unknown; state?: unknown }, persisted?: boolean) => void;
+  onPersistedRecord?: (record: UpstreamRecord) => void;
   onRefreshModels: () => void;
   proxies: ProxyRecord[];
   record: UpstreamRecord;
@@ -84,7 +86,12 @@ export function UpstreamConfigSidebar({
           error={errors.config?.message ? t(errors.config.message) : undefined}
           title={t('dashboard.upstreamEditor.sections.connection')}
         >
-          <ProviderConfigSection record={record} onPatch={onPatch} onRefreshModels={onRefreshModels} />
+          <ProviderConfigSection
+            onPatch={onPatch}
+            onPersistedRecord={onPersistedRecord}
+            onRefreshModels={onRefreshModels}
+            record={record}
+          />
         </EditorSection>
         <EditorSection title={t('dashboard.upstreamEditor.sections.proxy')} description={t('dashboard.upstreamEditor.proxy.empty')}>
           <ProxyFallbackEditor proxies={proxies} runtime={runtime} />

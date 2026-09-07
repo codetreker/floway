@@ -53,6 +53,7 @@ export const listModels = async (c: CtxWithJson<typeof listModelsBody>) => {
 
   const scheduler = backgroundSchedulerFromContext(c);
   const now = new Date().toISOString();
+  const usePersistedCredential = kind === 'm365-copilot-web' && persisted !== null;
   const synthRecord: UpstreamRecord = {
     id: record.id || 'draft',
     kind,
@@ -67,15 +68,18 @@ export const listModels = async (c: CtxWithJson<typeof listModelsBody>) => {
     modelPrefix: null,
     // A draft only lists models; nothing renders its badge.
     hue: 0,
-    config: record.config,
-    state: record.state,
+    config: usePersistedCredential ? persisted.config : record.config,
+    state: usePersistedCredential ? persisted.state : record.state,
     // A draft is built from the request envelope and lists models live, so it
     // never carries a cached catalog.
     modelsCache: null,
   };
-  const cacheGeneration = persisted === null
-    ? { updatedAt: synthRecord.updatedAt, config: synthRecord.config }
-    : { updatedAt: persisted.updatedAt, config: persisted.config };
+  const generationRecord = persisted ?? synthRecord;
+  const cacheGeneration = {
+    updatedAt: generationRecord.updatedAt,
+    config: generationRecord.config,
+    ...(kind === 'm365-copilot-web' ? { state: generationRecord.state } : {}),
+  };
 
   let fetcher: Fetcher;
   try {

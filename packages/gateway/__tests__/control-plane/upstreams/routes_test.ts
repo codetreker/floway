@@ -1,10 +1,22 @@
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
+
+vi.mock('@floway-dev/provider-m365-copilot-web', async importOriginal => {
+  const actual = await importOriginal<typeof import('@floway-dev/provider-m365-copilot-web')>();
+  return {
+    ...actual,
+    completeM365Enrollment: vi.fn(),
+    probeAllM365Tones: vi.fn(),
+    refreshM365Credential: vi.fn(),
+    releaseM365EnrollmentLease: vi.fn(actual.releaseM365EnrollmentLease),
+  };
+});
 
 import { blueprintUpstreamRecord, upstreamRecordToFullJson } from '../../../src/control-plane/upstreams/serialize.ts';
 import { MODEL_LISTING_FAILURE_CODE } from '../../../src/data-plane/models/shared.ts';
 import { MODEL_CATALOG_REVISION } from '../../../src/data-plane/providers/models-cache.ts';
 import { MOCKED_FETCH_EGRESS, requestApp, setupAppTest } from '../../test-utils/app.ts';
-import type { UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import { ALL_PROVIDER_KINDS, type UpstreamProviderKind, type UpstreamRecord } from '@floway-dev/provider';
+import * as m365Provider from '@floway-dev/provider-m365-copilot-web';
 import { assertEquals, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
 type JsonObject = Record<string, any>;
@@ -50,6 +62,243 @@ const copilotConfig = {
     avatar_url: 'https://example.com/octo.png',
   },
 };
+
+const m365EnrollmentResult = () => ({
+  config: {
+    account: {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      objectId: '22222222-2222-4222-8222-222222222222',
+      username: 'alice@example.com',
+      chatHubHost: 'substrate.office.com' as const,
+      chatHubPath: '22222222-2222-4222-8222-222222222222@11111111-1111-4111-8111-111111111111',
+    },
+    locale: 'en-US',
+    timeZone: 'UTC',
+    timeZoneOffsetMinutes: 0,
+  },
+  state: {
+    credential: { credentialId: 'm365-credential', refreshToken: 'm365-refresh-secret', generation: 1, health: 'active' as const, stateUpdatedAt: '2026-01-01T00:00:00.000Z' },
+    accessToken: { token: 'm365-access-secret', expiresAt: 1_900_000_000_000, refreshedAt: '2026-01-01T00:00:00.000Z', credentialGeneration: 1 },
+    toneReceipts: {},
+    sessions: {},
+    accountLease: null,
+  },
+});
+
+const m365UpstreamRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord => {
+  const enrolled = m365EnrollmentResult();
+  return {
+    id: 'up_m365',
+    kind: 'm365-copilot-web',
+    name: 'M365 Alice',
+    enabled: false,
+    sortOrder: 300,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    flagOverrides: {},
+    disabledPublicModelIds: [],
+    proxyFallbackList: MOCKED_FETCH_EGRESS,
+    modelPrefix: null,
+    hue: 210,
+    config: enrolled.config,
+    state: enrolled.state,
+    modelsCache: null,
+    ...overrides,
+  };
+};
+
+const m365ActionBody = (id = 'up_m365') => ({
+  record: {
+    id,
+    kind: 'm365-copilot-web' as const,
+    proxy_fallback_list: MOCKED_FETCH_EGRESS,
+  },
+});
+
+const m365EnrollmentBody = (id = '') => ({
+  record: {
+    id,
+    kind: 'm365-copilot-web' as const,
+    name: 'M365 Alice',
+    flag_overrides: {},
+    disabled_public_model_ids: [],
+    proxy_fallback_list: MOCKED_FETCH_EGRESS,
+    model_prefix: null,
+    hue: 210,
+  },
+  enrollment_bundle: '{}',
+  locale: 'en-US',
+  time_zone: 'UTC',
+  time_zone_offset_minutes: 0,
+});
+
+const successfulM365ToneReceipts = (): Awaited<ReturnType<typeof m365Provider.probeAllM365Tones>> => Object.fromEntries(
+  m365Provider.M365_MODELS.map(model => [model.id, {
+    tone: model.tone,
+    available: true,
+    probedAt: '2026-01-01T00:00:00.000Z',
+    expiresAt: 1_900_000_000_000,
+  }]),
+) as Awaited<ReturnType<typeof m365Provider.probeAllM365Tones>>;
+
+test('POST /api/upstreams/m365-copilot-web/auth/enroll persists a disabled upstream and returns no token material', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  vi.mocked(m365Provider.completeM365Enrollment).mockResolvedValueOnce(m365EnrollmentResult());
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/auth/enroll', authed(adminSession, m365EnrollmentBody()));
+  assertEquals(response.status, 201);
+  const body = await response.json() as JsonObject;
+  assertEquals(body.record.enabled, false);
+  assertEquals(body.record.config.account.username, 'alice@example.com');
+  assertEquals(body.record.state.credential.refreshTokenSet, true);
+  assertEquals(JSON.stringify(body).includes('m365-refresh-secret'), false);
+  assertEquals(JSON.stringify(body).includes('m365-access-secret'), false);
+
+  const stored = (await repo.upstreams.list()).find(record => record.kind === 'm365-copilot-web');
+  assertEquals((stored!.state as ReturnType<typeof m365EnrollmentResult>['state']).credential.refreshToken, 'm365-refresh-secret');
+});
+
+test('POST /api/upstreams/m365-copilot-web/auth/enroll does not consume a bundle while the account is busy', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord({
+    state: {
+      ...m365EnrollmentResult().state,
+      accountLease: { claimToken: 'active-turn', claimExpiresAt: Date.now() + 60_000 },
+    },
+  }));
+  vi.mocked(m365Provider.completeM365Enrollment).mockClear();
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/auth/enroll', authed(adminSession, m365EnrollmentBody('up_m365')));
+  assertEquals(response.status, 409);
+  assertEquals(vi.mocked(m365Provider.completeM365Enrollment).mock.calls.length, 0);
+});
+
+test('POST /api/upstreams/m365-copilot-web/auth/enroll releases its lease when the exchange fails', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord());
+  vi.mocked(m365Provider.completeM365Enrollment).mockRejectedValueOnce(new TypeError('invalid enrollment bundle'));
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/auth/enroll', authed(adminSession, m365EnrollmentBody('up_m365')));
+  assertEquals(response.status, 400);
+  const stored = await repo.upstreams.getById('up_m365');
+  assertEquals(m365Provider.readM365CopilotWebUpstreamState(stored!.state).accountLease, null);
+});
+
+test('POST /api/upstreams/m365-copilot-web/auth/enroll logs both exchange and lease-release failures', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord());
+  vi.mocked(m365Provider.completeM365Enrollment).mockRejectedValueOnce(new Error('primary enrollment failure'));
+  vi.mocked(m365Provider.releaseM365EnrollmentLease).mockRejectedValueOnce(new Error('cleanup enrollment failure'));
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/auth/enroll', authed(adminSession, m365EnrollmentBody('up_m365')));
+  const body = await response.json();
+  const logged = errorLog.mock.calls.flat().join('\n');
+  errorLog.mockRestore();
+  assertEquals(response.status, 502);
+  assertEquals(body, { error: 'M365 enrollment lease release failed. Inspect the gateway logs for details.' });
+  assertEquals(logged.includes('primary enrollment failure'), true);
+  assertEquals(logged.includes('cleanup enrollment failure'), true);
+});
+
+test('GET /api/upstreams/:id redacts M365 credential and runtime state', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord({
+    state: {
+      ...m365EnrollmentResult().state,
+      accountLease: { claimToken: 'management-secret', claimExpiresAt: 1_900_000_000_000 },
+    },
+  }));
+
+  const response = await requestApp('/api/upstreams/up_m365', authed(adminSession));
+  assertEquals(response.status, 200);
+  const body = await response.json() as JsonObject;
+  assertEquals(body.config.account.username, 'alice@example.com');
+  assertEquals(body.state.credential.refreshTokenSet, true);
+  assertEquals(body.state.accessToken.credentialGeneration, 1);
+  assertEquals('sessions' in body.state, false);
+  assertEquals('accountLease' in body.state, false);
+  assertEquals(JSON.stringify(body).includes('m365-refresh-secret'), false);
+  assertEquals(JSON.stringify(body).includes('m365-access-secret'), false);
+  assertEquals(JSON.stringify(body).includes('management-secret'), false);
+});
+
+test('POST /api/upstreams/m365-copilot-web/auth/refresh returns a redacted persisted patch', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord());
+  vi.mocked(m365Provider.refreshM365Credential).mockResolvedValueOnce(m365EnrollmentResult().state.accessToken);
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/auth/refresh', authed(adminSession, m365ActionBody()));
+  assertEquals(response.status, 200);
+  const body = await response.json() as JsonObject;
+  assertEquals(body.status, 'active');
+  assertEquals(body.patch.state.credential.refreshTokenSet, true);
+  assertEquals(JSON.stringify(body).includes('m365-refresh-secret'), false);
+  assertEquals(JSON.stringify(body).includes('m365-access-secret'), false);
+});
+
+test('POST /api/upstreams/m365-copilot-web/tones/probe persists receipts and clears the management lease', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord());
+  const toneReceipts = successfulM365ToneReceipts();
+  vi.mocked(m365Provider.probeAllM365Tones).mockResolvedValueOnce(toneReceipts);
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/tones/probe', authed(adminSession, m365ActionBody()));
+  assertEquals(response.status, 200);
+  const body = await response.json() as JsonObject;
+  assertEquals(body.available, m365Provider.M365_MODELS.length);
+  assertEquals(body.total, m365Provider.M365_MODELS.length);
+  const stored = await repo.upstreams.getById('up_m365');
+  const state = m365Provider.readM365CopilotWebUpstreamState(stored!.state);
+  assertEquals(state.accountLease, null);
+  assertEquals(state.toneReceipts, toneReceipts);
+  assertEquals(vi.mocked(m365Provider.probeAllM365Tones).mock.calls.at(-1)?.[0].signal instanceof AbortSignal, true);
+});
+
+test('POST /api/upstreams/m365-copilot-web/tones/probe rejects a credential race without changing receipts or cache', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  const cache = { revision: MODEL_CATALOG_REVISION, fetchedAt: 1, models: [], lastError: null };
+  await repo.upstreams.save(m365UpstreamRecord());
+  const beforeProbe = await repo.upstreams.getById('up_m365');
+  await repo.upstreams.saveModelsCache('up_m365', {
+    updatedAt: beforeProbe!.updatedAt,
+    config: beforeProbe!.config,
+    state: beforeProbe!.state,
+  }, cache);
+  const toneReceipts = successfulM365ToneReceipts();
+  vi.mocked(m365Provider.probeAllM365Tones).mockImplementationOnce(async () => {
+    await repo.upstreams.saveState('up_m365', current => {
+      const state = m365Provider.readM365CopilotWebUpstreamState(current);
+      return { ...state, credential: { ...state.credential, credentialId: 'rotated-credential' } };
+    });
+    return toneReceipts;
+  });
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/tones/probe', authed(adminSession, m365ActionBody()));
+  assertEquals(response.status, 409);
+  const stored = await repo.upstreams.getById('up_m365');
+  const state = m365Provider.readM365CopilotWebUpstreamState(stored!.state);
+  assertEquals(state.accountLease, null);
+  assertEquals(state.toneReceipts, {});
+  assertEquals(stored!.modelsCache, cache);
+});
+
+test('POST /api/upstreams/m365-copilot-web/tones/probe logs both probe and lease-release failures', async () => {
+  const { repo, adminSession } = await setupAppTest();
+  await repo.upstreams.save(m365UpstreamRecord());
+  vi.mocked(m365Provider.probeAllM365Tones).mockRejectedValueOnce(new Error('primary probe failure'));
+  vi.mocked(m365Provider.releaseM365EnrollmentLease).mockRejectedValueOnce(new Error('cleanup probe failure'));
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+  const response = await requestApp('/api/upstreams/m365-copilot-web/tones/probe', authed(adminSession, m365ActionBody()));
+  const body = await response.json();
+  const logged = errorLog.mock.calls.flat().join('\n');
+  errorLog.mockRestore();
+  assertEquals(response.status, 502);
+  assertEquals(body, { error: 'M365 enrollment lease release failed. Inspect the gateway logs for details.' });
+  assertEquals(logged.includes('primary probe failure'), true);
+  assertEquals(logged.includes('cleanup probe failure'), true);
+});
 
 const createBody = (overrides: Record<string, unknown> = {}) => ({
   kind: 'custom',
@@ -2187,8 +2436,7 @@ test('spec invariant (3): POST /api/upstreams/list-models ignores record.name mu
 
 test('GET /api/upstreams/blueprint round-trips a shape-complete blank for every kind', async () => {
   const { adminSession } = await setupAppTest();
-  const kinds: UpstreamProviderKind[] = ['copilot', 'custom', 'azure', 'codex', 'claude-code', 'ollama'];
-  for (const kind of kinds) {
+  for (const kind of ALL_PROVIDER_KINDS) {
     const resp = await requestApp(`/api/upstreams/blueprint?kind=${kind}`, { headers: { 'x-floway-session': adminSession } });
     assertEquals(resp.status, 200);
     const body = (await resp.json()) as JsonObject;
@@ -2227,7 +2475,7 @@ test('GET /api/upstreams/blueprint serves the record a new upstream starts as wi
   // `flag_defaults` on the wire is the whole point of the blueprint;
   // assert it lands on every kind so the dashboard's "Inherit → on/off"
   // pill has data to render before Save.
-  for (const kind of ['copilot', 'custom', 'azure', 'codex', 'claude-code', 'ollama']) {
+  for (const kind of ALL_PROVIDER_KINDS) {
     const preview = (await (await requestApp(`/api/upstreams/blueprint?kind=${kind}`, { headers: { 'x-floway-session': adminSession } })).json()) as JsonObject;
     assertEquals(typeof preview.flag_defaults['strip-billing-attribution'], 'boolean');
   }

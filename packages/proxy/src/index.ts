@@ -12,3 +12,5 @@ export { ProxyDialError, ProxyUriError } from './errors.ts';
 
 export { runDirectConnectRequest, runProxiedRequest } from './dialer.ts';
 export type { RunDirectConnectRequestOptions, RunProxiedRequestOptions } from './dialer.ts';
+export { openDirectApplicationStream, openProxiedApplicationStream } from './application-stream.ts';
+export type { OpenApplicationStreamOptions } from './application-stream.ts';

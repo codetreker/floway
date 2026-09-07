@@ -23,6 +23,7 @@ import { tokenUsageMetrics } from '../../../src/repo/usage-metrics.ts';
 import { installDumpStubs } from '../../dump/test-fixtures.ts';
 import { InMemoryRepo } from '../../repo/memory.ts';
 import { ALL_PROVIDER_KINDS, type UpstreamRecord } from '@floway-dev/provider';
+import type { M365CopilotWebUpstreamState } from '@floway-dev/provider-m365-copilot-web';
 import { assertEquals } from '@floway-dev/test-utils';
 
 const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
@@ -222,6 +223,43 @@ const CODEX_UPSTREAM: UpstreamRecord = {
       state_updated_at: '2026-01-01T00:00:00.000Z',
       openaiDeviceId: '11111111-2222-4333-8444-555555555555',
     }],
+  },
+};
+
+const M365_UPSTREAM: UpstreamRecord = {
+  id: 'up_m365_a',
+  kind: 'm365-copilot-web',
+  name: 'Microsoft 365 Copilot (alice)',
+  enabled: false,
+  sortOrder: 35,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+  flagOverrides: {},
+  disabledPublicModelIds: [],
+  proxyFallbackList: [],
+  modelPrefix: null,
+  modelsCache: null,
+  hue: 210,
+  config: {
+    account: {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      objectId: '22222222-2222-4222-8222-222222222222',
+      username: 'alice@example.com',
+      chatHubHost: 'substrate.office.com',
+      chatHubPath: '22222222-2222-4222-8222-222222222222@11111111-1111-4111-8111-111111111111',
+    },
+    locale: 'en-US',
+    timeZone: 'UTC',
+    timeZoneOffsetMinutes: 0,
+  },
+  state: {
+    credential: { credentialId: 'm365-credential', refreshToken: 'm365-refresh-secret', generation: 1, health: 'active', stateUpdatedAt: '2026-01-01T00:00:00.000Z' },
+    accessToken: { token: 'm365-access-secret', expiresAt: 1_900_000_000_000, refreshedAt: '2026-01-01T00:00:00.000Z', credentialGeneration: 1 },
+    toneReceipts: {
+      'm365-copilot-auto': { tone: 'magic', available: true, probedAt: '2026-01-01T00:00:00.000Z', expiresAt: 1_900_000_000_000 },
+    },
+    sessions: {},
+    accountLease: { claimToken: 'lease-secret', claimExpiresAt: 1_900_000_000_000 },
   },
 };
 
@@ -757,6 +795,99 @@ test('codex upstreams export and import round-trip with state intact', async () 
   });
   assertEquals(replaceResult.status, 200);
   assertEquals(await repo.upstreams.list(), [CODEX_UPSTREAM]);
+});
+
+test('M365 export and import preserve the refresh credential while clearing live state and probe receipts', async () => {
+  const { app, repo } = setup();
+  await repo.upstreams.save(M365_UPSTREAM);
+  await repo.webSearchConfig.save(DEFAULT_WEB_SEARCH_CONFIG);
+
+  const exported = await doExport(app);
+  const exportedM365 = exported.data.upstreams.find((upstream: any) => upstream.id === M365_UPSTREAM.id);
+  assertEquals(exportedM365.state.credential.refreshToken, 'm365-refresh-secret');
+  assertEquals(exportedM365.state.accessToken, null);
+  assertEquals(exportedM365.state.toneReceipts, {});
+  assertEquals(exportedM365.state.sessions, {});
+  assertEquals(exportedM365.state.accountLease, null);
+
+  for (const mode of ['merge', 'replace'] as const) {
+    const target = setup();
+    const raw = { ...upstreamRecordToFullJson(M365_UPSTREAM), state: structuredClone(M365_UPSTREAM.state) };
+    const result = await doImport(target.app, mode, latestImportData({ upstreams: [raw] }));
+    assertEquals(result.status, 200);
+    const [stored] = await target.repo.upstreams.list();
+    const storedState = stored!.state as M365CopilotWebUpstreamState;
+    assertEquals(storedState.credential.refreshToken, 'm365-refresh-secret');
+    assertEquals(storedState.accessToken, null);
+    assertEquals(storedState.toneReceipts, {});
+    assertEquals(storedState.sessions, {});
+    assertEquals(storedState.accountLease, null);
+  }
+});
+
+test('import rejects duplicate M365 account identities before mutating replace or merge targets', async () => {
+  const duplicate = {
+    ...upstreamRecordToFullJson(M365_UPSTREAM),
+    id: 'up_m365_duplicate',
+    name: 'Duplicate M365 account',
+  };
+
+  const replaceTarget = setup();
+  await replaceTarget.repo.upstreams.save(CUSTOM_UPSTREAM);
+  const replaceResult = await doImport(replaceTarget.app, 'replace', latestImportData({
+    upstreams: [upstreamRecordToFullJson(M365_UPSTREAM), duplicate],
+  }));
+  assertEquals(replaceResult.status, 400);
+  assertEquals(replaceResult.body.error, `invalid upstreams: duplicate M365 account identity for upstreams ${M365_UPSTREAM.id} and ${duplicate.id}`);
+  assertEquals(await replaceTarget.repo.upstreams.list(), [CUSTOM_UPSTREAM]);
+
+  const mergeTarget = setup();
+  await mergeTarget.repo.upstreams.save(M365_UPSTREAM);
+  const mergeResult = await doImport(mergeTarget.app, 'merge', latestImportData({
+    upstreams: [upstreamRecordToFullJson(CUSTOM_UPSTREAM), duplicate],
+  }));
+  assertEquals(mergeResult.status, 400);
+  assertEquals(mergeResult.body.error, `invalid upstreams: duplicate M365 account identity for upstreams ${M365_UPSTREAM.id} and ${duplicate.id}`);
+  assertEquals(await mergeTarget.repo.upstreams.list(), [M365_UPSTREAM]);
+});
+
+test('import rejects M365 identity swaps while preserving repeated-id last-write-wins behavior', async () => {
+  const otherM365: UpstreamRecord = {
+    ...structuredClone(M365_UPSTREAM),
+    id: 'up_m365_b',
+    name: 'M365 B',
+    config: {
+      ...structuredClone(M365_UPSTREAM.config as object),
+      account: {
+        ...(M365_UPSTREAM.config as { account: Record<string, unknown> }).account,
+        tenantId: '33333333-3333-4333-8333-333333333333',
+        objectId: '44444444-4444-4444-8444-444444444444',
+        chatHubPath: '44444444-4444-4444-8444-444444444444@33333333-3333-4333-8333-333333333333',
+      },
+    },
+  };
+
+  const mergeTarget = setup();
+  await mergeTarget.repo.upstreams.save(M365_UPSTREAM);
+  await mergeTarget.repo.upstreams.save(otherM365);
+  const firstSwap = upstreamRecordToFullJson({ ...M365_UPSTREAM, config: otherM365.config });
+  const secondSwap = upstreamRecordToFullJson({ ...otherM365, config: M365_UPSTREAM.config });
+  const swapResult = await doImport(mergeTarget.app, 'merge', latestImportData({ upstreams: [firstSwap, secondSwap] }));
+  assertEquals(swapResult.status, 400);
+  assertEquals(swapResult.body.error, `invalid upstreams: duplicate M365 account identity for upstreams ${otherM365.id} and ${M365_UPSTREAM.id}`);
+  assertEquals((await mergeTarget.repo.upstreams.getById(M365_UPSTREAM.id))?.config, M365_UPSTREAM.config);
+  assertEquals((await mergeTarget.repo.upstreams.getById(otherM365.id))?.config, otherM365.config);
+
+  const replaceTarget = setup();
+  await replaceTarget.repo.upstreams.save(CUSTOM_UPSTREAM);
+  const duplicateId = { ...upstreamRecordToFullJson(otherM365), id: M365_UPSTREAM.id };
+  const duplicateIdResult = await doImport(replaceTarget.app, 'replace', latestImportData({
+    upstreams: [upstreamRecordToFullJson(M365_UPSTREAM), duplicateId],
+  }));
+  assertEquals(duplicateIdResult.status, 200);
+  const [stored] = await replaceTarget.repo.upstreams.list();
+  assertEquals(stored!.id, M365_UPSTREAM.id);
+  assertEquals(stored!.config, otherM365.config);
 });
 
 test('codex import rejects when state is missing', async () => {

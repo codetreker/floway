@@ -21,6 +21,7 @@ import { assertClaudeCodeUpstreamRecord, assertClaudeCodeUpstreamState } from '@
 import { assertCodexUpstreamRecord, assertCodexUpstreamState } from '@floway-dev/provider-codex';
 import { parseCopilotUpstreamConfig } from '@floway-dev/provider-copilot';
 import { assertCustomUpstreamRecord } from '@floway-dev/provider-custom';
+import { assertM365CopilotWebUpstreamRecord, assertM365CopilotWebUpstreamState, m365StateForTransfer } from '@floway-dev/provider-m365-copilot-web';
 import { assertOllamaUpstreamRecord } from '@floway-dev/provider-ollama';
 import { parseProxyUri } from '@floway-dev/proxy';
 
@@ -119,19 +120,62 @@ const normalizeUpstreamConfig = (record: UpstreamRecord): unknown => {
   case 'claude-code':
     assertClaudeCodeUpstreamRecord(record);
     return record.config;
+  case 'm365-copilot-web':
+    assertM365CopilotWebUpstreamRecord(record);
+    return record.config;
   case 'copilot': return parseCopilotUpstreamConfig(record.config, (field, expected) => new Error(`${field} must be ${expected}`));
   }
 };
 
-// Codex and Claude Code state contains refresh credentials and health that
+// Subscription providers' durable state contains refresh credentials and health that
 // cannot be re-derived, so it round-trips through their strict runtime
 // assertions. Every other provider owns no durable state or can re-mint it.
 const normalizeUpstreamState = (kind: UpstreamProviderKind, value: unknown): unknown => {
-  if (kind !== 'codex' && kind !== 'claude-code') return null;
+  if (kind !== 'codex' && kind !== 'claude-code' && kind !== 'm365-copilot-web') return null;
   if (value === null || value === undefined) throw new Error(`${kind} upstream is missing state — re-export with current code`);
   if (kind === 'codex') assertCodexUpstreamState(value);
-  else assertClaudeCodeUpstreamState(value);
+  else if (kind === 'claude-code') assertClaudeCodeUpstreamState(value);
+  else {
+    assertM365CopilotWebUpstreamState(value);
+    return m365StateForTransfer(value);
+  }
   return value;
+};
+
+export const validateM365AccountIdentities = (
+  upstreams: readonly UpstreamRecord[],
+  existing: readonly UpstreamRecord[] = [],
+): string | null => {
+  const identityFor = (upstream: UpstreamRecord): string | null => {
+    if (upstream.kind !== 'm365-copilot-web') return null;
+    assertM365CopilotWebUpstreamRecord(upstream);
+    return `${upstream.config.account.tenantId.toLowerCase()}\0${upstream.config.account.objectId.toLowerCase()}`;
+  };
+  const byId = new Map(existing.map(upstream => [upstream.id, upstream]));
+  const ownerByIdentity = new Map<string, string>();
+  for (const upstream of existing) {
+    const identity = identityFor(upstream);
+    if (identity !== null) ownerByIdentity.set(identity, upstream.id);
+  }
+
+  for (const upstream of upstreams) {
+    const previous = byId.get(upstream.id);
+    if (previous !== undefined) {
+      const previousIdentity = identityFor(previous);
+      if (previousIdentity !== null && ownerByIdentity.get(previousIdentity) === upstream.id) {
+        ownerByIdentity.delete(previousIdentity);
+      }
+    }
+
+    const identity = identityFor(upstream);
+    const owner = identity === null ? undefined : ownerByIdentity.get(identity);
+    if (owner !== undefined && owner !== upstream.id) {
+      return `duplicate M365 account identity for upstreams ${owner} and ${upstream.id}`;
+    }
+    if (identity !== null) ownerByIdentity.set(identity, upstream.id);
+    byId.set(upstream.id, upstream);
+  }
+  return null;
 };
 
 const upstreamKindSchema = z.enum(ALL_PROVIDER_KINDS, { error: `kind must be one of ${ALL_PROVIDER_KINDS.join(', ')}` });
@@ -487,6 +531,8 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
   if (usage.type === 'invalid') return usage;
   const upstreams = parseCollection('upstreams', upstreamWireSchema, value.upstreams, { arrayError: 'upstreams must be an array' });
   if (upstreams.type === 'invalid') return upstreams;
+  const duplicateM365Account = validateM365AccountIdentities(upstreams.records);
+  if (duplicateM365Account !== null) return { type: 'invalid', error: `invalid upstreams: ${duplicateM365Account}` };
   const proxies = parseCollection('proxies', proxySchema, value.proxies, { arrayError: 'proxies must be an array', optional: true });
   if (proxies.type === 'invalid') return proxies;
   const proxyIds = new Map<string, number>();

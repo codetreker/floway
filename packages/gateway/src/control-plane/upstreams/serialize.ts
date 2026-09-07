@@ -10,6 +10,7 @@ import { assertClaudeCodeUpstreamRecord, assertClaudeCodeUpstreamState } from '@
 import { assertCodexUpstreamRecord, assertCodexUpstreamState } from '@floway-dev/provider-codex';
 import { assertCopilotUpstreamRecord, assertCopilotUpstreamState } from '@floway-dev/provider-copilot';
 import { assertCustomUpstreamRecord } from '@floway-dev/provider-custom';
+import { assertM365CopilotWebUpstreamRecord, m365StateForTransfer, readM365CopilotWebUpstreamState } from '@floway-dev/provider-m365-copilot-web';
 import { assertOllamaUpstreamRecord, readOllamaUpstreamState } from '@floway-dev/provider-ollama';
 
 export type { FullSerializedUpstreamRecord } from './types.ts';
@@ -127,6 +128,30 @@ export const upstreamRecordToJson = (upstream: UpstreamRecord): RedactedSerializ
     };
     return { ...base, kind: 'claude-code', config: clone(upstream.config), state };
   }
+  case 'm365-copilot-web': {
+    assertM365CopilotWebUpstreamRecord(upstream);
+    const stored = readM365CopilotWebUpstreamState(upstream.state);
+    const state = {
+      credential: {
+        refreshTokenSet: hasSecret(stored.credential.refreshToken),
+        generation: stored.credential.generation,
+        health: stored.credential.health,
+        stateUpdatedAt: stored.credential.stateUpdatedAt,
+      },
+      accessToken: stored.accessToken === null
+        ? null
+        : {
+            expiresAt: stored.accessToken.expiresAt,
+            refreshedAt: stored.accessToken.refreshedAt,
+            credentialGeneration: stored.accessToken.credentialGeneration,
+          },
+      toneReceipts: Object.fromEntries(Object.entries(stored.toneReceipts).map(([modelId, receipt]) => {
+        const { diagnostic: _diagnostic, ...summary } = receipt;
+        return [modelId, summary];
+      })),
+    };
+    return { ...base, kind: 'm365-copilot-web', config: clone(upstream.config), state };
+  }
   case 'ollama': {
     const { config } = assertOllamaUpstreamRecord(upstream);
     return {
@@ -167,6 +192,11 @@ export const upstreamRecordToFullJson = (upstream: UpstreamRecord): FullSerializ
     assertClaudeCodeUpstreamState(upstream.state);
     return { ...base, kind: 'claude-code', config: clone(upstream.config), state: clone(upstream.state) };
   }
+  case 'm365-copilot-web': {
+    assertM365CopilotWebUpstreamRecord(upstream);
+    const state = m365StateForTransfer(upstream.state);
+    return { ...base, kind: 'm365-copilot-web', config: clone(upstream.config), state: clone(state) };
+  }
   case 'ollama': {
     const record = assertOllamaUpstreamRecord(upstream);
     return { ...base, kind: 'ollama', config: clone(record.config), state: upstream.state === null ? null : readOllamaUpstreamState(upstream.state) };
@@ -205,6 +235,13 @@ export const blueprintUpstreamRecord = (kind: UpstreamProviderKind): BlueprintSe
     return { ...base, kind, config: { accounts: [] }, state: { accounts: [] } };
   case 'claude-code':
     return { ...base, kind, config: { accounts: [] }, state: { accounts: [] } };
+  case 'm365-copilot-web':
+    return {
+      ...base,
+      kind,
+      config: { account: null, locale: 'en-US', timeZone: 'UTC', timeZoneOffsetMinutes: 0 },
+      state: { credential: null, accessToken: null, toneReceipts: {} },
+    };
   case 'ollama':
     return { ...base, kind, config: { baseUrl: '', apiKey: '', cloudUsage: false, models: [] }, state: null };
   }

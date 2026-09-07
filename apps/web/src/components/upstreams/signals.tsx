@@ -235,6 +235,7 @@ const upstreamSignals = (record: UpstreamRecord, t: TFunction, locale: string, n
   // An operator-configured endpoint publishes no account of its own to report on.
   case 'custom':
   case 'azure':
+  case 'm365-copilot-web':
     return [];
   case 'copilot': return copilotSignals(record, t, locale);
   case 'codex': return codexSignals(record, t, locale, now);
@@ -252,6 +253,7 @@ const upstreamPlan = (record: UpstreamRecord): string | null => {
   case 'custom':
   case 'azure':
     return null;
+  case 'm365-copilot-web': return providerLabel(record.kind);
   case 'copilot': return copilotPlanLabel(record);
   case 'ollama': return ollamaPlanLabel(record);
   case 'codex': return codexPlanLabel(record.config.accounts[0]);

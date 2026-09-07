@@ -109,6 +109,8 @@ describe('provider inbound header policies', () => {
       'user-agent': 'claude-cli/2.1.181',
       'x-client-request-id': 'request-1',
     });
+    expect(first.caller).toEqual({ apiKeyId: ctx.apiKeyId });
+    expect(first.connectWebSocket).toBeTypeOf('function');
     expect(source.get('x-client-request-id')).toBe('request-1');
   });
 });

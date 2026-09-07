@@ -107,6 +107,8 @@ export const resolveUsagePricing = (
     return staticResolution(pricingForCodexModelKey(identity.modelKey), 'provider:codex');
   case 'claude-code':
     return staticResolution(pricingForClaudeCodeModelKey(identity.modelKey), 'provider:claude-code');
+  case 'm365-copilot-web':
+    return staticResolution(null, 'provider:m365-copilot-web');
   default:
     provider satisfies never;
     throw new Error(`Unhandled provider: ${provider as string}`);

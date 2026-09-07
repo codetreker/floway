@@ -1,10 +1,10 @@
-import { createFetcher } from './fetcher.ts';
+import { createFetcher, createWebSocketConnector } from './fetcher.ts';
 import { loadProxyCatalog } from './proxy-catalog.ts';
 import { getRepo } from '../repo/index.ts';
 import { isDirectFallbackId } from '../repo/proxy-fallback-list.ts';
-import { getFetch, getSocketDial } from '@floway-dev/platform';
-import type { Fetcher, UpstreamRecord } from '@floway-dev/provider';
-import { runDirectConnectRequest, runProxiedRequest } from '@floway-dev/proxy';
+import { getFetch, getSocketDial, getWebSocketConnector } from '@floway-dev/platform';
+import type { Fetcher, UpstreamRecord, WebSocketConnector } from '@floway-dev/provider';
+import { openDirectApplicationStream, openProxiedApplicationStream, runDirectConnectRequest, runProxiedRequest } from '@floway-dev/proxy';
 
 // Parse failures on individual proxy rows are isolated to the upstreams that
 // actually reference them: a single malformed URL must not take down every
@@ -57,6 +57,47 @@ export const createPerRequestFetcher = async (
       runProxied: runProxiedRequest,
       runDirectFetch: getFetch(),
       runDirectConnect: runDirectConnectRequest,
+      socketDial: getSocketDial,
+    });
+  };
+};
+
+export const createPerRequestWebSocketConnector = async (
+  runtimeLocation: string,
+  preFetchedUpstreams?: readonly UpstreamRecord[],
+): Promise<(upstreamId: string) => WebSocketConnector> => {
+  const repo = getRepo();
+  const upstreams = preFetchedUpstreams ?? await repo.upstreams.list();
+  const fallbackById = new Map(upstreams.map(upstream => [upstream.id, upstream.proxyFallbackList] as const));
+  const referencedProxyIds = new Set<string>();
+  for (const list of fallbackById.values()) {
+    for (const entry of list) {
+      if (!isDirectFallbackId(entry.id)) referencedProxyIds.add(entry.id);
+    }
+  }
+  const { proxyById, parseErrors } = await loadProxyCatalog(repo, referencedProxyIds);
+
+  return upstreamId => {
+    const list = fallbackById.get(upstreamId);
+    if (list === undefined) {
+      throw new Error(`unknown upstream id requested from per-request WebSocket connector: ${upstreamId}`);
+    }
+    const badReference = list.find(entry => parseErrors.has(entry.id));
+    if (badReference !== undefined) {
+      const error = parseErrors.get(badReference.id)!;
+      return async () => {
+        throw new Error(`upstream ${upstreamId} references malformed proxy ${badReference.id}: ${error.message}`);
+      };
+    }
+    return createWebSocketConnector({
+      repo,
+      upstreamId,
+      fallbackList: list,
+      runtimeLocation,
+      proxyById,
+      openProxiedStream: openProxiedApplicationStream,
+      openDirectStream: openDirectApplicationStream,
+      runDirectWebSocket: getWebSocketConnector,
       socketDial: getSocketDial,
     });
   };

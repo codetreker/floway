@@ -7,6 +7,7 @@ import { R2FileStore, type R2BucketLike } from './r2-file-store.ts';
 import { cloudflareRuntimeRootCAs } from './runtime-root-cas.ts';
 import { cloudflareSocketDial } from './socket-dial.ts';
 import { timingSafeEqual } from './timing-safe-equal.ts';
+import { cloudflareWebSocketConnector } from './websocket.ts';
 import { FileDumpStore, initDumpBroker, initDumpStore } from '@floway-dev/gateway';
 import { dumpCodec } from '@floway-dev/gateway/dump-codec';
 import type { DumpMetadata } from '@floway-dev/gateway/dump-types';
@@ -22,6 +23,7 @@ import {
   initRuntimeKind,
   initSocketDial,
   initTimingSafeEqual,
+  initWebSocketConnector,
   type SqlDatabase,
 } from '@floway-dev/platform';
 
@@ -59,6 +61,7 @@ export const bootstrapCloudflarePlatform = (env: CloudflareEnv): { db: SqlDataba
   initTimingSafeEqual(timingSafeEqual);
   initExternalResourceFetcher(createCloudflareExternalResourceFetcher());
   initFetch(cloudflareFetch);
+  initWebSocketConnector(cloudflareWebSocketConnector);
   const files = new R2FileStore(env.FILES);
   initFileStore(files);
   initImageCacheStore(new KvImageCacheStore(env.KV, IMAGE_CACHE_POLICY));

@@ -76,6 +76,7 @@ const PROVIDER_MENU_ORDER: readonly UpstreamProviderKind[] = [
   'copilot',
   'codex',
   'claude-code',
+  'm365-copilot-web',
   'ollama',
 ];
 
@@ -289,7 +290,9 @@ export default function DashboardProvidersUpstreams({ loaderData }: Route.Compon
                         className: 'self-center',
                       }}
                       key={kind}
-                      subText={t(`dashboard.upstreams.providers.${kind}`)}
+                      subText={kind === 'm365-copilot-web'
+                        ? t('dashboard.upstreams.providersExperimental', { description: t(`dashboard.upstreams.providers.${kind}`) })
+                        : t(`dashboard.upstreams.providers.${kind}`)}
                       to={`/dashboard/providers/upstreams/new/${kind}`}
                     >
                       {t(`provider.${kind}`)}
@@ -570,6 +573,7 @@ const upstreamSummary = (record: UpstreamRecord, t: TFunction): string => {
   // so its address is the whole identity.
   case 'ollama': return record.state?.account?.email ?? (record.config.baseUrl || t('dashboard.upstreams.summary.ollama'));
   case 'copilot': return record.config.user.login ? `${record.config.githubHost}/${record.config.user.login}` : t('dashboard.upstreams.summary.copilot');
+  case 'm365-copilot-web': return record.config.account?.username ?? t('dashboard.upstreams.summary.noAccount');
   case 'codex': {
     const account = record.config.accounts[0];
     if (!account) return t('dashboard.upstreams.summary.noAccount');

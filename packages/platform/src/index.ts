@@ -11,3 +11,4 @@ export * from './sha256.ts';
 export * from './socket-dial.ts';
 export * from './sql-database.ts';
 export * from './timing-safe-equal.ts';
+export * from './websocket.ts';

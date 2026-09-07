@@ -1,7 +1,7 @@
 import type { WebSearchConfig, WebSearchProviderName } from '../shared/web-search-providers.ts';
 import type { AgentSetupRepository } from '@floway-dev/agent-setup';
 import type { AliasSelection, AliasTarget, AnnouncedMetadata, BillingMetric, DecimalString, ModelKind, PricingSelector } from '@floway-dev/protocols/common';
-import type { PerformanceTelemetryContext, UpstreamModelsCache, UpstreamRecord } from '@floway-dev/provider';
+import type { PerformanceTelemetryContext, UpstreamModelsCache, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 
 export interface ApiKey {
   id: string;
@@ -340,11 +340,48 @@ export interface WebSearchConfigRepo {
   save(config: WebSearchConfig): Promise<void>;
 }
 
+export type UpstreamMetadataUpdate = Pick<
+  UpstreamRecord,
+  | 'name'
+  | 'enabled'
+  | 'sortOrder'
+  | 'updatedAt'
+  | 'flagOverrides'
+  | 'disabledPublicModelIds'
+  | 'proxyFallbackList'
+  | 'modelPrefix'
+  | 'hue'
+> & {
+  expectedUpdatedAt: string;
+};
+
+export type UpstreamMetadataUpdateResult =
+  | { status: 'ok'; record: UpstreamRecord }
+  | { status: 'missing' }
+  | { status: 'version-conflict' };
+
+export type UpstreamConfigStateReplacement = Pick<UpstreamRecord, 'config' | 'state' | 'updatedAt' | 'enabled'> & {
+  expectedState: unknown;
+};
+
+export type UpstreamConfigStateReplacementResult =
+  | { status: 'ok'; record: UpstreamRecord }
+  | { status: 'missing' }
+  | { status: 'state-conflict' };
+
 export interface UpstreamRepo {
   list(): Promise<UpstreamRecord[]>;
   getById(id: string): Promise<UpstreamRecord | null>;
   save(upstream: UpstreamRecord): Promise<void>;
   saveClearingModelsCache(upstream: UpstreamRecord): Promise<void>;
+  // Provider state can rotate independently of editor metadata. This update
+  // never reads or writes config/state and clears the catalog in the same SQL
+  // statement, so a stale editor snapshot cannot undo a concurrent rotation.
+  updateMetadataPreservingState(id: string, kind: UpstreamProviderKind, update: UpstreamMetadataUpdate): Promise<UpstreamMetadataUpdateResult>;
+  // Credential enrollment intentionally replaces provider config/state and
+  // can disable dispatch while preserving presentation/routing metadata that
+  // another operator edit may have changed.
+  replaceConfigAndStatePreservingMetadata(id: string, kind: UpstreamProviderKind, replacement: UpstreamConfigStateReplacement): Promise<UpstreamConfigStateReplacementResult>;
   delete(id: string): Promise<boolean>;
   deleteAll(): Promise<void>;
   // Upstream state write with optimistic concurrency, used both by the
@@ -354,6 +391,7 @@ export interface UpstreamRepo {
   // throws. See UpstreamsRepoSlim in @floway-dev/provider for why the change
   // is a function.
   saveState(id: string, mutate: (current: unknown) => unknown): Promise<void>;
+  saveStateClearingModelsCache(id: string, mutate: (current: unknown) => unknown): Promise<void>;
   // Catalog-cache writes are conditional on the row generation that started
   // the fetch. A superseded provider can finish serving its own request, but
   // cannot publish models or errors under newer credentials/configuration.
@@ -364,6 +402,7 @@ export interface UpstreamRepo {
 export interface ModelsCacheGeneration {
   updatedAt: string;
   config: unknown;
+  state?: unknown;
 }
 
 export interface ProxyRecord {

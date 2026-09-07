@@ -12,6 +12,7 @@
     "db:migrate": "jiti scripts/require-wrangler-config.ts && wrangler d1 migrations apply DB",
     "db:migrate:remote": "jiti scripts/require-wrangler-config.ts && wrangler d1 migrations apply DB --remote",
     "tools:backfill-usage-pricing": "pnpm --filter @floway-dev/tools run backfill-usage-pricing",
+    "tools:m365-copilot-enroll": "pnpm --filter @floway-dev/tools run m365-copilot-enroll",
     "typegen": "pnpm --filter @floway-dev/web exec react-router typegen",
     "verify": "pnpm run typegen && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run test:installers && pnpm run check:agents-md && pnpm run check:generated-assets && pnpm run check:verify-parity && pnpm run build:web",
     "lint": "cross-env NODE_OPTIONS=\"--max-old-space-size=12288\" eslint --cache .",

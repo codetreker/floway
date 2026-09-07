@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { createUpstreamBody } from '../../src/control-plane/schemas.ts';
+import { createUpstreamBody, m365CopilotWebEnrollmentBody, m365CopilotWebProbeTonesBody, m365CopilotWebRefreshBody } from '../../src/control-plane/schemas.ts';
 
 const baseAzure = {
   kind: 'azure' as const,
@@ -131,6 +131,44 @@ describe('upstreamModelSchema chat', () => {
     };
     expect(createUpstreamBody.safeParse(body).success).toBe(false);
   });
+});
+
+test('M365 upstream creation is exclusive to the enrollment action', () => {
+  expect(createUpstreamBody.safeParse({
+    kind: 'm365-copilot-web',
+    name: 'M365',
+    hue: 210,
+    config: {},
+    state: {},
+  }).success).toBe(false);
+
+  const enrollment = {
+    record: {
+      id: '',
+      kind: 'm365-copilot-web',
+      name: 'M365',
+      flag_overrides: {},
+      disabled_public_model_ids: [],
+      proxy_fallback_list: [],
+      model_prefix: null,
+      hue: 210,
+    },
+    enrollment_bundle: '{"schema":"floway.m365-copilot-web-enrollment"}',
+    locale: 'en-US',
+    time_zone: 'UTC',
+    time_zone_offset_minutes: 0,
+  };
+  expect(m365CopilotWebEnrollmentBody.safeParse(enrollment).success).toBe(true);
+  expect(m365CopilotWebEnrollmentBody.safeParse({
+    ...enrollment,
+    record: { ...enrollment.record, enabled: true, state: {}, config: {} },
+  }).success).toBe(false);
+
+  const action = { record: { id: 'up_m365', kind: 'm365-copilot-web', proxy_fallback_list: [] } };
+  expect(m365CopilotWebRefreshBody.safeParse(action).success).toBe(true);
+  expect(m365CopilotWebProbeTonesBody.safeParse(action).success).toBe(true);
+  expect(m365CopilotWebRefreshBody.safeParse({ record: { ...action.record, id: '' } }).success).toBe(false);
+  expect(m365CopilotWebProbeTonesBody.safeParse({ record: { ...action.record, id: '' } }).success).toBe(false);
 });
 
 describe('upstreamModelSchema rerank', () => {

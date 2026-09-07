@@ -55,6 +55,7 @@ const en = {
       copilot: 'Copilot',
       codex: 'Codex',
       'claude-code': 'Claude Code',
+      'm365-copilot-web': 'Microsoft 365 Copilot',
       ollama: 'Ollama',
     },
     dashboard: {
@@ -463,8 +464,10 @@ const en = {
           copilot: 'GitHub Copilot account',
           codex: 'ChatGPT Plus, Pro, or Team',
           'claude-code': 'Claude Pro, Max, or Team subscription',
+          'm365-copilot-web': 'Unsupported Microsoft 365 Copilot web compatibility',
           ollama: 'ollama.com or self-hosted',
         },
+        providersExperimental: 'Experimental — {{description}}',
         models: {
           count_one: '{{count, number}} model',
           count_other: '{{count, number}} models',
@@ -561,6 +564,29 @@ const en = {
           pathOverrides: 'Path overrides',
         },
         auth: { none: 'None' },
+        m365: {
+          experimentalTitle: 'Experimental and unsupported',
+          experimentalDescription: 'This provider uses an undocumented Microsoft web protocol. Upstream changes can break it without notice. Keep the upstream disabled until credential refresh and tone probes succeed.',
+          tenant: 'Tenant {{id}}',
+          enrollmentBundle: 'One-time enrollment bundle',
+          enrollmentBundleHint: 'Paste the short-lived JSON produced by the Floway M365 enrollment helper. Floway exchanges it within five minutes; the helper never receives a refresh token.',
+          enrollmentBundlePlaceholder: '{"schema":"floway.m365-copilot-web-enrollment","version":1,...}',
+          enroll: 'Enroll account',
+          reenroll: 'Re-enroll account',
+          refresh: 'Refresh credential',
+          probeTones: 'Probe tones',
+          tonesAvailable: '{{available, number}} of {{total, number}} tones available',
+          tonesNeverProbed: 'Tones have not been probed',
+          credentialHealth: {
+            active: 'Credential active',
+            reauth_required: 'Sign-in required',
+            refresh_failed: 'Refresh failed',
+          },
+          validation: {
+            credential: 'Enroll an account before saving.',
+            json: 'Enter valid JSON.',
+          },
+        },
         headers: {
           title: 'Upstream request headers',
           description: 'Each rule decides what one header carries to this upstream. Passthrough forwards the client’s value and is the only behavior that needs the client to send the header; an empty or typed value is written on every request.',

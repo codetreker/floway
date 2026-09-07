@@ -15,6 +15,7 @@ import { CustomIngressHeaderRules } from './custom-ingress-header-rules';
 import type { UpstreamEditorValues } from './data';
 import { isPersisted, previewRecord } from './data';
 import { CHAT_ENDPOINT_KEYS, endpointOptionsFor, PATH_OVERRIDE_PATHS } from './endpoints';
+import { M365CopilotConfig } from './m365-copilot';
 import { useMonoLabelClass } from './mono-label';
 import { OllamaUsageCard } from './ollama-usage-card';
 import { clearPkce, generatePkce, parseCallbackPaste, recallPkce, stashPkce } from './pkce';
@@ -66,16 +67,22 @@ const DEVICE_FLOW_SLOW_DOWN_SECONDS = 5;
 export function ProviderConfigSection({
   record,
   onPatch,
+  onPersistedRecord,
   onRefreshModels,
 }: {
   record: UpstreamRecord;
   onPatch: (patch: { config?: unknown; state?: unknown }, persisted?: boolean) => void;
+  onPersistedRecord?: (record: UpstreamRecord) => void;
   onRefreshModels: () => void;
 }) {
   if (record.kind === 'custom') return <CustomConfig record={record} onRefreshModels={onRefreshModels} />;
   if (record.kind === 'azure') return <AzureConfig record={record} />;
   if (record.kind === 'ollama') return <OllamaConfig record={record} />;
   if (record.kind === 'copilot') return <CopilotConfig record={record} onPatch={onPatch} />;
+  if (record.kind === 'm365-copilot-web') {
+    if (onPersistedRecord === undefined) throw new Error('M365 provider configuration requires persisted-record handling');
+    return <M365CopilotConfig onPatch={onPatch} onPersistedRecord={onPersistedRecord} record={record} />;
+  }
   return <OAuthConfig record={record} onPatch={onPatch} />;
 }
 

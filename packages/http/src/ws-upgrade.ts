@@ -2,10 +2,9 @@
 //
 // Performs the HTTP/1.1 Upgrade handshake on a transport the caller has
 // already dialed (and TLS-wrapped, if needed), validates the
-// Sec-WebSocket-Accept response, and returns a duplex stream of unmasked
-// binary payloads. Each writable chunk goes out as one masked binary frame
-// (opcode 0x2); each incoming binary or continuation-of-binary frame is
-// re-assembled into a single Uint8Array and enqueued on the readable.
+// Sec-WebSocket-Accept response, and returns a message-level WebSocket.
+// Text and binary messages retain their wire type; continuation frames are
+// reassembled before delivery and text is decoded with strict UTF-8.
 // Control frames are handled internally — ping → pong, close → tear down.
 
 import { sha1 } from '@noble/hashes/legacy.js';
@@ -15,9 +14,11 @@ import { base64EncodeBytes, concat, copy, utf8Bytes } from './bytes.ts';
 import { HttpProtocolError } from './errors.ts';
 import { STATUS_LINE, TCHAR, trimFieldValueOws, validateFieldValueBytes, validateRequestTargetBytes } from './grammar.ts';
 import { readHeadSection } from './read-head-section.ts';
-import type { DuplexStream } from './types.ts';
+import type { DuplexStream, HttpHeaderLines } from './types.ts';
+import { WEB_SOCKET_ABNORMAL_CLOSE, WEB_SOCKET_NORMAL_CLOSE, validateWebSocketClose } from './websocket.ts';
+import type { WebSocketCloseInfo, WebSocketConnection, WebSocketMessage } from './websocket.ts';
 
-export interface WsUpgradeOptions {
+export interface WebSocketStreamOptions {
   /** Value of the HTTP `Host:` header — usually the SNI / virtualhost the
    *  upstream server expects. Required because this layer doesn't know
    *  what host the duplex points at. */
@@ -29,7 +30,7 @@ export interface WsUpgradeOptions {
    *  layer owns `Host`, `Upgrade`, `Connection`, `Sec-WebSocket-Version`,
    *  `Sec-WebSocket-Key`, and `Sec-WebSocket-Protocol` (use the
    *  `subprotocols` option instead) — supplying any of those throws. */
-  additionalHeaders?: Record<string, string>;
+  additionalHeaders?: HttpHeaderLines | Readonly<Record<string, string>>;
   /** Optional `Sec-WebSocket-Protocol` value. The server's reply protocol,
    *  if any, is validated to be one of the offered protocols. */
   subprotocols?: string[];
@@ -38,7 +39,48 @@ export interface WsUpgradeOptions {
    *  caller can close the underlying transport. After the handshake, the
    *  caller's ReadableStream cancel / WritableStream abort drive teardown. */
   signal?: AbortSignal;
+  /** Maximum reassembled message size. Defaults to 64 MiB. */
+  maxMessageBytes?: number;
+  /** Maximum bytes held in the unread message queue. Defaults to 8 MiB. */
+  maxQueuedBytes?: number;
+  /** Time to wait for the peer close frame before forcing transport teardown. */
+  closeHandshakeTimeoutMs?: number;
 }
+
+export interface WsUpgradeOptions {
+  host: string;
+  path: string;
+  additionalHeaders?: Record<string, string>;
+  subprotocols?: string[];
+  signal?: AbortSignal;
+}
+
+interface WebSocketBehavior {
+  readonly preserveMessageType: boolean;
+  readonly abnormalEofIsError: boolean;
+  readonly echoPeerClose: boolean;
+  readonly validateSubprotocols: boolean;
+  readonly closeTransportAfterLocalClose: boolean;
+  readonly defaultMaxQueuedBytes: number;
+}
+
+const MESSAGE_BEHAVIOR: WebSocketBehavior = {
+  preserveMessageType: true,
+  abnormalEofIsError: true,
+  echoPeerClose: true,
+  validateSubprotocols: true,
+  closeTransportAfterLocalClose: false,
+  defaultMaxQueuedBytes: 8 * 1024 * 1024,
+};
+
+const BINARY_STREAM_BEHAVIOR: WebSocketBehavior = {
+  preserveMessageType: false,
+  abnormalEofIsError: false,
+  echoPeerClose: false,
+  validateSubprotocols: false,
+  closeTransportAfterLocalClose: true,
+  defaultMaxQueuedBytes: 64 * 1024 * 1024,
+};
 
 // RFC 6455 §1.3 GUID concatenated with the client key to derive the
 // Sec-WebSocket-Accept value.
@@ -73,9 +115,9 @@ const WS_MAX_MESSAGE_SIZE = 64 * 1024 * 1024;
 // Cap on the upgrade-response head accumulation. RFC has no defined
 // cap; we mirror the response parser's 64 KiB ceiling.
 const WS_HEAD_BUFFER_CAP = 64 * 1024;
+const WS_CLOSE_HANDSHAKE_TIMEOUT_MS = 5_000;
 
 // Close-frame status codes per RFC 6455 §7.4.
-const WS_CLOSE_NORMAL = 1000;
 const WS_CLOSE_INTERNAL_ERROR = 1011;
 
 interface FrameHeader {
@@ -92,12 +134,40 @@ interface FrameHeader {
  * after the handshake surface on the returned readable / writable
  * (ReadableStream errored, WritableStream rejected write).
  */
-export const wsUpgradeAndFrame = async (
+export const connectWebSocketOnStream = async (
   transport: DuplexStream,
-  opts: WsUpgradeOptions,
-): Promise<DuplexStream> => {
+  opts: WebSocketStreamOptions,
+): Promise<WebSocketConnection> =>
+  await connectWebSocketOnStreamWithBehavior(transport, opts, MESSAGE_BEHAVIOR);
+
+const connectWebSocketOnStreamWithBehavior = async (
+  transport: DuplexStream,
+  opts: WebSocketStreamOptions,
+  behavior: WebSocketBehavior,
+): Promise<WebSocketConnection> => {
   if (opts.signal?.aborted) {
     throw signalAbortReason(opts.signal);
+  }
+  const maxMessageBytes = opts.maxMessageBytes ?? WS_MAX_MESSAGE_SIZE;
+  if (!Number.isSafeInteger(maxMessageBytes) || maxMessageBytes <= 0) {
+    throw new RangeError(`maxMessageBytes must be a positive safe integer; got ${maxMessageBytes}`);
+  }
+  const maxQueuedBytes = opts.maxQueuedBytes ?? behavior.defaultMaxQueuedBytes;
+  if (!Number.isSafeInteger(maxQueuedBytes) || maxQueuedBytes <= 0) {
+    throw new RangeError(`maxQueuedBytes must be a positive safe integer; got ${maxQueuedBytes}`);
+  }
+  const closeHandshakeTimeoutMs = opts.closeHandshakeTimeoutMs ?? WS_CLOSE_HANDSHAKE_TIMEOUT_MS;
+  if (!Number.isSafeInteger(closeHandshakeTimeoutMs) || closeHandshakeTimeoutMs <= 0) {
+    throw new RangeError(`closeHandshakeTimeoutMs must be a positive safe integer; got ${closeHandshakeTimeoutMs}`);
+  }
+  for (const protocol of behavior.validateSubprotocols ? opts.subprotocols ?? [] : []) {
+    if (!TCHAR.test(protocol)) {
+      throw new HttpProtocolError(
+        `WebSocket subprotocol is not a valid token: ${JSON.stringify(protocol)}`,
+        'BAD_HEADERS',
+        { rfc: 'RFC 6455 §4.1' },
+      );
+    }
   }
 
   // Per RFC 6455 §4.1, the client key is 16 random bytes base64-encoded.
@@ -132,17 +202,22 @@ export const wsUpgradeAndFrame = async (
     await sendUpgradeRequest(writer, opts, clientKey);
 
     const { headers, remainder } = await readUpgradeResponse(reader);
-    validateUpgradeResponse(headers, expectedAccept, opts.subprotocols);
+    const protocol = validateUpgradeResponse(headers, expectedAccept, opts.subprotocols);
 
     abortDetach?.();
     abortDetach = null;
     writer.releaseLock();
 
-    return frameDuplexOnTransport(
+    return messageWebSocketOnTransport(
       transport,
       reader,
       remainder,
       opts.signal,
+      protocol,
+      maxMessageBytes,
+      maxQueuedBytes,
+      closeHandshakeTimeoutMs,
+      behavior,
     );
   } catch (err) {
     abortDetach?.();
@@ -151,9 +226,40 @@ export const wsUpgradeAndFrame = async (
   }
 };
 
+export const wsUpgradeAndFrame = async (
+  transport: DuplexStream,
+  opts: WsUpgradeOptions,
+): Promise<DuplexStream> => {
+  const socket = await connectWebSocketOnStreamWithBehavior(transport, opts, BINARY_STREAM_BEHAVIOR);
+  const messageReader = socket.readable.getReader();
+  const messageWriter = socket.writable.getWriter();
+  return {
+    readable: new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const result = await messageReader.read();
+          if (result.done) controller.close();
+          else controller.enqueue(result.value.type === 'binary' ? result.value.data : utf8Bytes(result.value.data));
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      cancel(reason) { return messageReader.cancel(reason); },
+    }),
+    writable: new WritableStream<Uint8Array>({
+      write(data) {
+        if (data.byteLength === 0) return;
+        return messageWriter.write({ type: 'binary', data });
+      },
+      close() { return messageWriter.close(); },
+      abort(reason) { return messageWriter.abort(reason); },
+    }),
+  };
+};
+
 const sendUpgradeRequest = async (
   writer: WritableStreamDefaultWriter<Uint8Array>,
-  opts: WsUpgradeOptions,
+  opts: WebSocketStreamOptions,
   clientKey: string,
 ): Promise<void> => {
   // RFC 9112 §3.2 + §5: a CR/LF/SP/NUL/control byte in the path or Host
@@ -188,7 +294,10 @@ const sendUpgradeRequest = async (
   if (opts.subprotocols?.length) {
     lines.push(`Sec-WebSocket-Protocol: ${opts.subprotocols.join(', ')}`);
   }
-  for (const [name, value] of Object.entries(opts.additionalHeaders ?? {})) {
+  const additionalHeaders = Array.isArray(opts.additionalHeaders)
+    ? opts.additionalHeaders
+    : Object.entries(opts.additionalHeaders ?? {});
+  for (const [name, value] of additionalHeaders) {
     if (RESERVED_HEADER_NAMES.has(name.toLowerCase())) {
       throw new HttpProtocolError(
         `caller cannot override reserved WebSocket upgrade header ${JSON.stringify(name)}`,
@@ -273,7 +382,7 @@ const validateUpgradeResponse = (
   headers: Map<string, string>,
   expectedAccept: string,
   offeredSubprotocols: string[] | undefined,
-): void => {
+): string => {
   // RFC 6455 §4.1 mandates Upgrade: websocket and Connection: Upgrade.
   // Token comparisons are case-insensitive; Connection may be a comma list.
   const upgrade = headers.get('upgrade');
@@ -317,35 +426,73 @@ const validateUpgradeResponse = (
       );
     }
   }
+  return selected ?? '';
 };
 
-const frameDuplexOnTransport = (
+const messageWebSocketOnTransport = (
   transport: DuplexStream,
   reader: ReadableStreamDefaultReader<Uint8Array>,
   initialBytes: Uint8Array,
   signal: AbortSignal | undefined,
-): DuplexStream => {
+  protocol: string,
+  maxMessageBytes: number,
+  maxQueuedBytes: number,
+  closeHandshakeTimeoutMs: number,
+  behavior: WebSocketBehavior,
+): WebSocketConnection => {
   // The frame writer takes its own writer lock for the post-handshake
   // lifetime. The handshake released its writer lock before we got here.
   const frameWriter = transport.writable.getWriter();
 
-  let plainController!: ReadableStreamDefaultController<Uint8Array>;
+  let messageController!: ReadableStreamDefaultController<WebSocketMessage>;
   let plainClosed = false;
+  let closeSent = false;
+  let resumeReadable: (() => void) | null = null;
   // A long-lived caller signal — e.g. a request controller shared across
   // many dials — would otherwise accumulate one closure per ws upgrade
   // pinning the closed-over streams.
   let detachAbortListener: (() => void) | null = null;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const closePlain = (cause?: unknown): void => {
+  let settleClosed!: (value: WebSocketCloseInfo) => void;
+  const closed = new Promise<WebSocketCloseInfo>(resolve => { settleClosed = resolve; });
+  let closedSettled = false;
+  const settle = (value: WebSocketCloseInfo): void => {
+    if (closedSettled) return;
+    closedSettled = true;
+    settleClosed(value);
+  };
+
+  // The raw writer is shared by application messages and automatic control
+  // responses. A promise tail prevents their frame bytes from interleaving.
+  let writeTail: Promise<void> = Promise.resolve();
+  const serialWriteFrame = (opcode: number, payload: Uint8Array): Promise<void> => {
+    const write = writeTail.then(() => writeFrame(frameWriter, opcode, payload));
+    writeTail = write.catch(() => {});
+    return write;
+  };
+
+  const closePlain = (cause?: unknown, closeInfo?: WebSocketCloseInfo): void => {
     if (plainClosed) return;
     plainClosed = true;
+    resumeReadable?.();
+    resumeReadable = null;
     detachAbortListener?.();
     detachAbortListener = null;
-    if (cause) {
-      try { plainController.error(cause); } catch { /* already closed */ }
-    } else {
-      try { plainController.close(); } catch { /* already closed */ }
+    if (closeTimer !== null) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
     }
+    if (cause) {
+      try { messageController.error(cause); } catch { /* already closed */ }
+    } else {
+      try { messageController.close(); } catch { /* already closed */ }
+    }
+    settle(closeInfo ?? {
+      code: cause ? WEB_SOCKET_ABNORMAL_CLOSE : WEB_SOCKET_NORMAL_CLOSE,
+      reason: '',
+      wasClean: cause === undefined,
+    });
     void reader.cancel(cause).catch(() => {});
     // Close (or abort) the underlying writer too. Without this, every teardown
     // path that doesn't originate from the consumer's writable.close — server
@@ -356,32 +503,32 @@ const frameDuplexOnTransport = (
   };
 
   const sendCloseFrame = async (code: number, reason: string): Promise<void> => {
-    // RFC 6455 §5.5: control-frame payload MUST be ≤ 125 bytes. The 2-byte
-    // status code leaves 123 bytes for the reason. Encode first, then byte-
-    // truncate at a UTF-8 boundary — slicing the JS string is char-level and
-    // a single multi-byte code point at the cap would split mid-sequence.
-    // UTF-8 continuation bytes are 10xxxxxx (0x80..0xBF); step back from the
-    // cap until we land on a byte that is either ASCII (0x00..0x7F) or a
-    // leading byte (0xC0..0xFF), at which point the prefix is a complete
-    // sequence of code points.
-    const fullReason = utf8Bytes(reason);
-    let reasonBytes: Uint8Array;
-    if (fullReason.byteLength <= 123) {
-      reasonBytes = fullReason;
-    } else {
-      let cut = 123;
-      while (cut > 0 && (fullReason[cut]! & 0xc0) === 0x80) cut--;
-      reasonBytes = fullReason.subarray(0, cut);
-    }
-    const payload = new Uint8Array(2 + reasonBytes.byteLength);
-    payload[0] = (code >> 8) & 0xff;
-    payload[1] = code & 0xff;
-    payload.set(reasonBytes, 2);
+    const payload = validateWebSocketClose(code, reason);
+    await sendClosePayload(payload);
+  };
+  const sendClosePayload = async (payload: Uint8Array): Promise<void> => {
+    closeSent = true;
     try {
-      await writeFrame(frameWriter, 0x8, payload);
+      await serialWriteFrame(0x8, payload);
     } catch {
       /* peer already gone */
     }
+  };
+  const initiateClose = async (code: number, reason: string): Promise<void> => {
+    if (!closeSent) await sendCloseFrame(code, reason);
+    if (behavior.closeTransportAfterLocalClose) {
+      try { await frameWriter.close(); } catch { /* peer already gone */ }
+      return;
+    }
+    if (plainClosed || closeTimer !== null) return;
+    closeTimer = setTimeout(() => {
+      const error = new HttpProtocolError(
+        `WS close handshake exceeded ${closeHandshakeTimeoutMs}ms`,
+        'EOF',
+        { rfc: 'RFC 6455 §7.1.1' },
+      );
+      closePlain(error, { code: WEB_SOCKET_ABNORMAL_CLOSE, reason: '', wasClean: false });
+    }, closeHandshakeTimeoutMs);
   };
 
   // Reassembly state for fragmented messages. RFC 6455 §5.4 allows a
@@ -390,8 +537,15 @@ const frameDuplexOnTransport = (
   // and binary opcodes (0x1, 0x2) are reassembled identically — the framer
   // treats payloads as opaque bytes.
   let inMessage = false;
+  let messageOpcode = 0;
   const messageParts: Uint8Array[] = [];
   let messageSize = 0;
+  const waitForReadableCapacity = async (size: number): Promise<void> => {
+    while ((messageController.desiredSize ?? 0) < size && !plainClosed) {
+      await new Promise<void>(resolve => { resumeReadable = resolve; });
+      resumeReadable = null;
+    }
+  };
 
   const handleFrame = async (
     fin: boolean,
@@ -402,13 +556,19 @@ const frameDuplexOnTransport = (
       // Close frame: respond with our own close, drain reader, signal end-
       // of-stream upward. RFC 6455 §5.5.1: the server's close payload (if
       // any) leads with a 2-byte status code followed by UTF-8 reason.
-      await sendCloseFrame(WS_CLOSE_NORMAL, '');
-      closePlain();
+      if (behavior.echoPeerClose) {
+        const info = parseCloseFrame(payload);
+        if (!closeSent) await sendClosePayload(payload);
+        closePlain(undefined, { ...info, wasClean: true });
+      } else {
+        await sendCloseFrame(WEB_SOCKET_NORMAL_CLOSE, '');
+        closePlain();
+      }
       return;
     }
     if (opcode === 0x9) {
       // Ping: per RFC 6455 §5.5.2 the pong payload echoes the ping payload.
-      try { await writeFrame(frameWriter, 0xa, payload); } catch { /* peer already gone */ }
+      try { await serialWriteFrame(0xa, payload); } catch { /* peer already gone */ }
       return;
     }
     if (opcode === 0xa) {
@@ -433,6 +593,7 @@ const frameDuplexOnTransport = (
         );
       }
       inMessage = true;
+      messageOpcode = opcode;
     } else {
       throw new HttpProtocolError(
         `WS frame: reserved opcode 0x${opcode.toString(16)}`,
@@ -458,28 +619,56 @@ const frameDuplexOnTransport = (
     messageParts.length = 0;
     messageSize = 0;
     try {
-      plainController.enqueue(message);
+      const value: WebSocketMessage = behavior.preserveMessageType && messageOpcode === 0x1
+        ? { type: 'text', data: decodeUtf8Strict(message, 'WebSocket text message') }
+        : { type: 'binary', data: message };
+      const queuedSize = Math.max(1, message.byteLength);
+      if (queuedSize > maxQueuedBytes) {
+        throw new RangeError(`WebSocket inbound queue exceeds ${maxQueuedBytes} bytes`);
+      }
+      await waitForReadableCapacity(queuedSize);
+      if (plainClosed) return;
+      messageController.enqueue(value);
     } catch (err) {
       closePlain(err);
     }
   };
 
-  const readable = new ReadableStream<Uint8Array>({
-    start(c) { plainController = c; },
+  const readable = new ReadableStream<WebSocketMessage>({
+    start(c) { messageController = c; },
+    pull() {
+      resumeReadable?.();
+      resumeReadable = null;
+    },
     // A non-Error reason is a clean consumer cancel — emit a polite close
     // frame and FIN; an Error reason means the consumer hit a failure
     // mid-body, so RST the writer rather than graceful-end a half whose
     // readable just errored.
     cancel(reason) {
       plainClosed = true;
+      resumeReadable?.();
+      resumeReadable = null;
       detachAbortListener?.();
       detachAbortListener = null;
+      if (closeTimer !== null) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
       void reader.cancel(reason).catch(() => {});
-      void sendCloseFrame(WS_CLOSE_NORMAL, '').then(() => {
+      const abnormal = reason instanceof Error;
+      settle({
+        code: abnormal ? WEB_SOCKET_ABNORMAL_CLOSE : WEB_SOCKET_NORMAL_CLOSE,
+        reason: '',
+        wasClean: !abnormal,
+      });
+      void sendCloseFrame(WEB_SOCKET_NORMAL_CLOSE, '').then(() => {
         if (reason instanceof Error) return frameWriter.abort(reason).catch(() => {});
         return frameWriter.close().catch(() => {});
       });
     },
+  }, {
+    highWaterMark: maxQueuedBytes,
+    size: message => Math.max(1, message.type === 'text' ? utf8Bytes(message.data).byteLength : message.data.byteLength),
   });
 
   void (async () => {
@@ -490,9 +679,12 @@ const frameDuplexOnTransport = (
         if (!header) {
           const { value, done } = await reader.read();
           if (done) {
-            // Transport hung up without a close frame. Treat as EOF —
-            // the consumer's reader sees a clean end.
-            closePlain();
+            if (behavior.abnormalEofIsError) {
+              const error = new HttpProtocolError('WS transport reached EOF without a close frame', 'EOF');
+              closePlain(error, { code: WEB_SOCKET_ABNORMAL_CLOSE, reason: '', wasClean: false });
+            } else {
+              closePlain();
+            }
             return;
           }
           buffer = concat(buffer, value);
@@ -509,9 +701,9 @@ const frameDuplexOnTransport = (
         // accumulating read below pins `header.payloadLen` bytes in `buffer`.
         // Control frames (opcode ≥ 0x8) are already capped at 125 bytes by
         // tryParseFrameHeader and never enter the cross-continuation total.
-        if (header.opcode < 0x8 && messageSize + header.payloadLen > WS_MAX_MESSAGE_SIZE) {
+        if (header.opcode < 0x8 && messageSize + header.payloadLen > maxMessageBytes) {
           throw new HttpProtocolError(
-            `WS message exceeded ${WS_MAX_MESSAGE_SIZE} bytes across continuation frames`,
+            `WS message exceeded ${maxMessageBytes} bytes across continuation frames`,
             'WS_MESSAGE_TOO_LARGE',
           );
         }
@@ -544,20 +736,22 @@ const frameDuplexOnTransport = (
     }
   })();
 
-  // Outbound: each chunk → one masked binary frame. RFC 6455 §5.3
-  // requires every client→server frame to be masked.
-  const writable = new WritableStream<Uint8Array>({
-    async write(chunk) {
-      if (chunk.byteLength === 0) return;
-      await writeFrame(frameWriter, 0x2, chunk);
+  const writable = new WritableStream<WebSocketMessage>({
+    async write(message) {
+      if (plainClosed || closeSent) throw new Error('WebSocket is closing or closed');
+      const payload = message.type === 'text' ? utf8Bytes(message.data) : message.data;
+      if (payload.byteLength > maxMessageBytes) {
+        throw new RangeError(`WebSocket message exceeds ${maxMessageBytes} bytes`);
+      }
+      await serialWriteFrame(message.type === 'text' ? 0x1 : 0x2, payload);
     },
     async close() {
-      await sendCloseFrame(WS_CLOSE_NORMAL, '');
-      try { await frameWriter.close(); } catch { /* peer already gone */ }
+      await initiateClose(WEB_SOCKET_NORMAL_CLOSE, '');
     },
     async abort(reason) {
-      await sendCloseFrame(WS_CLOSE_INTERNAL_ERROR, String(reason ?? ''));
-      try { await frameWriter.abort(reason); } catch { /* peer already gone */ }
+      await sendCloseFrame(WS_CLOSE_INTERNAL_ERROR, truncateCloseReason(String(reason ?? '')));
+      closePlain(reason instanceof Error ? reason : new Error(String(reason ?? 'WebSocket aborted')),
+        { code: WEB_SOCKET_ABNORMAL_CLOSE, reason: '', wasClean: false });
     },
   });
 
@@ -571,7 +765,46 @@ const frameDuplexOnTransport = (
     if (captured.aborted) onAbort();
   }
 
-  return { readable, writable };
+  return {
+    readable,
+    writable,
+    protocol,
+    closed,
+    async close(code = WEB_SOCKET_NORMAL_CLOSE, reason = '') {
+      if (plainClosed) return;
+      await initiateClose(code, reason);
+    },
+  };
+};
+
+const truncateCloseReason = (reason: string): string => {
+  const bytes = utf8Bytes(reason);
+  if (bytes.byteLength <= 123) return reason;
+  let end = 123;
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+  return new TextDecoder().decode(bytes.subarray(0, end));
+};
+
+const decodeUtf8Strict = (bytes: Uint8Array, context: string): string => {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (cause) {
+    throw new HttpProtocolError(`${context} is not valid UTF-8`, 'BAD_HEADERS', { cause });
+  }
+};
+
+const parseCloseFrame = (payload: Uint8Array): Omit<WebSocketCloseInfo, 'wasClean'> => {
+  if (payload.byteLength === 0) return { code: 1005, reason: '' };
+  if (payload.byteLength === 1) {
+    throw new HttpProtocolError('WS close frame has a one-byte payload', 'BAD_HEADERS', { rfc: 'RFC 6455 §5.5.1' });
+  }
+  const code = (payload[0]! << 8) | payload[1]!;
+  const isProtocolCode = code >= 1000 && code <= 1014
+    && code !== 1004 && code !== 1005 && code !== 1006;
+  if (!isProtocolCode && (code < 3000 || code >= 5000)) {
+    throw new HttpProtocolError(`WS close frame has invalid status code ${code}`, 'BAD_HEADERS', { rfc: 'RFC 6455 §7.4' });
+  }
+  return { code, reason: decodeUtf8Strict(payload.subarray(2), 'WebSocket close reason') };
 };
 
 // Try to parse a frame header off `buf`. Returns null if more bytes are

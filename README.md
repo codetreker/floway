@@ -6,8 +6,9 @@ then routes each model through the API shape the client already speaks.
 
 ## Highlights
 
-- Use GitHub Copilot, ChatGPT subscriptions, Claude.ai subscriptions, Azure AI,
-  configurable multi-protocol HTTP providers, and Ollama from one deployment.
+- Use GitHub Copilot, ChatGPT subscriptions, Claude.ai subscriptions,
+  experimental Microsoft 365 Copilot web compatibility, Azure AI, configurable
+  multi-protocol HTTP providers, and Ollama from one deployment.
 - Serve OpenAI, Anthropic, Gemini-compatible, audio transcription, and rerank
   APIs with cross-protocol translation where needed.
 - Discover vendor model catalogs live while retaining manual model configuration
@@ -84,9 +85,33 @@ responses retain their upstream wire shape.
 | GitHub Copilot | GitHub device OAuth on `github.com` or a `*.ghe.com` tenant | Fetched live from Copilot |
 | Codex | ChatGPT subscription through the Codex CLI OAuth client | Live inference catalog plus the account's built-in GPT Image capability |
 | Claude Code | Claude.ai Pro, Max, Team, or Enterprise subscription through the Claude Code CLI OAuth client | Fetched live from Anthropic |
+| Microsoft 365 Copilot web (Experimental) | One-time PKCE bundle from the local enrollment helper | Only tones verified by an explicit live probe |
 | Custom | Configurable multi-protocol HTTP endpoint, credential, and per-header ingress passthrough/overwrite rules | Live `/models` (OpenAI, Anthropic, or superset shapes), manual models, or both |
 | Azure | Azure AI resource or Foundry project endpoint and API key | Configured models |
 | Ollama | ollama.com or a self-hosted Ollama-compatible server | Fetched live from Ollama, with optional manual overrides |
+
+The Microsoft 365 Copilot web provider uses an undocumented Microsoft web
+protocol and is unsupported. It is created disabled, never exposes stored
+secrets through the editor API, provides an explicit credential health refresh,
+requires live tone probing, and supports re-enrollment when Microsoft revokes
+the session.
+
+Run the local enrollment helper from a trusted operator workstation. It opens
+the system default browser and receives the authorization response through a
+temporary `http://localhost:<port>/` loopback callback:
+
+```bash
+mkdir -p .tmp
+pnpm tools:m365-copilot-enroll --output .tmp/m365-copilot-enrollment.json
+```
+
+Paste the generated JSON into a new Microsoft 365 Copilot web upstream within
+five minutes, then delete the file. Floway exchanges the authorization code,
+validates the Microsoft identity, and stores the resulting refresh token; the
+helper never receives an access, ID, or refresh token. Use existing Floway user
+and API-key upstream scopes to control access. The workstation, default browser,
+and Floway administrator must be trusted. Keep the upstream disabled until tone
+probes succeed.
 
 ## Other Deployment Options
 

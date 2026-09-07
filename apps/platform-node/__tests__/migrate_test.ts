@@ -33,6 +33,27 @@ test('applies all real migration files against a fresh sqlite', () => withTemp(a
   assertEquals(recorded !== null && recorded.n > 0, true);
 }));
 
+test('real migrations enforce one M365 upstream per canonical Microsoft account', () => withTemp(async dir => {
+  const db = createNodeSqliteDatabase(join(dir, 'm365-account-identity.db'));
+  await applyMigrations(db);
+  const insert = async (id: string, tenantId: string, objectId: string): Promise<void> => {
+    await db.prepare(
+      `INSERT INTO upstreams (
+        id, provider, name, enabled, sort_order, created_at, updated_at,
+        config_json, state_json, flag_overrides, disabled_public_model_ids,
+        proxy_fallback_list_json, model_prefix_json, models_cache_json, hue
+      ) VALUES (?, 'm365-copilot-web', ?, 1, 0, '2026-01-01', '2026-01-01', ?, NULL, '{}', '[]', '[]', NULL, NULL, 210)`,
+    ).bind(id, id, JSON.stringify({ account: { tenantId, objectId } })).run();
+  };
+
+  await insert('m365-a', '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222');
+  await assertRejects(() => insert(
+    'm365-case-duplicate',
+    '11111111-1111-4111-8111-111111111111'.toUpperCase(),
+    '22222222-2222-4222-8222-222222222222'.toUpperCase(),
+  ), Error, 'UNIQUE constraint failed');
+}));
+
 test('rerun is a no-op once all migrations are applied', () => withTemp(async dir => {
   const db = createNodeSqliteDatabase(join(dir, 'idempotent.db'));
   await applyMigrations(db);

@@ -32,6 +32,13 @@ export type { UserspaceTlsOptions, TlsStream } from './tls.ts';
 
 export { wsUpgradeAndFrame } from './ws-upgrade.ts';
 export type { WsUpgradeOptions } from './ws-upgrade.ts';
+export { connectWebSocketOnStream } from './ws-upgrade.ts';
+export type { WebSocketStreamOptions } from './ws-upgrade.ts';
+export { WEB_SOCKET_ABNORMAL_CLOSE, WEB_SOCKET_NORMAL_CLOSE, validateWebSocketClose, validateWebSocketConnectOptions } from './websocket.ts';
+export { WebSocketUpgradeError } from './websocket.ts';
+export type { WebSocketCloseInfo, WebSocketConnection, WebSocketConnector, WebSocketConnectOptions, WebSocketMessage } from './websocket.ts';
+export { nativeWebSocketConnection } from './native-websocket.ts';
+export type { NativeWebSocketConnectionOptions, NativeWebSocketLike } from './native-websocket.ts';
 
 export { signalAbortReason } from './abort.ts';
 

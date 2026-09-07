@@ -2,10 +2,11 @@ import type { ProxyEntry } from './proxy-catalog.ts';
 import { createReplayableRequest, type ReplayableRequest } from './replayable-request.ts';
 import { DIRECT_CONNECT_ID, DIRECT_FETCH_ID, entryMatchesColo, isDirectFallbackId } from '../repo/proxy-fallback-list.ts';
 import type { Repo } from '../repo/types.ts';
-import type { HttpRequest } from '@floway-dev/http';
+import { connectWebSocketOnStream, WebSocketUpgradeError } from '@floway-dev/http';
+import type { DuplexStream, HttpHeaderLines, HttpRequest, WebSocketConnection, WebSocketConnector, WebSocketConnectOptions } from '@floway-dev/http';
 import type { Fetcher, FetchInit, ProxyFallbackEntry } from '@floway-dev/provider';
 import { isAbortError } from '@floway-dev/provider';
-import { ProxyDialError, type ProxyConfig, type ProxyRequestTarget, type RunDirectConnectRequestOptions, type RunProxiedRequestOptions, type SocketDial } from '@floway-dev/proxy';
+import { ProxyDialError, type OpenApplicationStreamOptions, type ProxyConfig, type ProxyRequestTarget, type RunDirectConnectRequestOptions, type RunProxiedRequestOptions, type SocketDial } from '@floway-dev/proxy';
 
 interface CreateFetcherInput {
   repo: Pick<Repo, 'proxyBackoffs'>;
@@ -40,6 +41,27 @@ interface CreateFetcherInput {
    * installed SocketDial impl.
    */
   socketDial: () => SocketDial;
+}
+
+export interface CreateWebSocketConnectorInput {
+  repo: Pick<Repo, 'proxyBackoffs'>;
+  upstreamId: string;
+  fallbackList: ProxyFallbackEntry[];
+  proxyById: Map<string, ProxyEntry>;
+  runtimeLocation: string;
+  socketDial: () => SocketDial;
+  openProxiedStream: (
+    config: ProxyConfig,
+    target: ProxyRequestTarget,
+    options: OpenApplicationStreamOptions,
+  ) => Promise<DuplexStream>;
+  openDirectStream: (
+    target: ProxyRequestTarget,
+    options: OpenApplicationStreamOptions,
+  ) => Promise<DuplexStream>;
+  // Lazy so HTTP-only call sites do not require the runtime WebSocket
+  // connector singleton to have been initialized.
+  runDirectWebSocket: () => WebSocketConnector;
 }
 
 // Two-pass dial strategy. First pass walks the fallback list skipping any
@@ -99,11 +121,11 @@ export const createFetcher = (input: CreateFetcherInput): Fetcher => {
       return Promise.reject(new Error('streaming request bodies are not replayable through direct-connect or proxy transports'));
     }
 
-    return runFallbacks(input, list, url, createReplayableRequest(url, init), directFetchBeforeDialTransport);
+    return runHttpFallbacks(input, list, url, createReplayableRequest(url, init), directFetchBeforeDialTransport);
   };
 };
 
-const runFallbacks = async (
+const runHttpFallbacks = async (
   input: CreateFetcherInput,
   list: readonly string[],
   url: string,
@@ -114,43 +136,12 @@ const runFallbacks = async (
   // Blob/FormData bodies. Prepare the dial request first so those bodies are
   // buffered while replayable factories remain reusable by every attempt.
   if (directFetchBeforeDialTransport) await request.prepared();
-  const errors: unknown[] = [];
-
-  // Backoff rows only ever exist for operator-managed proxies, so a list made
-  // entirely of built-in transports has nothing to look up. Skipping the read
-  // keeps the direct-only path — which is what an unset policy resolves to —
-  // free of a per-request store round-trip.
-  const skip = new Set<string>();
-  if (list.some(id => !isDirectFallbackId(id))) {
-    const active = await input.repo.proxyBackoffs.listForUpstream(input.upstreamId);
-    const now = Math.floor(Date.now() / 1000);
-    for (const b of active) if (b.expiresAt > now) skip.add(b.proxyId);
-  }
-
-  // Track which entries have already been attempted in this call so the
-  // second pass only retries the ones we actively skipped. Without this,
-  // a single dial failure would record TWO recordDialFailure calls — the
-  // backoff schedule advertised in proxy-backoffs would double-step on
-  // every real failure.
-  const triedThisCall = new Set<string>();
-  for (const id of list) {
-    if (skip.has(id)) continue;
-    triedThisCall.add(id);
-    const result = await tryOne(id, input, request, url, errors);
-    if (result) return result;
-  }
-
-  for (const id of list) {
-    if (triedThisCall.has(id)) continue;
-    const result = await tryOne(id, input, request, url, errors);
-    if (result) return result;
-  }
-
-  // A single fallback entry that failed once still produces just one
-  // ProxyDialError in `errors` — surface it directly so callers don't see
-  // a meaningless AggregateError wrapper.
-  if (errors.length === 1) throw errors[0];
-  throw new AggregateError(errors, 'all proxies failed at the dial layer');
+  return await runTransportFallbacks(
+    input,
+    list,
+    (id, errors) => tryOne(id, input, request, url, errors),
+    'all proxies failed at the dial layer',
+  );
 };
 
 const tryOne = async (
@@ -252,5 +243,189 @@ const tryOne = async (
       return null;
     }
     throw err;
+  }
+};
+
+interface PreparedWebSocketRequest {
+  readonly url: string;
+  readonly target: ProxyRequestTarget;
+  readonly request: {
+    readonly path: string;
+    readonly headers?: HttpHeaderLines;
+    readonly subprotocols?: readonly string[];
+    readonly maxMessageBytes?: number;
+  };
+  readonly signal?: AbortSignal;
+  readonly maxQueuedBytes?: number;
+}
+
+export const createWebSocketConnector = (input: CreateWebSocketConnectorInput): WebSocketConnector =>
+  async (url, options = {}) => {
+    const matched = input.fallbackList.filter(entry => entryMatchesColo(entry, input.runtimeLocation));
+    const list = matched.length > 0 ? matched.map(entry => entry.id) : [DIRECT_CONNECT_ID];
+    const prepared = prepareWebSocketRequest(url, options);
+    return await runTransportFallbacks(
+      input,
+      list,
+      (id, errors) => tryWebSocket(id, input, prepared, errors),
+      'all proxies failed at the WebSocket dial layer',
+    );
+  };
+
+const runTransportFallbacks = async <T>(
+  input: Pick<CreateFetcherInput, 'repo' | 'upstreamId'>,
+  list: readonly string[],
+  attempt: (id: string, errors: unknown[]) => Promise<T | null>,
+  aggregateMessage: string,
+): Promise<T> => {
+  const errors: unknown[] = [];
+  const skip = new Set<string>();
+  if (list.some(id => !isDirectFallbackId(id))) {
+    const active = await input.repo.proxyBackoffs.listForUpstream(input.upstreamId);
+    const now = Math.floor(Date.now() / 1000);
+    for (const backoff of active) if (backoff.expiresAt > now) skip.add(backoff.proxyId);
+  }
+
+  const attempted = new Set<string>();
+  for (const id of list) {
+    if (skip.has(id)) continue;
+    attempted.add(id);
+    const result = await attempt(id, errors);
+    if (result !== null) return result;
+  }
+  for (const id of list) {
+    if (attempted.has(id)) continue;
+    const result = await attempt(id, errors);
+    if (result !== null) return result;
+  }
+  if (errors.length === 1) throw errors[0];
+  throw new AggregateError(errors, aggregateMessage);
+};
+
+const prepareWebSocketRequest = (
+  url: string,
+  options: WebSocketConnectOptions,
+): PreparedWebSocketRequest => {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new TypeError('Invalid WebSocket URL');
+  }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new TypeError(`WebSocket URL must use ws: or wss:; got ${parsed.protocol}`);
+  }
+  if (parsed.username !== '' || parsed.password !== '') {
+    throw new TypeError('WebSocket URL must not contain userinfo');
+  }
+  if (parsed.hash !== '') throw new TypeError('WebSocket URL must not contain a fragment');
+  const tls = parsed.protocol === 'wss:';
+  const hostname = parsed.hostname.startsWith('[') && parsed.hostname.endsWith(']')
+    ? parsed.hostname.slice(1, -1)
+    : parsed.hostname;
+  return {
+    url,
+    target: {
+      host: hostname,
+      port: parsed.port === '' ? (tls ? 443 : 80) : Number.parseInt(parsed.port, 10),
+      tls,
+    },
+    request: {
+      path: `${parsed.pathname}${parsed.search}`,
+      headers: options.headers,
+      subprotocols: options.subprotocols,
+      maxMessageBytes: options.maxMessageBytes,
+    },
+    signal: options.signal,
+    maxQueuedBytes: options.maxQueuedBytes,
+  };
+};
+
+const tryWebSocket = async (
+  id: string,
+  input: CreateWebSocketConnectorInput,
+  prepared: PreparedWebSocketRequest,
+  errors: unknown[],
+): Promise<WebSocketConnection | null> => {
+  try {
+    if (id === DIRECT_FETCH_ID) {
+      return await input.runDirectWebSocket()(prepared.url, {
+        headers: prepared.request.headers,
+        subprotocols: prepared.request.subprotocols,
+        signal: prepared.signal,
+        maxMessageBytes: prepared.request.maxMessageBytes,
+        maxQueuedBytes: prepared.maxQueuedBytes,
+      });
+    }
+    if (id === DIRECT_CONNECT_ID) {
+      const stream = await input.openDirectStream(
+        prepared.target,
+        { socketDial: input.socketDial(), signal: prepared.signal },
+      );
+      return await upgradeApplicationStream(stream, prepared);
+    }
+    const config = input.proxyById.get(id);
+    if (config === undefined) {
+      errors.push(new ProxyDialError(`unknown proxy id in fallback list: ${id}`, 'config'));
+      return null;
+    }
+    const options: OpenApplicationStreamOptions = {
+      socketDial: input.socketDial(),
+      signal: prepared.signal,
+    };
+    if (config.dialTimeoutMs !== null) options.dialTimeoutMs = config.dialTimeoutMs;
+    const stream = await input.openProxiedStream(config.config, prepared.target, options);
+    const connection = await upgradeApplicationStream(stream, prepared);
+    try {
+      await input.repo.proxyBackoffs.recordDialSuccess(id, input.upstreamId);
+    } catch (recordError) {
+      console.warn(`failed to clear proxy backoff for ${id}/${input.upstreamId}:`, recordError);
+    }
+    return connection;
+  } catch (error) {
+    if (isAbortError(error) || error instanceof WebSocketUpgradeError) throw error;
+    if (id === DIRECT_FETCH_ID) {
+      errors.push(error);
+      return null;
+    }
+    if (id === DIRECT_CONNECT_ID) {
+      if (error instanceof ProxyDialError) {
+        errors.push(error);
+        return null;
+      }
+      throw error;
+    }
+    if (error instanceof ProxyDialError) {
+      errors.push(error);
+      try {
+        await input.repo.proxyBackoffs.recordDialFailure(id, input.upstreamId, `[${error.stage}] ${error.message}`);
+      } catch (recordError) {
+        console.warn(`failed to persist proxy backoff for ${id}/${input.upstreamId}:`, recordError);
+      }
+      return null;
+    }
+    throw error;
+  }
+};
+
+const upgradeApplicationStream = async (
+  stream: DuplexStream,
+  prepared: PreparedWebSocketRequest,
+): Promise<WebSocketConnection> => {
+  const host = prepared.target.host.includes(':') ? `[${prepared.target.host}]` : prepared.target.host;
+  const defaultPort = prepared.target.tls ? 443 : 80;
+  try {
+    return await connectWebSocketOnStream(stream, {
+      host: prepared.target.port === defaultPort ? host : `${host}:${prepared.target.port}`,
+      path: prepared.request.path,
+      additionalHeaders: prepared.request.headers,
+      subprotocols: prepared.request.subprotocols === undefined ? undefined : [...prepared.request.subprotocols],
+      signal: prepared.signal,
+      maxMessageBytes: prepared.request.maxMessageBytes,
+      maxQueuedBytes: prepared.maxQueuedBytes,
+    });
+  } catch (error) {
+    void stream.readable.cancel(error).catch(() => {});
+    throw error;
   }
 };
